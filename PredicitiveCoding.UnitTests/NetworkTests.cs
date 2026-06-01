@@ -206,4 +206,55 @@ public class NetworkTests
 
         Assert.Equal(6, net.Configuration.InputSize);
     }
+
+    // ── Multidimensional output (auto-flatten) ────────────────────────────────
+
+    [Fact]
+    public void Infer_2DLabel_FlattensAndClampsCorrectly()
+    {
+        // output layer size = 4, label shape [2, 2]
+        var net = new Network(new NetworkConfig
+        {
+            LayerSizes = [3, 4], OutputShape = [2, 2],
+            StateLearningRate = 0.1f, WeightLearningRate = 0.01f,
+        }, new Random(0));
+
+        var input = new DenseTensor<float>(new float[] { 1f, 0f, 0f }, 3);
+        var label = new DenseTensor<float>(new float[] { 1f, 0f, 0f, 1f }, 2, 2);
+
+        net.Infer(input, inferenceSteps: 1, clampTop: true, label: label);
+
+        Assert.Equal(1f, net.Layers[^1].Mu[0]);
+        Assert.Equal(0f, net.Layers[^1].Mu[1]);
+        Assert.Equal(0f, net.Layers[^1].Mu[2]);
+        Assert.Equal(1f, net.Layers[^1].Mu[3]);
+        Assert.True(net.Layers[^1].IsClamped);
+    }
+
+    [Fact]
+    public void Learn_2DLabel_DoesNotThrow()
+    {
+        var net = new Network(new NetworkConfig
+        {
+            LayerSizes = [4, 6, 4], OutputShape = [2, 2],
+            StateLearningRate = 0.1f, WeightLearningRate = 0.01f,
+        }, new Random(0));
+
+        var input = new DenseTensor<float>(new float[] { 1f, 0f, 0f, 0f }, 4);
+        var label = new DenseTensor<float>(new float[] { 1f, 0f, 0f, 1f }, 2, 2);
+
+        net.Learn(input, label, inferenceSteps: 5);
+        Assert.True(net.ComputeEnergy() >= 0f);
+    }
+
+    [Fact]
+    public void NetworkConfig_OutputShapeMismatch_Throws()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            new Network(new NetworkConfig
+            {
+                LayerSizes = [4, 6, 4], OutputShape = [3, 3],  // product = 9, not 4
+                StateLearningRate = 0.1f, WeightLearningRate = 0.01f,
+            }, new Random()));
+    }
 }

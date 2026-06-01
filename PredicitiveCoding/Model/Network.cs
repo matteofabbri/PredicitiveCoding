@@ -90,7 +90,7 @@ public sealed class Network
         ClampLayer(0, Flatten(input));
 
         if (clampTop && label != null)
-            ClampLayer(LayerCount - 1, label);
+            ClampLayer(LayerCount - 1, FlattenLabel(label));
         else
             Layers[LayerCount - 1].IsClamped = false;
 
@@ -221,6 +221,19 @@ public sealed class Network
         return TensorUtils.Reshape(input, expected);
     }
 
+    private DenseTensor<float> FlattenLabel(DenseTensor<float> label)
+    {
+        if (label.Rank == 1) return label;
+
+        int expected = Configuration.LayerSizes[^1];
+        if (label.Length != expected)
+            throw new ArgumentException(
+                $"Label has {label.Length} elements but the network expects {expected} " +
+                $"(LayerSizes[^1]). Declared OutputShape: [{string.Join(", ", Configuration.OutputShape ?? [])}].");
+
+        return TensorUtils.Reshape(label, expected);
+    }
+
     private void ClampLayer(int index, DenseTensor<float> value)
     {
         value.CopyTo(Layers[index].Mu);
@@ -242,6 +255,8 @@ public sealed class Network
         }
         if (Configuration.InputShape is { } shape)
             Console.WriteLine($"  InputShape     : [{string.Join(", ", shape)}] → flattened to {Configuration.InputSize}");
+        if (Configuration.OutputShape is { } outShape)
+            Console.WriteLine($"  OutputShape    : [{string.Join(", ", outShape)}] → flattened to {Configuration.OutputSize}");
         Console.WriteLine($"  Activation: {Configuration.Activation}");
         Console.WriteLine($"  η_state={Configuration.StateLearningRate:F4}  η_weight={Configuration.WeightLearningRate:F4}  λ={Configuration.WeightDecay:G3}");
         if (Configuration.UseDiagonalPrecision) Console.WriteLine("  Diagonal precision: enabled (Huang & Rao 2011)");

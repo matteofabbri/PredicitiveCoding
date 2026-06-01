@@ -39,19 +39,29 @@ public sealed record NetworkConfig
     /// <summary>
     /// Optional shape of the raw input tensor, e.g. [28, 28] for a grayscale image
     /// or [3, 32, 32] for an RGB image.  When set, <see cref="Network.Infer"/> and
-    /// <see cref="Network.Learn"/> automatically flatten the input to a 1-D vector
-    /// before processing.  <see cref="LayerSizes"/>[0] must equal the product of
-    /// all dimensions, e.g. 784 for [28, 28].
-    /// Leave null (default) for inputs that are already 1-D.
+    /// <see cref="Network.Learn"/> automatically flatten the input before processing.
+    /// The product must equal LayerSizes[0].  Leave null for 1-D inputs.
     /// </summary>
     public int[]? InputShape { get; init; } = null;
 
     /// <summary>
-    /// Total number of input units: product of InputShape if set, else LayerSizes[0].
+    /// Optional shape of the raw output/label tensor, e.g. [28, 28] for image
+    /// reconstruction or [4, 4] for a 2-D label map.  When set,
+    /// <see cref="Network.Infer"/> and <see cref="Network.Learn"/> automatically
+    /// flatten the label before clamping the top layer.
+    /// The product must equal LayerSizes[^1].  Leave null for 1-D labels.
     /// </summary>
+    public int[]? OutputShape { get; init; } = null;
+
+    /// <summary>Total input units: product of InputShape if set, else LayerSizes[0].</summary>
     public int InputSize => InputShape is null
         ? LayerSizes[0]
         : InputShape.Aggregate(1, (acc, d) => acc * d);
+
+    /// <summary>Total output units: product of OutputShape if set, else LayerSizes[^1].</summary>
+    public int OutputSize => OutputShape is null
+        ? LayerSizes[^1]
+        : OutputShape.Aggregate(1, (acc, d) => acc * d);
 
     public void Validate()
     {
@@ -70,6 +80,14 @@ public sealed record NetworkConfig
             if (InputSize != LayerSizes[0])
                 throw new InvalidOperationException(
                     $"InputShape product ({InputSize}) must equal LayerSizes[0] ({LayerSizes[0]}).");
+        }
+        if (OutputShape is not null)
+        {
+            if (OutputShape.Any(d => d <= 0))
+                throw new InvalidOperationException("All OutputShape dimensions must be > 0.");
+            if (OutputSize != LayerSizes[^1])
+                throw new InvalidOperationException(
+                    $"OutputShape product ({OutputSize}) must equal LayerSizes[^1] ({LayerSizes[^1]}).");
         }
     }
 }
