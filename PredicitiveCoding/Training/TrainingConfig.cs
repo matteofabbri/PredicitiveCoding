@@ -40,6 +40,21 @@ public sealed record TrainingConfig
     /// </summary>
     public float WeightLearningRate { get; init; } = 0.001f;
 
+    /// <summary>
+    /// L2 weight decay coefficient λ_l (Huang &amp; Rao 2011, regularisation term λ||W||²).
+    /// Applied as ΔW -= λ · W during each weight update.
+    /// Default = 0 (no regularisation).
+    /// </summary>
+    public float WeightDecay { get; init; } = 0f;
+
+    /// <summary>
+    /// When true, each layer uses a per-unit diagonal precision vector instead of
+    /// a scalar precision (Huang &amp; Rao 2011, diagonal Σ_l).
+    /// Enables per-unit noise variance estimation and heterogeneous precision learning.
+    /// Default = false.
+    /// </summary>
+    public bool UseDiagonalPrecision { get; init; } = false;
+
     // ── Training loop ─────────────────────────────────────────────────────────
     public int Epochs    { get; init; } = 50;
     public int BatchSize { get; init; } = 32;
@@ -60,6 +75,8 @@ public sealed record TrainingConfig
             throw new InvalidOperationException("StateLearningRate deve essere > 0.");
         if (WeightLearningRate <= 0)
             throw new InvalidOperationException("WeightLearningRate deve essere > 0.");
+        if (WeightDecay < 0)
+            throw new InvalidOperationException("WeightDecay must be >= 0.");
         if (InferenceSteps <= 0)
             throw new InvalidOperationException("InferenceSteps deve essere > 0.");
         if (Epochs <= 0)
@@ -75,6 +92,8 @@ public sealed record TrainingConfig
         Console.WriteLine($"  Activation     : {Activation}");
         Console.WriteLine($"  η_state        : {StateLearningRate}");
         Console.WriteLine($"  η_weight       : {WeightLearningRate}");
+        Console.WriteLine($"  WeightDecay    : {WeightDecay}");
+        Console.WriteLine($"  DiagPrecision  : {UseDiagonalPrecision}");
         Console.WriteLine($"  InferenceSteps : {InferenceSteps}");
         Console.WriteLine($"  Epochs         : {Epochs}");
         Console.WriteLine($"  BatchSize      : {BatchSize}");

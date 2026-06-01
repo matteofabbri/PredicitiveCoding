@@ -54,11 +54,13 @@ var (trainSet, testSet) = SyntheticDataset.Split(
 
 var rng = new Random(cfg.Seed);
 var net = new Network(
-    layerSizes : cfg.LayerSizes,
-    activation : cfg.Activation,
-    stateLR    : cfg.StateLearningRate,
-    weightLR   : cfg.WeightLearningRate,
-    rng        : rng);
+    layerSizes          : cfg.LayerSizes,
+    activation          : cfg.Activation,
+    stateLR             : cfg.StateLearningRate,
+    weightLR            : cfg.WeightLearningRate,
+    rng                 : rng,
+    weightDecay         : cfg.WeightDecay,
+    useDiagonalPrecision: cfg.UseDiagonalPrecision);
 
 // ── 4. Training ───────────────────────────────────────────────────────────────
 

@@ -48,8 +48,33 @@ public sealed class PCLayer
     /// Setting Precision on the sensory layer (Π_x) vs. the top layer (Π_v)
     /// controls the relative trust in data vs. prior (Bogacz eq. 11):
     ///   v* = (θ^T Π_x θ + Π_v)^{-1} θ^T Π_x x
+    ///
+    /// Ignored when DiagonalPrecision is non-null.
     /// </summary>
     public float Precision { get; set; } = 1f;
+
+    /// <summary>
+    /// Π_l[i] : per-unit (diagonal) precision vector  [Size].
+    /// Implements the diagonal form of the Huang &amp; Rao (2011) covariance matrix
+    /// Σ_l, where each unit i has its own noise variance σ²_l[i] = 1/Π_l[i].
+    ///
+    /// When non-null, overrides the scalar <see cref="Precision"/>:
+    ///   ε_l[i] = Π_l[i] · (μ_l[i] − prediction_l[i])
+    ///
+    /// Diagonal precision update (gradient of free energy per unit, Huang &amp; Rao eq. 3):
+    ///   ΔΠ_l[i] = η · (1/Π_l[i] − residual_l[i]²) / 2
+    /// At the MLE fixed point: Π_l[i]* = 1 / residual_l[i]²
+    ///
+    /// Null (default) → fall back to scalar <see cref="Precision"/>.
+    /// </summary>
+    public DenseTensor<float>? DiagonalPrecision { get; set; }
+
+    /// <summary>
+    /// λ_l : L2 weight decay coefficient (Huang &amp; Rao 2011, regularisation term λ||W||²).
+    /// Applied during weight updates: ΔW -= λ · W.
+    /// Default = 0 (no regularisation).
+    /// </summary>
+    public float WeightDecay { get; set; } = 0f;
 
     /// <summary>
     /// v_p : prior mean for the top layer (Bogacz eq. 6: ε_v = Π_v (v − v_p)).
@@ -100,6 +125,17 @@ public sealed class PCLayer
         Prediction        = DenseTensor<float>.Zeros(LowerSize);
     }
 
+    /// <summary>
+    /// Initialises <see cref="DiagonalPrecision"/> to all-ones (unit precision per unit),
+    /// enabling per-unit precision learning (Huang &amp; Rao 2011).
+    /// Call after <see cref="Initialize"/>.
+    /// </summary>
+    public void InitDiagonalPrecision()
+    {
+        DiagonalPrecision = DenseTensor<float>.Zeros(Size);
+        DiagonalPrecision.Fill(1f);
+    }
+
     // ── Forward: top-down prediction ─────────────────────────────────────────
 
     /// <summary>pred_l = f(W_l μ_l + b_l)   (Rao &amp; Ballard eq. 2)</summary>
@@ -142,7 +178,9 @@ public sealed class PCLayer
         }
 
         // Scale by precision: ε_l = Π_l · residual_l
-        if (Precision == 1f)
+        if (DiagonalPrecision != null)
+            TensorUtils.ElementwiseMul(residual, DiagonalPrecision).CopyTo(PredictionError);
+        else if (Precision == 1f)
             residual.CopyTo(PredictionError);
         else
             TensorUtils.ScalarMul(residual, Precision).CopyTo(PredictionError);
@@ -196,6 +234,10 @@ public sealed class PCLayer
         var deltaW   = TensorUtils.OuterProduct(delta, Mu);
         TensorUtils.InPlaceAxpy(etaWeight, deltaW, GenerativeWeights);
         TensorUtils.InPlaceAxpy(etaWeight, delta,  Bias!);
+
+        // L2 regularisation: ΔW -= λ · W  (Huang & Rao 2011, loss term λ||W||²)
+        if (WeightDecay > 0f)
+            TensorUtils.InPlaceAxpy(-etaWeight * WeightDecay, GenerativeWeights, GenerativeWeights);
     }
 
     // ── Precision update (Bogacz 2017, section 2.4.2) ─────────────────────────
@@ -223,17 +265,63 @@ public sealed class PCLayer
         Precision = MathF.Max(1e-6f, Precision - eta * grad);
     }
 
+    // ── Diagonal precision update (Huang & Rao 2011) ──────────────────────────
+
+    /// <summary>
+    /// Per-unit gradient descent on the free energy w.r.t. each diagonal precision
+    /// element Π_l[i]  (Huang &amp; Rao 2011, diagonal form of Σ update).
+    ///
+    /// Free-energy contribution per unit:
+    ///   F_l[i] = ½ Π_l[i] residual_l[i]² − ½ log Π_l[i]
+    ///
+    /// Gradient:
+    ///   ∂F_l[i]/∂Π_l[i] = ½ residual_l[i]² − ½/Π_l[i]
+    ///
+    /// Update:
+    ///   Π_l[i] ← max(ε, Π_l[i] − η · ∂F_l[i]/∂Π_l[i])
+    ///
+    /// MLE fixed point: Π_l[i]* = 1 / residual_l[i]²
+    /// </summary>
+    public void UpdateDiagonalPrecision(float eta)
+    {
+        if (DiagonalPrecision == null)
+            throw new InvalidOperationException(
+                "Call InitDiagonalPrecision() before UpdateDiagonalPrecision().");
+
+        for (int i = 0; i < Size; i++)
+        {
+            float pi = DiagonalPrecision[i];
+            float residualSq = (pi > 0f) ? (PredictionError[i] / pi) * (PredictionError[i] / pi) : 0f;
+            float grad = 0.5f * residualSq - 0.5f / pi;
+            DiagonalPrecision[i] = MathF.Max(1e-6f, pi - eta * grad);
+        }
+    }
+
     // ── Utilities ─────────────────────────────────────────────────────────────
 
     public float WeightNorm() =>
         GenerativeWeights == null ? 0f : MathF.Sqrt(TensorUtils.SumSquares(GenerativeWeights));
 
     /// <summary>
-    /// Local free-energy contribution F_l = ½ Π_l ||residual||² = ½ ||ε_l||² / Π_l
-    /// (Bogacz 2017, eq. 1 extended to multiple layers)
+    /// Local free-energy contribution.
+    /// Scalar precision:   F_l = ½ ||ε_l||² / Π_l
+    /// Diagonal precision: F_l = ½ Σ_i ε_l[i]² / Π_l[i]
+    /// (Bogacz 2017, eq. 1; Huang &amp; Rao 2011, diagonal case)
     /// </summary>
-    public float LocalEnergy() =>
-        0.5f * TensorUtils.SumSquares(PredictionError) / Precision;
+    public float LocalEnergy()
+    {
+        if (DiagonalPrecision != null)
+        {
+            float sum = 0f;
+            for (int i = 0; i < Size; i++)
+            {
+                float pi = DiagonalPrecision[i];
+                sum += (pi > 0f) ? PredictionError[i] * PredictionError[i] / pi : 0f;
+            }
+            return 0.5f * sum;
+        }
+        return 0.5f * TensorUtils.SumSquares(PredictionError) / Precision;
+    }
 
     public override string ToString()
     {
@@ -241,7 +329,9 @@ public sealed class PCLayer
         sb.Append($"PCLayer[{Index}] Size={Size}");
         sb.Append(LowerSize > 0 ? $" LowerSize={LowerSize}" : " (input)");
         sb.Append($" Act={ActivationType}");
-        if (Precision != 1f)  sb.Append($" Π={Precision:F3}");
+        if (DiagonalPrecision != null) sb.Append(" [diag-Π]");
+        else if (Precision != 1f)      sb.Append($" Π={Precision:F3}");
+        if (WeightDecay > 0f)  sb.Append($" λ={WeightDecay:G3}");
         if (PriorMean != null) sb.Append(" [has prior]");
         if (IsClamped)         sb.Append(" [CLAMPED]");
         return sb.ToString();

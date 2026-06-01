@@ -32,9 +32,11 @@ public sealed class Network
     public int       LayerCount => Layers.Length;
 
     // ── Configuration ─────────────────────────────────────────────────────────
-    public float          StateLearningRate  { get; }
-    public float          WeightLearningRate { get; }
-    public ActivationType ActivationType    { get; }
+    public float          StateLearningRate    { get; }
+    public float          WeightLearningRate   { get; }
+    public float          WeightDecay          { get; }
+    public bool           UseDiagonalPrecision { get; }
+    public ActivationType ActivationType      { get; }
 
     // ── Constructor ──────────────────────────────────────────────────────────
 
@@ -54,15 +56,19 @@ public sealed class Network
         ActivationType activation,
         float          stateLR,
         float          weightLR,
-        Random         rng)
+        Random         rng,
+        float          weightDecay          = 0f,
+        bool           useDiagonalPrecision = false)
     {
         if (layerSizes.Length < 2)
             throw new ArgumentException("At least 2 layers required (input + output).", nameof(layerSizes));
 
-        StateLearningRate  = stateLR;
-        WeightLearningRate = weightLR;
-        ActivationType     = activation;
-        Layers             = BuildLayers(layerSizes, rng);
+        StateLearningRate    = stateLR;
+        WeightLearningRate   = weightLR;
+        WeightDecay          = weightDecay;
+        UseDiagonalPrecision = useDiagonalPrecision;
+        ActivationType       = activation;
+        Layers               = BuildLayers(layerSizes, rng);
     }
 
     // ── Layer initialisation ──────────────────────────────────────────────────
@@ -83,9 +89,11 @@ public sealed class Network
                 LowerSize          = lowerSize,
                 StateLearningRate  = StateLearningRate,
                 WeightLearningRate = WeightLearningRate,
+                WeightDecay        = WeightDecay,
                 ActivationType     = ActivationType,
             };
             layer.Initialize(rng);
+            if (UseDiagonalPrecision) layer.InitDiagonalPrecision();
             layers[l] = layer;
         }
 
@@ -247,7 +255,8 @@ public sealed class Network
             Console.WriteLine($"  Layer[{l}]: μ=[{layer.Size}]  {w}");
         }
         Console.WriteLine($"  Activation: {ActivationType}");
-        Console.WriteLine($"  η_state={StateLearningRate:F4}  η_weight={WeightLearningRate:F4}");
+        Console.WriteLine($"  η_state={StateLearningRate:F4}  η_weight={WeightLearningRate:F4}  λ={WeightDecay:G3}");
+        if (UseDiagonalPrecision) Console.WriteLine("  Diagonal precision: enabled (Huang & Rao 2011)");
         Console.WriteLine("════════════════════════════");
     }
 }

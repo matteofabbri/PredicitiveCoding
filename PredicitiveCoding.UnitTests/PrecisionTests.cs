@@ -425,4 +425,175 @@ public class PrecisionTests
         Assert.True(layer.Precision < piInitial,
             $"Precision should decrease when residuals are large: {piInitial:F4} → {layer.Precision:F4}");
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Diagonal precision  (Huang & Rao 2011, diagonal Σ_l)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// InitDiagonalPrecision must create a per-unit vector of size Size,
+    /// all initialised to 1 (unit precision), and the scalar Precision must
+    /// be overridden in SetPredictionError.
+    /// </summary>
+    [Fact]
+    public void DiagonalPrecision_Init_AllOnes()
+    {
+        var layer = new PCLayer
+        {
+            Index = 0, Size = 3, LowerSize = 0,
+            ActivationType = ActivationType.Linear,
+            StateLearningRate = 0.05f, WeightLearningRate = 0.01f,
+        };
+        layer.Initialize(new Random(0));
+        layer.InitDiagonalPrecision();
+
+        Assert.NotNull(layer.DiagonalPrecision);
+        Assert.Equal(3, layer.DiagonalPrecision!.Length);
+        Assert.All(layer.DiagonalPrecision.Buffer, v => Assert.Equal(1f, v));
+    }
+
+    /// <summary>
+    /// SetPredictionError with diagonal precision must scale each unit
+    /// independently: ε[i] = Π[i] · (μ[i] − pred[i]).
+    /// </summary>
+    [Fact]
+    public void DiagonalPrecision_SetPredictionError_ScalesPerUnit()
+    {
+        var layer = new PCLayer
+        {
+            Index = 0, Size = 3, LowerSize = 0,
+            ActivationType = ActivationType.Linear,
+            StateLearningRate = 0.05f, WeightLearningRate = 0.01f,
+        };
+        layer.Initialize(new Random(0));
+        layer.InitDiagonalPrecision();
+        // Override per-unit precisions: [2, 3, 1]
+        layer.DiagonalPrecision![0] = 2f;
+        layer.DiagonalPrecision![1] = 3f;
+        layer.DiagonalPrecision![2] = 1f;
+
+        layer.Mu[0] = 5f; layer.Mu[1] = 4f; layer.Mu[2] = 2f;
+        var pred = Vec(3f, 1f, 2f); // residuals = [2, 3, 0]
+
+        layer.SetPredictionError(pred);
+
+        Assert.Equal(4f,  layer.PredictionError[0], precision: 5); // 2 · 2
+        Assert.Equal(9f,  layer.PredictionError[1], precision: 5); // 3 · 3
+        Assert.Equal(0f,  layer.PredictionError[2], precision: 5); // 1 · 0
+    }
+
+    /// <summary>
+    /// LocalEnergy with diagonal precision:
+    ///   F_l = ½ Σ_i ε[i]² / Π[i]
+    /// </summary>
+    [Fact]
+    public void DiagonalPrecision_LocalEnergy_PerUnitFormula()
+    {
+        var layer = new PCLayer
+        {
+            Index = 0, Size = 2, LowerSize = 0,
+            ActivationType = ActivationType.Linear,
+            StateLearningRate = 0.05f, WeightLearningRate = 0.01f,
+        };
+        layer.Initialize(new Random(0));
+        layer.InitDiagonalPrecision();
+        layer.DiagonalPrecision![0] = 2f;
+        layer.DiagonalPrecision![1] = 4f;
+
+        // Inject ε directly: ε = [4, 8]  (residuals = [2, 2])
+        layer.PredictionError[0] = 4f;
+        layer.PredictionError[1] = 8f;
+
+        // F = ½(4²/2 + 8²/4) = ½(8 + 16) = 12
+        Assert.Equal(12f, layer.LocalEnergy(), precision: 5);
+    }
+
+    /// <summary>
+    /// UpdateDiagonalPrecision must converge each per-unit precision to its
+    /// MLE fixed point: Π[i]* = 1 / residual[i]²
+    /// (Huang & Rao 2011, diagonal Σ learning).
+    /// </summary>
+    [Fact]
+    public void DiagonalPrecision_Update_ConvergesToMLEPerUnit()
+    {
+        float[] trueResiduals = [2f, 0.5f]; // expected Π* = [0.25, 4.0]
+
+        var layer = new PCLayer
+        {
+            Index = 0, Size = 2, LowerSize = 0,
+            ActivationType = ActivationType.Linear,
+            StateLearningRate = 0.05f, WeightLearningRate = 0.01f,
+        };
+        layer.Initialize(new Random(0));
+        layer.InitDiagonalPrecision();
+        layer.DiagonalPrecision![0] = 5f;
+        layer.DiagonalPrecision![1] = 0.1f;
+
+        for (int i = 0; i < 10000; i++)
+        {
+            for (int j = 0; j < 2; j++)
+                layer.PredictionError[j] = layer.DiagonalPrecision![j] * trueResiduals[j];
+            layer.UpdateDiagonalPrecision(eta: 0.05f);
+        }
+
+        Assert.Equal(0.25f, layer.DiagonalPrecision![0], precision: 2); // 1/2² = 0.25
+        Assert.Equal(4.0f,  layer.DiagonalPrecision![1], precision: 2); // 1/0.5² = 4.0
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // L2 weight regularisation  (Huang & Rao 2011, λ||W||² term)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// With WeightDecay > 0, repeated weight updates with zero Hebbian signal
+    /// must shrink all weights toward zero (L2 decay).
+    /// </summary>
+    [Fact]
+    public void WeightDecay_ShrinksWeightsOverTime()
+    {
+        var layer = new PCLayer
+        {
+            Index = 1, Size = 2, LowerSize = 2,
+            ActivationType = ActivationType.Linear,
+            StateLearningRate = 0.05f, WeightLearningRate = 0.01f,
+            WeightDecay = 0.1f,
+        };
+        layer.Initialize(new Random(0));
+
+        float normBefore = layer.WeightNorm();
+
+        // lowerLayerError = 0 → Hebbian term is zero; only decay acts
+        var zeroError = new DenseTensor<float>(new float[2], 2);
+        layer.ComputePrediction();
+
+        for (int i = 0; i < 100; i++)
+            layer.UpdateWeights(zeroError, etaWeight: 0.01f);
+
+        float normAfter = layer.WeightNorm();
+        Assert.True(normAfter < normBefore,
+            $"Weight decay should shrink norms: before={normBefore:F4}, after={normAfter:F4}");
+    }
+
+    /// <summary>
+    /// WeightDecay = 0 must behave identically to the old code (no decay).
+    /// </summary>
+    [Fact]
+    public void WeightDecay_Zero_NoEffect()
+    {
+        var layer = new PCLayer
+        {
+            Index = 1, Size = 2, LowerSize = 2,
+            ActivationType = ActivationType.Linear,
+            StateLearningRate = 0.05f, WeightLearningRate = 0.01f,
+            WeightDecay = 0f,
+        };
+        layer.Initialize(new Random(42));
+        float normBefore = layer.WeightNorm();
+
+        var zeroError = new DenseTensor<float>(new float[2], 2);
+        layer.ComputePrediction();
+        layer.UpdateWeights(zeroError, etaWeight: 0.01f);
+
+        Assert.Equal(normBefore, layer.WeightNorm(), precision: 5);
+    }
 }
