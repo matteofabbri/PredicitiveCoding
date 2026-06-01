@@ -71,7 +71,7 @@ public class PrecisionTests
     [Fact]
     public void SetPredictionError_ScalesByPrecision()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 1, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -94,7 +94,7 @@ public class PrecisionTests
     [Fact]
     public void SetPredictionError_UnitPrecision_EqualsRawResidual()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 2, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -121,7 +121,7 @@ public class PrecisionTests
     [Fact]
     public void TopLayer_WithPriorMean_ComputesNonZeroError()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 1, Size = 2, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -146,7 +146,7 @@ public class PrecisionTests
     [Fact]
     public void TopLayer_FlatPrior_ErrorIsZero()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 1, Size = 2, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -174,7 +174,7 @@ public class PrecisionTests
     [Fact]
     public void LocalEnergy_WithPrecision_CorrectBogaczFormula()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 2, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -199,7 +199,7 @@ public class PrecisionTests
     [Fact]
     public void LocalEnergy_UnitPrecision_MatchesOldFormula()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 2, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -319,7 +319,7 @@ public class PrecisionTests
         const int n = 1;             // 1-D layer
         const float trueResidual = 2f;
 
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = n, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -378,7 +378,7 @@ public class PrecisionTests
     [Fact]
     public void UpdatePrecision_SmallResidual_IncreasesConfidence()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 2, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -406,7 +406,7 @@ public class PrecisionTests
     [Fact]
     public void UpdatePrecision_LargeResidual_DecreasesConfidence()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 2, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -438,7 +438,7 @@ public class PrecisionTests
     [Fact]
     public void DiagonalPrecision_Init_AllOnes()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 3, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -459,7 +459,7 @@ public class PrecisionTests
     [Fact]
     public void DiagonalPrecision_SetPredictionError_ScalesPerUnit()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 3, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -489,7 +489,7 @@ public class PrecisionTests
     [Fact]
     public void DiagonalPrecision_LocalEnergy_PerUnitFormula()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 2, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -518,7 +518,7 @@ public class PrecisionTests
     {
         float[] trueResiduals = [2f, 0.5f]; // expected Π* = [0.25, 4.0]
 
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 0, Size = 2, LowerSize = 0,
             ActivationType = ActivationType.Linear,
@@ -551,7 +551,7 @@ public class PrecisionTests
     [Fact]
     public void WeightDecay_ShrinksWeightsOverTime()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 1, Size = 2, LowerSize = 2,
             ActivationType = ActivationType.Linear,
@@ -580,7 +580,7 @@ public class PrecisionTests
     [Fact]
     public void WeightDecay_Zero_NoEffect()
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index = 1, Size = 2, LowerSize = 2,
             ActivationType = ActivationType.Linear,

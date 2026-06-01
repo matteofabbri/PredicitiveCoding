@@ -13,17 +13,20 @@ Console.WriteLine("╚═══════════════════�
 
 var cfg = new TrainingConfig
 {
-    // Architecture: input=20, hidden=[64,32], output=4 classes
-    LayerSizes = [20, 64, 32, 4],
+    Network = new NetworkConfig
+    {
+        // Architecture: input=20, hidden=[64,32], output=4 classes
+        LayerSizes = [20, 64, 32, 4],
 
-    // Generative non-linearity: Tanh (bounded, smooth derivative everywhere)
-    Activation = ActivationType.Tanh,
+        // Generative non-linearity: Tanh (bounded, smooth derivative everywhere)
+        Activation = ActivationType.Tanh,
 
-    // η_state: large enough to converge inference
-    StateLearningRate = 0.05f,
+        // η_state: large enough to converge inference
+        StateLearningRate = 0.05f,
 
-    // η_weight: small for learning stability
-    WeightLearningRate = 0.002f,
+        // η_weight: small for learning stability
+        WeightLearningRate = 0.002f,
+    },
 
     // Inference steps to convergence (typical: 10-50)
     InferenceSteps = 30,
@@ -53,14 +56,7 @@ var (trainSet, testSet) = SyntheticDataset.Split(
 // ── 3. Network construction ───────────────────────────────────────────────────
 
 var rng = new Random(cfg.Seed);
-var net = new Network(
-    layerSizes          : cfg.LayerSizes,
-    activation          : cfg.Activation,
-    stateLR             : cfg.StateLearningRate,
-    weightLR            : cfg.WeightLearningRate,
-    rng                 : rng,
-    weightDecay         : cfg.WeightDecay,
-    useDiagonalPrecision: cfg.UseDiagonalPrecision);
+var net = new Network(cfg.Network, rng);
 
 // ── 4. Training ───────────────────────────────────────────────────────────────
 

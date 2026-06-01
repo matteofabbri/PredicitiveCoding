@@ -5,9 +5,9 @@ namespace PredicitiveCoding.UnitTests;
 
 public class PCLayerTests
 {
-    private static PCLayer MakeLayer(int size, int lowerSize, ActivationType act = ActivationType.Linear)
+    private static Layer MakeLayer(int size, int lowerSize, ActivationType act = ActivationType.Linear)
     {
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index              = 1,
             Size               = size,
@@ -25,7 +25,7 @@ public class PCLayerTests
     [Fact]
     public void Initialize_InputLayer_HasNoWeights()
     {
-        var layer = new PCLayer { Index = 0, Size = 4, LowerSize = 0, ActivationType = ActivationType.Linear };
+        var layer = new Layer { Index = 0, Size = 4, LowerSize = 0, ActivationType = ActivationType.Linear };
         layer.Initialize(new Random(1));
 
         Assert.Null(layer.GenerativeWeights);

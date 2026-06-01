@@ -38,19 +38,21 @@ public sealed class Network
     public bool           UseDiagonalPrecision { get; }
     public ActivationType ActivationType      { get; }
 
-    // ── Constructor ──────────────────────────────────────────────────────────
+    // ── Constructors ─────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Creates a new network with freshly-initialised layers.
-    /// </summary>
-    /// <param name="layerSizes">
-    ///   Layer sizes from input to label.
-    ///   Example: [784, 256, 128, 10] for a 3-hidden-layer MNIST network.
-    /// </param>
-    /// <param name="activation">Non-linearity type for the generative model.</param>
-    /// <param name="stateLR">Learning rate for state updates (inference).</param>
-    /// <param name="weightLR">Learning rate for weight updates (learning).</param>
-    /// <param name="rng">Random number generator (for reproducibility).</param>
+    public Network(NetworkConfig config, Random rng)
+    {
+        config.Validate();
+
+        StateLearningRate    = config.StateLearningRate;
+        WeightLearningRate   = config.WeightLearningRate;
+        WeightDecay          = config.WeightDecay;
+        UseDiagonalPrecision = config.UseDiagonalPrecision;
+        ActivationType       = config.Activation;
+        Layers               = BuildLayers(config.LayerSizes, rng);
+    }
+
+    /// <summary>Convenience overload — prefer <see cref="Network(NetworkConfig, Random)"/>.</summary>
     public Network(
         int[]          layerSizes,
         ActivationType activation,
@@ -59,17 +61,15 @@ public sealed class Network
         Random         rng,
         float          weightDecay          = 0f,
         bool           useDiagonalPrecision = false)
-    {
-        if (layerSizes.Length < 2)
-            throw new ArgumentException("At least 2 layers required (input + output).", nameof(layerSizes));
-
-        StateLearningRate    = stateLR;
-        WeightLearningRate   = weightLR;
-        WeightDecay          = weightDecay;
-        UseDiagonalPrecision = useDiagonalPrecision;
-        ActivationType       = activation;
-        Layers               = BuildLayers(layerSizes, rng);
-    }
+        : this(new NetworkConfig
+        {
+            LayerSizes           = layerSizes,
+            Activation           = activation,
+            StateLearningRate    = stateLR,
+            WeightLearningRate   = weightLR,
+            WeightDecay          = weightDecay,
+            UseDiagonalPrecision = useDiagonalPrecision,
+        }, rng) { }
 
     // ── Layer initialisation ──────────────────────────────────────────────────
 
