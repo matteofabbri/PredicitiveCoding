@@ -40,25 +40,6 @@ public sealed class Network
         Layers = BuildLayers(config.LayerSizes, rng);
     }
 
-    /// <summary>Convenience overload — prefer <see cref="Network(NetworkConfig, Random)"/>.</summary>
-    public Network(
-        int[]          layerSizes,
-        ActivationType activation,
-        float          stateLR,
-        float          weightLR,
-        Random         rng,
-        float          weightDecay          = 0f,
-        bool           useDiagonalPrecision = false)
-        : this(new NetworkConfig
-        {
-            LayerSizes           = layerSizes,
-            Activation           = activation,
-            StateLearningRate    = stateLR,
-            WeightLearningRate   = weightLR,
-            WeightDecay          = weightDecay,
-            UseDiagonalPrecision = useDiagonalPrecision,
-        }, rng) { }
-
     // ── Layer initialisation ──────────────────────────────────────────────────
 
     private Layer[] BuildLayers(int[] layerSizes, Random rng)

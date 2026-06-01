@@ -34,8 +34,9 @@ public class BogaczTutorialTests
     private static Network TwoLayerLinear(float weight, float bias = 0f,
         float stateLR = 0.05f, float weightLR = 0.01f)
     {
-        var net = new Network([1, 1], ActivationType.Linear,
-            stateLR, weightLR, rng: new Random(0));
+        var net = new Network(
+            new NetworkConfig { LayerSizes = [1, 1], Activation = ActivationType.Linear, StateLearningRate = stateLR, WeightLearningRate = weightLR },
+            new Random(0));
         net.Layers[1].GenerativeWeights![0, 0] = weight;
         net.Layers[1].Bias![0]                 = bias;
         net.Layers[1].Mu[0]                    = 0f; // start from zero
@@ -57,8 +58,9 @@ public class BogaczTutorialTests
     [Fact]
     public void FreeEnergy_EqualsSumOfSquaredPredictionErrors_DividedByTwo()
     {
-        var net = new Network([2, 3, 2], ActivationType.Linear,
-            stateLR: 0.05f, weightLR: 0f, rng: new Random(1));
+        var net = new Network(
+            new NetworkConfig { LayerSizes = [2, 3, 2], Activation = ActivationType.Linear, StateLearningRate = 0.05f, WeightLearningRate = 0f },
+            new Random(1));
 
         // Inject known prediction errors into layers 0 and 1
         net.Layers[0].PredictionError[0] = 2f;
@@ -89,8 +91,9 @@ public class BogaczTutorialTests
     [Fact]
     public void Inference_FreeEnergy_NonIncreasing_PerStep()
     {
-        var net   = new Network([3, 4, 2], ActivationType.Linear,
-            stateLR: 0.02f, weightLR: 0f, rng: new Random(7));
+        var net   = new Network(
+            new NetworkConfig { LayerSizes = [3, 4, 2], Activation = ActivationType.Linear, StateLearningRate = 0.02f, WeightLearningRate = 0f },
+            new Random(7));
         var input = Vec(1f, -0.5f, 0.8f);
 
         // Prime the network once so it has a meaningful starting energy
@@ -122,10 +125,12 @@ public class BogaczTutorialTests
     {
         // Clone-like setup: two identical networks, same seed, same input
         var rng   = new Random(42);
-        var net1  = new Network([3, 4, 2], ActivationType.Linear,
-            stateLR: 0.05f, weightLR: 0f, rng: new Random(42));
-        var net2  = new Network([3, 4, 2], ActivationType.Linear,
-            stateLR: 0.05f, weightLR: 0f, rng: new Random(42));
+        var net1  = new Network(
+            new NetworkConfig { LayerSizes = [3, 4, 2], Activation = ActivationType.Linear, StateLearningRate = 0.05f, WeightLearningRate = 0f },
+            new Random(42));
+        var net2  = new Network(
+            new NetworkConfig { LayerSizes = [3, 4, 2], Activation = ActivationType.Linear, StateLearningRate = 0.05f, WeightLearningRate = 0f },
+            new Random(42));
         var input = Vec(1f, 0f, -1f);
 
         net1.Infer(input, inferenceSteps: 1);
@@ -151,8 +156,9 @@ public class BogaczTutorialTests
     [Fact]
     public void Inference_FixedPoint_GradientVanishes()
     {
-        var net   = new Network([2, 4, 2], ActivationType.Linear,
-            stateLR: 0.05f, weightLR: 0f, rng: new Random(3));
+        var net   = new Network(
+            new NetworkConfig { LayerSizes = [2, 4, 2], Activation = ActivationType.Linear, StateLearningRate = 0.05f, WeightLearningRate = 0f },
+            new Random(3));
         var input = Vec(1f, -1f);
 
         // Run until approximate convergence
@@ -337,8 +343,9 @@ public class BogaczTutorialTests
     [Fact]
     public void Learning_FreeEnergy_DecreasesOverEpochs()
     {
-        var net   = new Network([3, 4, 2], ActivationType.Tanh,
-            stateLR: 0.05f, weightLR: 0.01f, rng: new Random(99));
+        var net   = new Network(
+            new NetworkConfig { LayerSizes = [3, 4, 2], Activation = ActivationType.Tanh, StateLearningRate = 0.05f, WeightLearningRate = 0.01f },
+            new Random(99));
         var input = Vec(1f, 0f, -1f);
         var label = Vec(1f, 0f);
 
@@ -377,8 +384,9 @@ public class BogaczTutorialTests
         //   dμ_1/dt = (μ_0 − μ_1) − (μ_1 − μ_2) = 0  →  μ_1* = μ_0
         //   dμ_2/dt = (μ_1 − μ_2) = 0                 →  μ_2* = μ_0
         // so pred_1 = W_1 μ_1* = μ_0 exactly.
-        var net = new Network([2, 2, 2], ActivationType.Linear,
-            stateLR: 0.1f, weightLR: 0f, rng: new Random(5));
+        var net = new Network(
+            new NetworkConfig { LayerSizes = [2, 2, 2], Activation = ActivationType.Linear, StateLearningRate = 0.1f, WeightLearningRate = 0f },
+            new Random(5));
 
         // Set both weight matrices to identity
         net.Layers[1].GenerativeWeights![0, 0] = 1f; net.Layers[1].GenerativeWeights![0, 1] = 0f;
@@ -417,8 +425,9 @@ public class BogaczTutorialTests
     [Fact]
     public void HierarchicalFreeEnergy_EqualsSumOfLayerLocalEnergies()
     {
-        var net   = new Network([2, 3, 2], ActivationType.Linear,
-            stateLR: 0.05f, weightLR: 0f, rng: new Random(13));
+        var net   = new Network(
+            new NetworkConfig { LayerSizes = [2, 3, 2], Activation = ActivationType.Linear, StateLearningRate = 0.05f, WeightLearningRate = 0f },
+            new Random(13));
         var input = Vec(0.5f, -0.5f);
 
         net.Infer(input, inferenceSteps: 10);
@@ -447,8 +456,9 @@ public class BogaczTutorialTests
     [Fact]
     public void TopDownPrediction_ReducesSensoryPredictionError()
     {
-        var net   = new Network([3, 4, 2], ActivationType.Tanh,
-            stateLR: 0.05f, weightLR: 0f, rng: new Random(17));
+        var net   = new Network(
+            new NetworkConfig { LayerSizes = [3, 4, 2], Activation = ActivationType.Tanh, StateLearningRate = 0.05f, WeightLearningRate = 0f },
+            new Random(17));
         var input = Vec(1f, 0f, -1f);
 
         // Measure || ε_0 || without any inference (just clamp + compute errors)
@@ -526,8 +536,9 @@ public class BogaczTutorialTests
     [Fact]
     public void FreeEnergy_IsZero_WhenAllPredictionErrorsAreZero()
     {
-        var net = new Network([2, 3, 2], ActivationType.Linear,
-            stateLR: 0.05f, weightLR: 0f, rng: new Random(0));
+        var net = new Network(
+            new NetworkConfig { LayerSizes = [2, 3, 2], Activation = ActivationType.Linear, StateLearningRate = 0.05f, WeightLearningRate = 0f },
+            new Random(0));
 
         // Force all prediction errors to zero
         foreach (var layer in net.Layers)
@@ -543,8 +554,9 @@ public class BogaczTutorialTests
     [Fact]
     public void FreeEnergy_IsPositive_WhenPredictionErrorIsNonZero()
     {
-        var net = new Network([2, 3], ActivationType.Linear,
-            stateLR: 0.05f, weightLR: 0f, rng: new Random(0));
+        var net = new Network(
+            new NetworkConfig { LayerSizes = [2, 3], Activation = ActivationType.Linear, StateLearningRate = 0.05f, WeightLearningRate = 0f },
+            new Random(0));
 
         net.Layers[0].PredictionError[0] = 1f; // any non-zero value
 

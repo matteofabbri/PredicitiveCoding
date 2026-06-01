@@ -6,15 +6,15 @@ namespace PredicitiveCoding.UnitTests;
 public class NetworkTests
 {
     private static Network MakeNet(int[] sizes, ActivationType act = ActivationType.Linear) =>
-        new(sizes, act, stateLR: 0.1f, weightLR: 0.01f, rng: new Random(42));
+        new(new NetworkConfig { LayerSizes = sizes, Activation = act, StateLearningRate = 0.1f, WeightLearningRate = 0.01f }, new Random(42));
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
     [Fact]
     public void Constructor_SingleLayer_Throws()
     {
-        Assert.Throws<ArgumentException>(() =>
-            new Network([4], ActivationType.Linear, 0.1f, 0.01f, new Random()));
+        Assert.Throws<InvalidOperationException>(() =>
+            new Network(new NetworkConfig { LayerSizes = [4], Activation = ActivationType.Linear, StateLearningRate = 0.1f, WeightLearningRate = 0.01f }, new Random()));
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public class NetworkTests
     public void Predict_AfterTraining_CorrectClassForSimplePattern()
     {
         // Train a tiny net to associate input [1,0] with class 0 and [0,1] with class 1
-        var net = new Network([2, 4, 2], ActivationType.Tanh, stateLR: 0.1f, weightLR: 0.05f, rng: new Random(0));
+        var net = new Network(new NetworkConfig { LayerSizes = [2, 4, 2], Activation = ActivationType.Tanh, StateLearningRate = 0.1f, WeightLearningRate = 0.05f }, new Random(0));
 
         var x0 = new DenseTensor<float>(new float[] { 1f, 0f }, 2);
         var y0 = new DenseTensor<float>(new float[] { 1f, 0f }, 2);

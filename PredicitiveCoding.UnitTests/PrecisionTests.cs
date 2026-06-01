@@ -44,8 +44,9 @@ public class PrecisionTests
         int   steps      = 600,
         float stateLR    = 0.05f)
     {
-        var net = new Network([1, 1], ActivationType.Linear,
-            stateLR: stateLR, weightLR: 0f, rng: new Random(0));
+        var net = new Network(
+            new NetworkConfig { LayerSizes = [1, 1], Activation = ActivationType.Linear, StateLearningRate = stateLR, WeightLearningRate = 0f },
+            new Random(0));
 
         net.Layers[1].GenerativeWeights![0, 0] = theta;
         net.Layers[1].Bias![0]                  = 0f;
@@ -348,8 +349,9 @@ public class PrecisionTests
     [Fact]
     public void UpdatePrecision_ReducesFreeEnergyOverTime()
     {
-        var net   = new Network([2, 3], ActivationType.Linear,
-            stateLR: 0.05f, weightLR: 0f, rng: new Random(11));
+        var net   = new Network(
+            new NetworkConfig { LayerSizes = [2, 3], Activation = ActivationType.Linear, StateLearningRate = 0.05f, WeightLearningRate = 0f },
+            new Random(11));
         var input = Vec(1f, -1f);
 
         // Run inference to a steady state
