@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="PredicitiveCoding/PredictiveCoding.csproj" />
+  <Project Path="PredictiveCoding.Tests/PredictiveCoding.Tests.csproj" Id="5c89a886-9077-4abd-980a-d8f5c0ff61b5">
+    <Platform Project="x64" />
+    <Deploy />
+  </Project>
+</Solution>

@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "PredictiveCoding.Tests (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "PredictiveCoding.Tests (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
