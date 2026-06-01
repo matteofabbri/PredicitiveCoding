@@ -147,10 +147,7 @@ public sealed class Network
     /// Corresponds to the learning rule of Rao &amp; Ballard (eq. 4) and
     /// the Hebbian equivalent of Whittington &amp; Bogacz (2017, eq. 20).
     /// </summary>
-    public void Learn(
-        DenseTensor<float> input,
-        DenseTensor<float> label,
-        int                inferenceSteps)
+    public void Learn(DenseTensor<float> input, DenseTensor<float> label, int inferenceSteps)
     {
         Infer(input, inferenceSteps, clampTop: true, label: label);
 
