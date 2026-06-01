@@ -69,54 +69,6 @@ public sealed class PCLayer
         Prediction        = DenseTensor<float>.Zeros(LowerSize);
     }
 
-    // ── Restore (usato dalla deserializzazione) ───────────────────────────────
-
-    /// <summary>
-    /// Ricostruisce un PCLayer dai buffer deserializzati.
-    /// Usato da <see cref="Storage.PCSerializer"/> dopo la lettura dal PCStore.
-    /// I buffer vengono avvolti direttamente senza copia (zero-copy).
-    /// </summary>
-    internal static PCLayer Restore(
-        Guid          id,
-        int           index,
-        int           size,
-        int           lowerSize,
-        ActivationType activation,
-        float         stateLR,
-        float         weightLR,
-        bool          isClamped,
-        float[]       muBuf,
-        float[]       predErrBuf,
-        float[]?      wBuf,
-        float[]?      biasBuf,
-        float[]?      preActBuf,
-        float[]?      predBuf)
-    {
-        var layer = new PCLayer
-        {
-            Index              = index,
-            Size               = size,
-            LowerSize          = lowerSize,
-            ActivationType     = activation,
-            StateLearningRate  = stateLR,
-            WeightLearningRate = weightLR,
-            IsClamped          = isClamped,
-        };
-
-        // Zero-copy: avvolge i buffer deserializzati direttamente
-        layer.Mu              = new DenseTensor<float>(muBuf, size);
-        layer.PredictionError = new DenseTensor<float>(predErrBuf, size);
-
-        if (wBuf != null)
-        {
-            layer.GenerativeWeights = new DenseTensor<float>(wBuf,    lowerSize, size);
-            layer.Bias              = new DenseTensor<float>(biasBuf!, lowerSize);
-            layer.PreActivation     = new DenseTensor<float>(preActBuf!, lowerSize);
-            layer.Prediction        = new DenseTensor<float>(predBuf!,  lowerSize);
-        }
-
-        return layer;
-    }
 
     // ── Forward: predizione top-down ──────────────────────────────────────────
 
@@ -139,12 +91,12 @@ public sealed class PCLayer
     public void SetPredictionError(DenseTensor<float>? predFromAbove)
     {
         if (predFromAbove == null)
-            PredictionError.Zero();
-        else
         {
-            ShapeCheck.SameLength(Mu, predFromAbove);
-            TensorUtils.ElementwiseSub(Mu, predFromAbove).CopyTo(PredictionError);
+            PredictionError.Zero();
+            return;
         }
+        ShapeCheck.SameLength(Mu, predFromAbove);
+        TensorUtils.ElementwiseSub(Mu, predFromAbove).CopyTo(PredictionError);
     }
 
     // ── Aggiornamento stato (inference step) ──────────────────────────────────
@@ -196,9 +148,6 @@ public sealed class PCLayer
         GenerativeWeights == null ? 0f : MathF.Sqrt(TensorUtils.SumSquares(GenerativeWeights));
 
     public float LocalEnergy() => 0.5f * TensorUtils.SumSquares(PredictionError);
-
-    public void ResetState(Random rng) =>
-        RandomUtils.SampleNormal([Size], 0f, 0.01f, rng).CopyTo(Mu);
 
     public override string ToString() =>
         $"PCLayer[{Index}] Size={Size}" +
