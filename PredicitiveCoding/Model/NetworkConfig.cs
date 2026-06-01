@@ -36,15 +36,40 @@ public sealed record NetworkConfig
     /// </summary>
     public bool UseDiagonalPrecision { get; init; } = false;
 
+    /// <summary>
+    /// Optional shape of the raw input tensor, e.g. [28, 28] for a grayscale image
+    /// or [3, 32, 32] for an RGB image.  When set, <see cref="Network.Infer"/> and
+    /// <see cref="Network.Learn"/> automatically flatten the input to a 1-D vector
+    /// before processing.  <see cref="LayerSizes"/>[0] must equal the product of
+    /// all dimensions, e.g. 784 for [28, 28].
+    /// Leave null (default) for inputs that are already 1-D.
+    /// </summary>
+    public int[]? InputShape { get; init; } = null;
+
+    /// <summary>
+    /// Total number of input units: product of InputShape if set, else LayerSizes[0].
+    /// </summary>
+    public int InputSize => InputShape is null
+        ? LayerSizes[0]
+        : InputShape.Aggregate(1, (acc, d) => acc * d);
+
     public void Validate()
     {
         if (LayerSizes.Length < 2)
             throw new InvalidOperationException("LayerSizes must have at least 2 elements.");
-        if (StateLearningRate <= 0)
-            throw new InvalidOperationException("StateLearningRate must be > 0.");
-        if (WeightLearningRate <= 0)
-            throw new InvalidOperationException("WeightLearningRate must be > 0.");
+        if (StateLearningRate < 0)
+            throw new InvalidOperationException("StateLearningRate must be >= 0.");
+        if (WeightLearningRate < 0)
+            throw new InvalidOperationException("WeightLearningRate must be >= 0.");
         if (WeightDecay < 0)
             throw new InvalidOperationException("WeightDecay must be >= 0.");
+        if (InputShape is not null)
+        {
+            if (InputShape.Any(d => d <= 0))
+                throw new InvalidOperationException("All InputShape dimensions must be > 0.");
+            if (InputSize != LayerSizes[0])
+                throw new InvalidOperationException(
+                    $"InputShape product ({InputSize}) must equal LayerSizes[0] ({LayerSizes[0]}).");
+        }
     }
 }

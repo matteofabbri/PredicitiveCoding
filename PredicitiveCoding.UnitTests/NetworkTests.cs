@@ -139,4 +139,71 @@ public class NetworkTests
         var net = MakeNet([4, 3, 2]);
         Assert.True(net.AverageWeightNorm() >= 0f);
     }
+
+    // ── Multidimensional input (auto-flatten) ─────────────────────────────────
+
+    [Fact]
+    public void Infer_2DInput_FlattensAndClampsCorrectly()
+    {
+        // 2×2 input → flattened to 4
+        var net = MakeNet([4, 2]);
+        var input2D = new DenseTensor<float>(new float[] { 1f, 2f, 3f, 4f }, 2, 2);
+
+        net.Infer(input2D, inferenceSteps: 1);
+
+        Assert.Equal(1f, net.Layers[0].Mu[0]);
+        Assert.Equal(2f, net.Layers[0].Mu[1]);
+        Assert.Equal(3f, net.Layers[0].Mu[2]);
+        Assert.Equal(4f, net.Layers[0].Mu[3]);
+        Assert.True(net.Layers[0].IsClamped);
+    }
+
+    [Fact]
+    public void Infer_3DInput_FlattensCorrectly()
+    {
+        // 2×2×2 input → flattened to 8
+        var net = MakeNet([8, 3, 2]);
+        var input3D = new DenseTensor<float>(new float[] { 1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f }, 2, 2, 2);
+
+        net.Infer(input3D, inferenceSteps: 1);
+
+        for (int i = 0; i < 8; i++)
+            Assert.Equal(i + 1f, net.Layers[0].Mu[i]);
+    }
+
+    [Fact]
+    public void Infer_MultiDimInputWrongSize_Throws()
+    {
+        var net = MakeNet([4, 2]);
+        var wrongInput = new DenseTensor<float>(new float[] { 1f, 2f, 3f }, 3, 1);
+
+        Assert.Throws<ArgumentException>(() => net.Infer(wrongInput, inferenceSteps: 1));
+    }
+
+    [Fact]
+    public void NetworkConfig_InputShapeMismatch_Throws()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            new Network(new NetworkConfig
+            {
+                LayerSizes  = [6, 4, 2],
+                InputShape  = [2, 2],  // product = 4, not 6
+                StateLearningRate  = 0.1f,
+                WeightLearningRate = 0.01f,
+            }, new Random()));
+    }
+
+    [Fact]
+    public void NetworkConfig_InputShape_ValidConfig_DoesNotThrow()
+    {
+        var net = new Network(new NetworkConfig
+        {
+            LayerSizes  = [6, 4, 2],
+            InputShape  = [2, 3],  // product = 6 ✓
+            StateLearningRate  = 0.1f,
+            WeightLearningRate = 0.01f,
+        }, new Random(0));
+
+        Assert.Equal(6, net.Configuration.InputSize);
+    }
 }

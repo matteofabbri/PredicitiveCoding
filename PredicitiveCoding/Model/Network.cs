@@ -29,7 +29,7 @@ public sealed class Network
 {
     // ── Architecture ─────────────────────────────────────────────────────────
     public Layer[] Layers    { get; }
-    public int       LayerCount => Layers.Length;
+    public int LayerCount => Layers.Length;
 
     public NetworkConfig Configuration { get; }
 
@@ -87,7 +87,7 @@ public sealed class Network
         bool                clampTop = false,
         DenseTensor<float>? label    = null)
     {
-        ClampLayer(0, input);
+        ClampLayer(0, Flatten(input));
 
         if (clampTop && label != null)
             ClampLayer(LayerCount - 1, label);
@@ -202,6 +202,25 @@ public sealed class Network
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Returns a 1-D view of <paramref name="input"/>.
+    /// If the input is already 1-D it is returned as-is (zero-copy).
+    /// If it is multidimensional it is reshaped to a flat vector; the total
+    /// number of elements must equal LayerSizes[0].
+    /// </summary>
+    private DenseTensor<float> Flatten(DenseTensor<float> input)
+    {
+        if (input.Rank == 1) return input;
+
+        int expected = Configuration.LayerSizes[0];
+        if (input.Length != expected)
+            throw new ArgumentException(
+                $"Input has {input.Length} elements but the network expects {expected} " +
+                $"(LayerSizes[0]). Declared InputShape: [{string.Join(", ", Configuration.InputShape ?? [])}].");
+
+        return TensorUtils.Reshape(input, expected);
+    }
+
     private void ClampLayer(int index, DenseTensor<float> value)
     {
         value.CopyTo(Layers[index].Mu);
@@ -221,6 +240,8 @@ public sealed class Network
                 : "(no weights)";
             Console.WriteLine($"  Layer[{l}]: μ=[{layer.Size}]  {w}");
         }
+        if (Configuration.InputShape is { } shape)
+            Console.WriteLine($"  InputShape     : [{string.Join(", ", shape)}] → flattened to {Configuration.InputSize}");
         Console.WriteLine($"  Activation: {Configuration.Activation}");
         Console.WriteLine($"  η_state={Configuration.StateLearningRate:F4}  η_weight={Configuration.WeightLearningRate:F4}  λ={Configuration.WeightDecay:G3}");
         if (Configuration.UseDiagonalPrecision) Console.WriteLine("  Diagonal precision: enabled (Huang & Rao 2011)");
