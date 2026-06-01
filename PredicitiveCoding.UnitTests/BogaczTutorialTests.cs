@@ -250,7 +250,7 @@ public class BogaczTutorialTests
         const float eta = 0.01f;
 
         // Hand-craft a layer in a known state
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index              = 1,
             Size               = 2,
@@ -489,7 +489,7 @@ public class BogaczTutorialTests
     {
         const float eta = 0.01f;
 
-        var layer = new PCLayer
+        var layer = new Layer
         {
             Index              = 1,
             Size               = 2,

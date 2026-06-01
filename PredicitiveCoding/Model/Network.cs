@@ -28,28 +28,16 @@ namespace PredictiveCoding.Model;
 public sealed class Network
 {
     // ── Architecture ─────────────────────────────────────────────────────────
-    public PCLayer[] Layers    { get; }
+    public Layer[] Layers    { get; }
     public int       LayerCount => Layers.Length;
 
-    // ── Configuration ─────────────────────────────────────────────────────────
-    public float          StateLearningRate    { get; }
-    public float          WeightLearningRate   { get; }
-    public float          WeightDecay          { get; }
-    public bool           UseDiagonalPrecision { get; }
-    public ActivationType ActivationType      { get; }
-
-    // ── Constructors ─────────────────────────────────────────────────────────
+    public NetworkConfig Configuration { get; }
 
     public Network(NetworkConfig config, Random rng)
     {
         config.Validate();
-
-        StateLearningRate    = config.StateLearningRate;
-        WeightLearningRate   = config.WeightLearningRate;
-        WeightDecay          = config.WeightDecay;
-        UseDiagonalPrecision = config.UseDiagonalPrecision;
-        ActivationType       = config.Activation;
-        Layers               = BuildLayers(config.LayerSizes, rng);
+        Configuration = config;
+        Layers = BuildLayers(config.LayerSizes, rng);
     }
 
     /// <summary>Convenience overload — prefer <see cref="Network(NetworkConfig, Random)"/>.</summary>
@@ -73,27 +61,28 @@ public sealed class Network
 
     // ── Layer initialisation ──────────────────────────────────────────────────
 
-    private PCLayer[] BuildLayers(int[] layerSizes, Random rng)
+    private Layer[] BuildLayers(int[] layerSizes, Random rng)
     {
-        var layers = new PCLayer[layerSizes.Length];
+        var layers = new Layer[layerSizes.Length];
 
         for (int l = 0; l < layerSizes.Length; l++)
         {
             int lowerSize = l > 0 ? layerSizes[l - 1] : 0;
             // Layer l generates predictions for layer l-1
             // → W_l has shape [layerSizes[l-1], layerSizes[l]]
-            var layer = new PCLayer
+            var layer = new Layer
             {
                 Index              = l,
                 Size               = layerSizes[l],
                 LowerSize          = lowerSize,
-                StateLearningRate  = StateLearningRate,
-                WeightLearningRate = WeightLearningRate,
-                WeightDecay        = WeightDecay,
-                ActivationType     = ActivationType,
+                StateLearningRate  = Configuration.StateLearningRate,
+                WeightLearningRate = Configuration.WeightLearningRate,
+                WeightDecay        = Configuration.WeightDecay,
+                ActivationType     = Configuration.Activation,
             };
             layer.Initialize(rng);
-            if (UseDiagonalPrecision) layer.InitDiagonalPrecision();
+
+            if (Configuration.UseDiagonalPrecision) layer.InitDiagonalPrecision();
             layers[l] = layer;
         }
 
@@ -141,7 +130,7 @@ public sealed class Network
             for (int l = 1; l < LayerCount; l++)
             {
                 if (Layers[l].IsClamped) continue;
-                Layers[l].UpdateState(Layers[l - 1].PredictionError, StateLearningRate);
+                Layers[l].UpdateState(Layers[l - 1].PredictionError, Configuration.StateLearningRate);
             }
         }
     }
@@ -166,7 +155,7 @@ public sealed class Network
         Infer(input, inferenceSteps, clampTop: true, label: label);
 
         for (int l = 1; l < LayerCount; l++)
-            Layers[l].UpdateWeights(Layers[l - 1].PredictionError, WeightLearningRate);
+            Layers[l].UpdateWeights(Layers[l - 1].PredictionError, Configuration.WeightLearningRate);
     }
 
     // ── Prediction ───────────────────────────────────────────────────────────
@@ -254,9 +243,9 @@ public sealed class Network
                 : "(no weights)";
             Console.WriteLine($"  Layer[{l}]: μ=[{layer.Size}]  {w}");
         }
-        Console.WriteLine($"  Activation: {ActivationType}");
-        Console.WriteLine($"  η_state={StateLearningRate:F4}  η_weight={WeightLearningRate:F4}  λ={WeightDecay:G3}");
-        if (UseDiagonalPrecision) Console.WriteLine("  Diagonal precision: enabled (Huang & Rao 2011)");
+        Console.WriteLine($"  Activation: {Configuration.Activation}");
+        Console.WriteLine($"  η_state={Configuration.StateLearningRate:F4}  η_weight={Configuration.WeightLearningRate:F4}  λ={Configuration.WeightDecay:G3}");
+        if (Configuration.UseDiagonalPrecision) Console.WriteLine("  Diagonal precision: enabled (Huang & Rao 2011)");
         Console.WriteLine("════════════════════════════");
     }
 }

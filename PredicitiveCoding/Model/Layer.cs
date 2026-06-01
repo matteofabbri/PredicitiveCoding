@@ -27,7 +27,7 @@ namespace PredictiveCoding.Model;
 //   Rao & Ballard (1999); Whittington & Bogacz (2017)
 // ─────────────────────────────────────────────────────────────────────────────
 
-public sealed class PCLayer
+public sealed class Layer
 {
     // ── Structure ────────────────────────────────────────────────────────────
     public int Index     { get; init; }   // index in network (0 = sensory)
