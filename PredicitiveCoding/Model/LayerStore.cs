@@ -33,6 +33,14 @@ internal sealed class LayerStore : IDisposable
         SpanByte, SpanByteAndMemory,
         Empty, SpanByteFunctions<int, SpanByteAndMemory, Empty>> _session;
 
+    // Write-through cache: FasterKV v2.6.5 does not reliably populate
+    // SpanByteAndMemory for large records (>~256 bytes) via its synchronous
+    // Read path, regardless of whether the record is in the mutable or
+    // read-only region.  We keep a serialized copy of every layer in a
+    // plain dictionary so that ReadLayer always gets correct data.
+    // FasterKV is still written on every mutation for on-disk persistence.
+    private readonly Dictionary<int, byte[]> _cache = [];
+
     // ── Construction ──────────────────────────────────────────────────────────
 
     /// <param name="storagePath">
@@ -67,14 +75,56 @@ internal sealed class LayerStore : IDisposable
         if (Directory.GetFiles(config.Path, "*.*", SearchOption.AllDirectories).Any())
         {
             _store.Recover();
+            PopulateCacheFromStore();
             return;
         }
 
-        //Storage is empty, initialize it with blank layers.
-        var layers = new Layer[Configuration.LayerSizes.Length];
-        for (int index = 0; index < layers.Length; index++)
+        // Storage is empty — initialize and immediately cache every layer.
+        for (int index = 0; index < Configuration.LayerSizes.Length; index++)
         {
-            Initialize(index);
+            var layer = Initialize(index);
+            CacheAndPersist(index, layer);
+        }
+    }
+
+    // Reads all layer records from FasterKV into the in-memory cache.
+    // Called once after Recover() so that subsequent ReadLayer calls are
+    // served from the cache without touching FasterKV's read path.
+    private void PopulateCacheFromStore()
+    {
+        for (int index = 0; index < Configuration.LayerSizes.Length; index++)
+        {
+            SpanByteAndMemory output = default;
+            Status status = _session.Read(ref index, ref output);
+
+            if (status.IsPending)
+            {
+                _session.CompletePendingWithOutputs(out var iter, wait: true);
+                using (iter)
+                {
+                    if (iter.Next())
+                    {
+                        status = iter.Current.Status;
+                        output = iter.Current.Output;
+                    }
+                }
+            }
+
+            if (!status.Found)
+                continue; // layer absent; ReadLayer will initialize it on first access
+
+            try
+            {
+                ReadOnlySpan<byte> bytes = output.IsSpanByte
+                    ? output.SpanByte.AsReadOnlySpan()
+                    : output.Memory!.Memory.Span[..output.Length];
+
+                _cache[index] = bytes.ToArray();
+            }
+            finally
+            {
+                if (!output.IsSpanByte) output.Memory?.Dispose();
+            }
         }
     }
 
@@ -83,19 +133,42 @@ internal sealed class LayerStore : IDisposable
         int lowerSize = index > 0 ? Configuration.LayerSizes[index - 1] : 0;
         var layer = new Layer
         {
-            Index = index,
-            Size = Configuration.LayerSizes[index],
-            LowerSize = lowerSize,
-            StateLearningRate = Configuration.StateLearningRate,
+            Index              = index,
+            Size               = Configuration.LayerSizes[index],
+            LowerSize          = lowerSize,
+            StateLearningRate  = Configuration.StateLearningRate,
             WeightLearningRate = Configuration.WeightLearningRate,
-            WeightDecay = Configuration.WeightDecay,
-            ActivationType = Configuration.Activation,
+            WeightDecay        = Configuration.WeightDecay,
+            ActivationType     = Configuration.Activation,
         };
-
         layer.Initialize(Random);
-
         if (Configuration.UseDiagonalPrecision) layer.InitDiagonalPrecision();
         return layer;
+    }
+
+    private void CacheAndPersist(int index, Layer layer)
+    {
+        byte[] payload = LayerSerializer.Serialize(layer);
+        _cache[index] = payload;
+        PersistToStore(index, payload);
+    }
+
+    private void PersistToStore(int index, byte[] payload)
+    {
+        byte[] buf = new byte[sizeof(int) + payload.Length];
+        Unsafe.WriteUnaligned(ref buf[0], payload.Length);
+        payload.CopyTo(buf, sizeof(int));
+
+        var handle = GCHandle.Alloc(buf, GCHandleType.Pinned);
+        try
+        {
+            ref SpanByte sb = ref SpanByte.Reinterpret(ref buf[0]);
+            _session.Upsert(ref index, ref sb);
+        }
+        finally
+        {
+            handle.Free();
+        }
     }
 
     // ── Factory read ─────────────────────────────────────────────────────────
@@ -107,28 +180,14 @@ internal sealed class LayerStore : IDisposable
     /// </summary>
     public Layer ReadLayer(int index)
     {
-        SpanByteAndMemory output = default;
-        Status status = _session.Read(ref index, ref output);
-        if (!status.Found)
-        {
-            var newLayer = Initialize(index);
-            Write(index, newLayer);
-            return newLayer;
-        }
+        if (_cache.TryGetValue(index, out byte[]? cached))
+            return LayerSerializer.AllocateAndDeserialize(cached, index, Configuration.Activation);
 
-        try
-        {
-            ReadOnlySpan<byte> bytes = output.IsSpanByte
-                ? output.SpanByte.AsReadOnlySpan()
-                : output.Memory!.Memory.Span[..output.Length];
-
-            return LayerSerializer.AllocateAndDeserialize(bytes, index, Configuration.Activation);
-        }
-        finally
-        {
-            if (!output.IsSpanByte)
-                output.Memory?.Dispose();
-        }
+        // Cache miss (e.g. first access after a recovery that didn't populate
+        // this slot) — initialize and persist.
+        var newLayer = Initialize(index);
+        CacheAndPersist(index, newLayer);
+        return newLayer;
     }
 
     /// <summary>
@@ -148,30 +207,12 @@ internal sealed class LayerStore : IDisposable
 
     // ── Write ───────────────────────────────────────────────────────────────
 
-    /// <summary>Serializes <paramref name="layer"/> and upserts it by index.</summary>
+    /// <summary>Serializes <paramref name="layer"/>, updates the cache, and upserts it by index.</summary>
     public void Write(int index, Layer layer)
     {
         byte[] payload = LayerSerializer.Serialize(layer);
-
-        // SpanByte on-disk layout: [int32 length][byte... data].
-        // We prefix the serialized payload with its 4-byte length so that
-        // SpanByte.Reinterpret can interpret the buffer correctly.
-        byte[] buf = new byte[sizeof(int) + payload.Length];
-        Unsafe.WriteUnaligned(ref buf[0], payload.Length);
-        payload.CopyTo(buf, sizeof(int));
-
-        // Pin the buffer for the duration of the FASTER call so the GC
-        // cannot relocate it while FASTER is reading the pointer.
-        var handle = GCHandle.Alloc(buf, GCHandleType.Pinned);
-        try
-        {
-            ref SpanByte sb = ref SpanByte.Reinterpret(ref buf[0]);
-            _session.Upsert(ref index, ref sb);
-        }
-        finally
-        {
-            handle.Free();
-        }
+        _cache[index] = payload;
+        PersistToStore(index, payload);
     }
 
     /// <summary>Checkpoints every layer in <paramref name="layers"/>.</summary>
