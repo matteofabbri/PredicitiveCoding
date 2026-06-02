@@ -131,6 +131,66 @@ public sealed class Network : IDisposable
         }
     }
 
+    /// <summary>
+    /// Gated learning step for Mixture-of-Experts: identical to
+    /// <see cref="Learn"/> but scales the effective weight learning rate by
+    /// <paramref name="gateWeight"/> (the responsibility assigned to this expert
+    /// by the MoE gating network).
+    ///
+    /// Returns the free energy <c>F</c> after inference so that the caller can
+    /// use it to recompute gate weights if needed.
+    ///
+    /// When <paramref name="gateWeight"/> == 0 the weight update is skipped
+    /// entirely (pure energy probe).
+    /// </summary>
+    public float LearnGated(
+        DenseTensor<float> input,
+        DenseTensor<float> label,
+        int                inferenceSteps,
+        float              gateWeight)
+    {
+        var   layers = ReadAllLayers();
+        InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+        float energy = ComputeEnergyCore(layers);
+
+        if (gateWeight > 0f)
+        {
+            float effectiveLr = Configuration.WeightLearningRate * gateWeight;
+            for (int l = 1; l < layers.Length; l++)
+            {
+                layers[l].UpdateWeights(layers[l - 1].PredictionError, effectiveLr);
+                _store.Write(l, layers[l]);
+            }
+        }
+
+        return energy;
+    }
+
+    /// <summary>
+    /// Runs inference with both ends clamped and returns the resulting free
+    /// energy without modifying any weights.  Used by
+    /// <see cref="MixtureOfExperts"/> to compute per-expert gate weights before
+    /// deciding how much each expert should learn.
+    /// </summary>
+    public float InferEnergy(DenseTensor<float> input, DenseTensor<float> label, int inferenceSteps)
+    {
+        var layers = ReadAllLayers();
+        InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+        return ComputeEnergyCore(layers);
+    }
+
+    /// <summary>
+    /// Minimum-energy classification that also returns the winning free energy.
+    /// Equivalent to <see cref="Predict"/> followed by <see cref="ComputeEnergy"/>
+    /// but avoids the extra store round-trip.
+    /// </summary>
+    public (int cls, float energy) PredictWithEnergy(DenseTensor<float> input, int inferenceSteps)
+    {
+        int   cls    = Predict(input, inferenceSteps);
+        float energy = ComputeEnergy();
+        return (cls, energy);
+    }
+
     // ── Prediction ───────────────────────────────────────────────────────────
 
     /// <summary>
