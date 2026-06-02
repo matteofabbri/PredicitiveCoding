@@ -59,7 +59,7 @@ public class NetworkVolume3DTests : IDisposable
         for (int c = 0; c < C; c++)
             for (int r = 0; r < H; r++)
                 for (int w = 0; w < W; w++)
-                    t.Buffer[c * (H * W) + r * W + w] = (c + r + w) % 2 == 0 ? 1f : 0f;
+                    t[c, r, w] = (c + r + w) % 2 == 0 ? 1f : 0f;
         return t;
     }
 

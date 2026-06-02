@@ -79,6 +79,38 @@ public sealed class DenseTensor<T> where T : struct, INumber<T>
         set => Buffer[row * Dimensions[1] + col] = value;
     }
 
+    /// <summary>Accesso 3D row-major.</summary>
+    public T this[int d0, int d1, int d2]
+    {
+        get => Buffer[d0 * (Dimensions[1] * Dimensions[2]) + d1 * Dimensions[2] + d2];
+        set => Buffer[d0 * (Dimensions[1] * Dimensions[2]) + d1 * Dimensions[2] + d2] = value;
+    }
+
+    /// <summary>
+    /// Accesso N-dimensionale row-major per tensori di rank arbitrario.
+    /// <c>indices</c> deve avere lo stesso numero di elementi di <see cref="Dimensions"/>.
+    /// </summary>
+    public T this[params int[] indices]
+    {
+        get => Buffer[FlatIndex(indices)];
+        set => Buffer[FlatIndex(indices)] = value;
+    }
+
+    private int FlatIndex(int[] indices)
+    {
+        if (indices.Length != Rank)
+            throw new ArgumentException(
+                $"Numero di indici ({indices.Length}) non corrisponde al rank ({Rank}).");
+        int flat = 0;
+        int stride = 1;
+        for (int i = Rank - 1; i >= 0; i--)
+        {
+            flat   += indices[i] * stride;
+            stride *= Dimensions[i];
+        }
+        return flat;
+    }
+
     // ── Operazioni utili ────────────────────────────────────────────────────
 
     public DenseTensor<T> Clone()
