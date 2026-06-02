@@ -769,6 +769,130 @@ public sealed class Network : IDisposable
         finally { _rwLock.ExitWriteLock(); }
     }
 
+    // ── Generative / Brain support ────────────────────────────────────────────
+
+    /// <summary>
+    /// Runs free inference (top layer unclamped) and returns a clone of
+    /// μ_{L-1} after convergence.  Used as an encoder by
+    /// <c>Brain.GenerativeNetwork</c> and <c>Brain.MultiModalNetwork</c>.
+    /// Transient: weights are not modified.
+    /// </summary>
+    public DenseTensor<float> InferGetTop(DenseTensor<float> input, int inferenceSteps)
+    {
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            InferCore(layers, input, inferenceSteps, clampTop: false, label: null);
+            return layers[^1].Mu.Clone();
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
+    /// <summary>
+    /// Clamps the TOP layer to <paramref name="latent"/> and runs inference with
+    /// layer[0] unconstrained, returning layer[0].Mu as the generated sample.
+    /// This is the generative (decoding) direction of the PC network:
+    ///   μ_0 ← argmin_{μ_0} F( latent fixed, μ_0 free )
+    /// Transient: weights are not modified.
+    /// </summary>
+    public DenseTensor<float> Generate(DenseTensor<float> latent, int inferenceSteps)
+    {
+        int expectedLatentSize = Configuration.LayerSizes[^1];
+        if (latent.Length != expectedLatentSize)
+            throw new ArgumentException(
+                $"Latent vector has {latent.Length} elements; top layer expects {expectedLatentSize}.");
+
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            return GenerateCore(layers, latent, inferenceSteps);
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
+    private DenseTensor<float> GenerateCore(Layer[] layers, DenseTensor<float> latent, int inferenceSteps)
+    {
+        ClampLayer(layers, layers.Length - 1, latent);
+
+        // Layer[0] is free (to be generated) — start from zero.
+        layers[0].Mu.Zero();
+        layers[0].IsClamped = false;
+
+        float etaState = Configuration.StateLearningRate;
+        float actReg   = Configuration.ActivityRegularization;
+
+        for (int step = 0; step < inferenceSteps; step++)
+        {
+            for (int l = layers.Length - 1; l >= 1; l--)
+                layers[l].ComputePrediction();
+
+            for (int l = 1; l < layers.Length; l++)
+                layers[l - 1].SetPredictionError(layers[l].Prediction);
+
+            // Top layer is clamped; its error is unused but set for consistency.
+            layers[^1].SetPredictionError(null);
+
+            // Update hidden layers [1..L-2] via the standard PC rule.
+            for (int l = 1; l < layers.Length - 1; l++)
+            {
+                if (layers[l].IsClamped) continue;
+                layers[l].UpdateState(layers[l - 1].PredictionError, etaState, actReg);
+            }
+
+            // Layer[0] has no generative weights so UpdateState skips it.
+            // Apply the raw gradient: μ_0 -= η * ε_0
+            if (!layers[0].IsClamped)
+                TensorUtils.InPlaceAxpy(-etaState, layers[0].PredictionError, layers[0].Mu);
+        }
+
+        return layers[0].Mu.Clone();
+    }
+
+    /// <summary>
+    /// Unsupervised learning step: inference without clamping the top layer,
+    /// followed by a Hebbian weight update.  If the top layer has a
+    /// <see cref="Model.Layer.PriorMean"/> set it regularises the latent toward
+    /// the prior (e.g. N(0, I) for a generative model).
+    /// Persists updated weights to the store.
+    /// </summary>
+    public void LearnUnsupervised(DenseTensor<float> input, int inferenceSteps)
+    {
+        _rwLock.EnterWriteLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            InferCore(layers, input, inferenceSteps, clampTop: false, label: null);
+            for (int l = 1; l < layers.Length; l++)
+            {
+                layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
+                _store.Write(l, layers[l]);
+            }
+        }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
+    /// <summary>
+    /// Sets (or clears) the <see cref="Model.Layer.PriorMean"/> and
+    /// <see cref="Model.Layer.Precision"/> of the top layer.
+    /// Pass <c>null</c> to restore a flat (uninformative) prior.
+    /// Used by <c>Brain.MemoryNetwork</c> to inject memory-retrieved priors
+    /// before inference without re-creating the network.
+    /// </summary>
+    public void SetTopLayerPrior(DenseTensor<float>? prior, float precision = 1f)
+    {
+        _rwLock.EnterWriteLock();
+        try
+        {
+            var top = _store.ReadLayer(LayerCount - 1);
+            top.PriorMean = prior?.Clone();
+            top.Precision = precision;
+            _store.Write(LayerCount - 1, top);
+        }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
     // ── Disposal ─────────────────────────────────────────────────────────────
 
     public void Dispose()
