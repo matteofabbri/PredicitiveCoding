@@ -193,6 +193,40 @@ public sealed class Network : IDisposable
     }
 
     /// <summary>
+    /// Returns the free energy F(x, one-hot(c)) for every class c.
+    /// Length of the returned array equals the number of output units.
+    /// Transient: weights are not modified.
+    /// Used by <see cref="EnsembleNetwork"/> to aggregate probability
+    /// distributions across members.
+    /// </summary>
+    public float[] ClassEnergies(DenseTensor<float> input, int inferenceSteps)
+    {
+        _rwLock.EnterReadLock();
+        try
+        {
+            var   layers         = ReadAllLayers();
+            int   numClasses     = layers[^1].Size;
+            var   energies       = new float[numClasses];
+            var   candidateLabel = DenseTensor<float>.Zeros(numClasses);
+            var   flatInput      = Flatten(input);
+
+            for (int c = 0; c < numClasses; c++)
+            {
+                for (int l = 1; l < layers.Length - 1; l++)
+                    layers[l].Mu.Zero();
+
+                candidateLabel.Zero();
+                candidateLabel.Buffer[c] = 1f;
+                InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
+                energies[c] = ComputeEnergyCore(layers);
+            }
+
+            return energies;
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
+    /// <summary>
     /// Minimum-energy classification that also returns the winning free energy.
     /// Equivalent to <see cref="Predict"/> followed by <see cref="ComputeEnergy"/>
     /// but avoids the extra store round-trip.
