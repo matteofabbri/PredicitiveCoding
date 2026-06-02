@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "PredictiveCoding.Main": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
