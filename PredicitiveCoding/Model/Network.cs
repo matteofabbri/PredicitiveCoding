@@ -27,9 +27,7 @@ namespace PredictiveCoding.Model;
 
 public sealed class Network
 {
-    // ── Architecture ─────────────────────────────────────────────────────────
     public Layer[] Layers    { get; }
-    public int LayerCount => Layers.Length;
 
     public NetworkConfig Configuration { get; }
 
@@ -37,24 +35,28 @@ public sealed class Network
     {
         config.Validate();
         Configuration = config;
-        Layers = BuildLayers(config.LayerSizes, rng);
+        Layers = BuildLayers(rng);
     }
 
-    // ── Layer initialisation ──────────────────────────────────────────────────
-
-    private Layer[] BuildLayers(int[] layerSizes, Random rng)
+    private Layer[] BuildLayers(Random rng)
     {
-        var layers = new Layer[layerSizes.Length];
-
-        for (int l = 0; l < layerSizes.Length; l++)
+        /*if (Directory.GetFiles(Configuration.Path, "*.*", SearchOption.AllDirectories).Length > 0)
         {
-            int lowerSize = l > 0 ? layerSizes[l - 1] : 0;
+
+            return;
+        }*/
+
+        var layers = new Layer[Configuration.LayerSizes.Length];
+
+        for (int l = 0; l < Configuration.LayerSizes.Length; l++)
+        {
+            int lowerSize = l > 0 ? Configuration.LayerSizes[l - 1] : 0;
             // Layer l generates predictions for layer l-1
-            // → W_l has shape [layerSizes[l-1], layerSizes[l]]
+            // → W_l has shape [Configuration.LayerSizes[l-1], Configuration.LayerSizes[l]]
             var layer = new Layer
             {
                 Index              = l,
-                Size               = layerSizes[l],
+                Size               = Configuration.LayerSizes[l],
                 LowerSize          = lowerSize,
                 StateLearningRate  = Configuration.StateLearningRate,
                 WeightLearningRate = Configuration.WeightLearningRate,
@@ -90,25 +92,25 @@ public sealed class Network
         ClampLayer(0, Flatten(input));
 
         if (clampTop && label != null)
-            ClampLayer(LayerCount - 1, FlattenLabel(label));
+            ClampLayer(Layers.Length - 1, FlattenLabel(label));
         else
-            Layers[LayerCount - 1].IsClamped = false;
+            Layers[Layers.Length - 1].IsClamped = false;
 
         for (int step = 0; step < inferenceSteps; step++)
         {
             // Top-down pass: each layer generates predictions for the layer below
-            for (int l = LayerCount - 1; l >= 1; l--)
+            for (int l = Layers.Length - 1; l >= 1; l--)
                 Layers[l].ComputePrediction();
 
             // Bottom-up pass: ε_{l-1} = μ_{l-1} − pred_l   for l = 1..L-1
-            for (int l = 1; l < LayerCount; l++)
+            for (int l = 1; l < Layers.Length; l++)
                 Layers[l - 1].SetPredictionError(Layers[l].Prediction);
 
             // Top layer receives no prediction from above → ε_{L-1} = 0
-            Layers[LayerCount - 1].SetPredictionError(null);
+            Layers[Layers.Length - 1].SetPredictionError(null);
 
             // Hidden state update: μ_l ← μ_l − η_s · (ε_l − W_l^T δ_l)
-            for (int l = 1; l < LayerCount; l++)
+            for (int l = 1; l < Layers.Length; l++)
             {
                 if (Layers[l].IsClamped) continue;
                 Layers[l].UpdateState(Layers[l - 1].PredictionError, Configuration.StateLearningRate);
@@ -132,7 +134,7 @@ public sealed class Network
     {
         Infer(input, inferenceSteps, clampTop: true, label: label);
 
-        for (int l = 1; l < LayerCount; l++)
+        for (int l = 1; l < Layers.Length; l++)
             Layers[l].UpdateWeights(Layers[l - 1].PredictionError, Configuration.WeightLearningRate);
     }
 
@@ -151,7 +153,7 @@ public sealed class Network
     /// </summary>
     public int Predict(DenseTensor<float> input, int inferenceSteps)
     {
-        int   numClasses = Layers[LayerCount - 1].Size;
+        int   numClasses = Layers[Layers.Length - 1].Size;
         float bestEnergy = float.MaxValue;
         int   bestClass  = 0;
 
@@ -160,7 +162,7 @@ public sealed class Network
         for (int c = 0; c < numClasses; c++)
         {
             // Reset hidden states to neutral prior (zero)
-            for (int l = 1; l < LayerCount - 1; l++)
+            for (int l = 1; l < Layers.Length - 1; l++)
                 Layers[l].Mu.Zero();
 
             candidateLabel.Zero();
@@ -186,7 +188,7 @@ public sealed class Network
     public float ComputeEnergy()
     {
         float energy = 0f;
-        for (int l = 0; l < LayerCount - 1; l++)
+        for (int l = 0; l < Layers.Length - 1; l++)
             energy += Layers[l].LocalEnergy();
         return energy;
     }
@@ -196,7 +198,7 @@ public sealed class Network
     {
         float sum = 0f;
         int   cnt = 0;
-        for (int l = 1; l < LayerCount; l++) { sum += Layers[l].WeightNorm(); cnt++; }
+        for (int l = 1; l < Layers.Length; l++) { sum += Layers[l].WeightNorm(); cnt++; }
         return cnt > 0 ? sum / cnt : 0f;
     }
 
@@ -245,7 +247,7 @@ public sealed class Network
     public void PrintArchitecture()
     {
         Console.WriteLine("═══ Network Architecture ═══");
-        for (int l = 0; l < LayerCount; l++)
+        for (int l = 0; l < Layers.Length; l++)
         {
             var    layer = Layers[l];
             string w     = layer.GenerativeWeights != null

@@ -13,6 +13,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.FASTER.Client" Version="2.6.5" />
+    <PackageReference Include="Microsoft.FASTER.Core" Version="2.6.5" />
+    <PackageReference Include="Microsoft.FASTER.Server" Version="2.6.5" />
     <PackageReference Include="System.Numerics.Tensors" Version="10.0.8" />
   </ItemGroup>
 

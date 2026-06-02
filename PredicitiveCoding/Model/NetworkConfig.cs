@@ -4,6 +4,9 @@ namespace PredictiveCoding.Model;
 
 public sealed record NetworkConfig
 {
+
+    public string Path { get; set; } = "./data";
+
     /// <summary>
     /// Layer sizes from input to output, e.g. [784, 256, 128, 10].
     /// </summary>
@@ -65,6 +68,11 @@ public sealed record NetworkConfig
 
     public void Validate()
     {
+        Path = System.IO.Path.GetFullPath(Path);
+
+        if(!System.IO.Directory.Exists(Path))
+            System.IO.Directory.CreateDirectory(Path);
+
         if (LayerSizes.Length < 2)
             throw new InvalidOperationException("LayerSizes must have at least 2 elements.");
         if (StateLearningRate < 0)

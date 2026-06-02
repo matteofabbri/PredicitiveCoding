@@ -22,7 +22,7 @@ public class NetworkTests
     {
         var net = MakeNet([4, 2]);
 
-        Assert.Equal(2, net.LayerCount);
+        Assert.Equal(2, net.Layers.Length);
         Assert.Equal(4, net.Layers[0].Size);
         Assert.Equal(2, net.Layers[1].Size);
     }
