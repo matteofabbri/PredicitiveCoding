@@ -6,9 +6,9 @@ namespace PredictiveCoding.Model;
 // Network  —  Hierarchical Predictive Coding network
 //
 // Structure:
-//   Layers[0]     : sensory layer (input), state clamped to x
-//   Layers[1..L-2]: hidden layers (free inference)
-//   Layers[L-1]   : class/label layer (clamped to y during training)
+//   _buf[0]     : sensory layer (input), state clamped to x
+//   _buf[1..L-2]: hidden layers (free inference)
+//   _buf[L-1]   : class/label layer (clamped to y during training)
 //
 // Dynamics:
 //   1. INFERENCE  (multiple inference steps, Rao & Ballard style):
@@ -25,17 +25,23 @@ namespace PredictiveCoding.Model;
 //   Rao & Ballard (1999); Friston (2005); Whittington & Bogacz (2017)
 // ─────────────────────────────────────────────────────────────────────────────
 
-public sealed class Network
+public sealed class Network : IDisposable
 {
-    public Layer[] Layers    { get; }
+    // _store is the backing store; _buf is the live working copy kept in sync.
+    private readonly LayerStore _store;
+    private readonly Layer[]    _buf;
 
+    /// <summary>Live layer objects backed by <see cref="_store"/>.</summary>
+    public Layer[]       Layers        => _buf;
     public NetworkConfig Configuration { get; }
 
     public Network(NetworkConfig config, Random rng)
     {
         config.Validate();
         Configuration = config;
-        Layers = BuildLayers(rng);
+        _store = new LayerStore(config.Path);
+        _buf   = BuildLayers(rng);
+        _store.WriteAll(_buf);
     }
 
     private Layer[] BuildLayers(Random rng)
@@ -92,28 +98,28 @@ public sealed class Network
         ClampLayer(0, Flatten(input));
 
         if (clampTop && label != null)
-            ClampLayer(Layers.Length - 1, FlattenLabel(label));
+            ClampLayer(_buf.Length - 1, FlattenLabel(label));
         else
-            Layers[Layers.Length - 1].IsClamped = false;
+            _buf[_buf.Length - 1].IsClamped = false;
 
         for (int step = 0; step < inferenceSteps; step++)
         {
             // Top-down pass: each layer generates predictions for the layer below
-            for (int l = Layers.Length - 1; l >= 1; l--)
-                Layers[l].ComputePrediction();
+            for (int l = _buf.Length - 1; l >= 1; l--)
+                _buf[l].ComputePrediction();
 
             // Bottom-up pass: ε_{l-1} = μ_{l-1} − pred_l   for l = 1..L-1
-            for (int l = 1; l < Layers.Length; l++)
-                Layers[l - 1].SetPredictionError(Layers[l].Prediction);
+            for (int l = 1; l < _buf.Length; l++)
+                _buf[l - 1].SetPredictionError(_buf[l].Prediction);
 
             // Top layer receives no prediction from above → ε_{L-1} = 0
-            Layers[Layers.Length - 1].SetPredictionError(null);
+            _buf[_buf.Length - 1].SetPredictionError(null);
 
             // Hidden state update: μ_l ← μ_l − η_s · (ε_l − W_l^T δ_l)
-            for (int l = 1; l < Layers.Length; l++)
+            for (int l = 1; l < _buf.Length; l++)
             {
-                if (Layers[l].IsClamped) continue;
-                Layers[l].UpdateState(Layers[l - 1].PredictionError, Configuration.StateLearningRate);
+                if (_buf[l].IsClamped) continue;
+                _buf[l].UpdateState(_buf[l - 1].PredictionError, Configuration.StateLearningRate);
             }
         }
     }
@@ -134,8 +140,10 @@ public sealed class Network
     {
         Infer(input, inferenceSteps, clampTop: true, label: label);
 
-        for (int l = 1; l < Layers.Length; l++)
-            Layers[l].UpdateWeights(Layers[l - 1].PredictionError, Configuration.WeightLearningRate);
+        for (int l = 1; l < _buf.Length; l++)
+            _buf[l].UpdateWeights(_buf[l - 1].PredictionError, Configuration.WeightLearningRate);
+
+        _store.WriteAll(_buf);
     }
 
     // ── Prediction ───────────────────────────────────────────────────────────
@@ -153,7 +161,7 @@ public sealed class Network
     /// </summary>
     public int Predict(DenseTensor<float> input, int inferenceSteps)
     {
-        int   numClasses = Layers[Layers.Length - 1].Size;
+        int   numClasses = _buf[_buf.Length - 1].Size;
         float bestEnergy = float.MaxValue;
         int   bestClass  = 0;
 
@@ -162,8 +170,8 @@ public sealed class Network
         for (int c = 0; c < numClasses; c++)
         {
             // Reset hidden states to neutral prior (zero)
-            for (int l = 1; l < Layers.Length - 1; l++)
-                Layers[l].Mu.Zero();
+            for (int l = 1; l < _buf.Length - 1; l++)
+                _buf[l].Mu.Zero();
 
             candidateLabel.Zero();
             candidateLabel.Buffer[c] = 1f;
@@ -188,8 +196,8 @@ public sealed class Network
     public float ComputeEnergy()
     {
         float energy = 0f;
-        for (int l = 0; l < Layers.Length - 1; l++)
-            energy += Layers[l].LocalEnergy();
+        for (int l = 0; l < _buf.Length - 1; l++)
+            energy += _buf[l].LocalEnergy();
         return energy;
     }
 
@@ -198,7 +206,7 @@ public sealed class Network
     {
         float sum = 0f;
         int   cnt = 0;
-        for (int l = 1; l < Layers.Length; l++) { sum += Layers[l].WeightNorm(); cnt++; }
+        for (int l = 1; l < _buf.Length; l++) { sum += _buf[l].WeightNorm(); cnt++; }
         return cnt > 0 ? sum / cnt : 0f;
     }
 
@@ -238,8 +246,8 @@ public sealed class Network
 
     private void ClampLayer(int index, DenseTensor<float> value)
     {
-        value.CopyTo(Layers[index].Mu);
-        Layers[index].IsClamped = true;
+        value.CopyTo(_buf[index].Mu);
+        _buf[index].IsClamped = true;
     }
 
     // ── Diagnostics ──────────────────────────────────────────────────────────
@@ -247,9 +255,9 @@ public sealed class Network
     public void PrintArchitecture()
     {
         Console.WriteLine("═══ Network Architecture ═══");
-        for (int l = 0; l < Layers.Length; l++)
+        for (int l = 0; l < _buf.Length; l++)
         {
-            var    layer = Layers[l];
+            var    layer = _buf[l];
             string w     = layer.GenerativeWeights != null
                 ? $"W={layer.GenerativeWeights}"
                 : "(no weights)";
@@ -264,4 +272,8 @@ public sealed class Network
         if (Configuration.UseDiagonalPrecision) Console.WriteLine("  Diagonal precision: enabled (Huang & Rao 2011)");
         Console.WriteLine("════════════════════════════");
     }
+
+    // ── Disposal ─────────────────────────────────────────────────────────────
+
+    public void Dispose() => _store.Dispose();
 }
