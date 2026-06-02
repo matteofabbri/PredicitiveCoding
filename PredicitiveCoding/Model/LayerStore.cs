@@ -59,13 +59,16 @@ internal sealed class LayerStore : IDisposable
             preallocateFile: false,
             deleteOnClose: false);
 
+        int pageSizeBits   = ComputePageSizeBits(config);
+        int memorySizeBits = pageSizeBits + 4;   // 16 pages in memory
+
         _store = new FasterKV<int, SpanByte>(
             size: 1L << 20,
             logSettings: new LogSettings
             {
                 LogDevice      = _device,
-                PageSizeBits   = 22,   // 4 MB pages
-                MemorySizeBits = 26,   // 64 MB in memory
+                PageSizeBits   = pageSizeBits,
+                MemorySizeBits = memorySizeBits,
             });
 
         _session = _store
@@ -235,5 +238,27 @@ internal sealed class LayerStore : IDisposable
         _session.Dispose();
         _store.Dispose();
         _device.Dispose();
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    // Returns the smallest PageSizeBits such that the largest serialized layer
+    // record fits within one FasterKV page (minimum 22 = 4 MB).
+    private static int ComputePageSizeBits(NetworkConfig config)
+    {
+        int maxPayload = 0;
+        for (int l = 0; l < config.LayerSizes.Length; l++)
+        {
+            int size  = config.LayerSizes[l];
+            int lower = l > 0 ? config.LayerSizes[l - 1] : 0;
+            int bytes = LayerSerializer.ComputeByteLength(size, lower, hasDiag: false, hasPrior: false);
+            if (bytes > maxPayload) maxPayload = bytes;
+        }
+
+        // FasterKV wraps each value in a record header (~32 bytes total overhead).
+        int recordSize = maxPayload + 32;
+        int bits = 22;
+        while ((1 << bits) < recordSize) bits++;
+        return bits;
     }
 }
