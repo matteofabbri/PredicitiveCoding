@@ -1,0 +1,175 @@
+using System.Buffers.Binary;
+using System.Runtime.InteropServices;
+
+namespace PredictiveCoding.Model;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LayerSerializer
+//
+// Flat binary layout for a Layer's mutable state:
+//
+//  Offset  Size   Field
+//  ──────  ─────  ─────────────────────────────────────────────────────────────
+//  0       4      Size       (int32 LE)
+//  4       4      LowerSize  (int32 LE)
+//  8       4      Precision  (float32 LE)
+//  12      4      WeightDecay
+//  16      4      StateLearningRate
+//  20      4      WeightLearningRate
+//  24      1      IsClamped  (0/1)
+//  25      1      flags      bit0=hasDiagPrec  bit1=hasPriorMean
+//  26      2      (padding, align to 4)
+//  28      Size*4             Mu
+//  +       Size*4             PredictionError
+//  if LowerSize > 0:
+//    +     LowerSize*Size*4   GenerativeWeights  (row-major)
+//    +     LowerSize*4        Bias
+//    +     LowerSize*4        PreActivation
+//    +     LowerSize*4        Prediction
+//  if hasDiagPrec:
+//    +     Size*4             DiagonalPrecision
+//  if hasPriorMean:
+//    +     Size*4             PriorMean
+// ─────────────────────────────────────────────────────────────────────────────
+
+internal static class LayerSerializer
+{
+    private const int FixedHeaderBytes = 4 + 4 + 4 + 4 + 4 + 4 + 1 + 1 + 2;
+
+    // ── Serialize ─────────────────────────────────────────────────────────────
+
+    public static byte[] Serialize(Layer layer)
+    {
+        bool hasDiag  = layer.DiagonalPrecision != null;
+        bool hasPrior = layer.PriorMean         != null;
+
+        int totalBytes = ComputeByteLength(layer.Size, layer.LowerSize, hasDiag, hasPrior);
+        var buf = new byte[totalBytes];
+        var span = buf.AsSpan();
+        int pos = 0;
+
+        WriteInt  (span, ref pos, layer.Size);
+        WriteInt  (span, ref pos, layer.LowerSize);
+        WriteFloat(span, ref pos, layer.Precision);
+        WriteFloat(span, ref pos, layer.WeightDecay);
+        WriteFloat(span, ref pos, layer.StateLearningRate);
+        WriteFloat(span, ref pos, layer.WeightLearningRate);
+        span[pos++] = layer.IsClamped ? (byte)1 : (byte)0;
+        span[pos++] = (byte)((hasDiag ? 1 : 0) | (hasPrior ? 2 : 0));
+        pos += 2; // padding
+
+        WriteFloats(span, ref pos, layer.Mu.Buffer.AsSpan());
+        WriteFloats(span, ref pos, layer.PredictionError.Buffer.AsSpan());
+
+        if (layer.LowerSize > 0)
+        {
+            WriteFloats(span, ref pos, layer.GenerativeWeights!.Buffer.AsSpan());
+            WriteFloats(span, ref pos, layer.Bias!.Buffer.AsSpan());
+            WriteFloats(span, ref pos, layer.PreActivation!.Buffer.AsSpan());
+            WriteFloats(span, ref pos, layer.Prediction!.Buffer.AsSpan());
+        }
+
+        if (hasDiag)  WriteFloats(span, ref pos, layer.DiagonalPrecision!.Buffer.AsSpan());
+        if (hasPrior) WriteFloats(span, ref pos, layer.PriorMean!.Buffer.AsSpan());
+
+        return buf;
+    }
+
+    // ── Deserialize ───────────────────────────────────────────────────────────
+
+    public static void Deserialize(ReadOnlySpan<byte> span, Layer target)
+    {
+        int pos = 0;
+
+        int size      = ReadInt  (span, ref pos);
+        int lowerSize = ReadInt  (span, ref pos);
+
+        if (size != target.Size || lowerSize != target.LowerSize)
+            throw new InvalidDataException(
+                $"Layer size mismatch: stored ({size},{lowerSize}) " +
+                $"vs target ({target.Size},{target.LowerSize}).");
+
+        target.Precision          = ReadFloat(span, ref pos);
+        target.WeightDecay        = ReadFloat(span, ref pos);
+        target.StateLearningRate  = ReadFloat(span, ref pos);
+        target.WeightLearningRate = ReadFloat(span, ref pos);
+        target.IsClamped          = span[pos++] != 0;
+        byte flags                = span[pos++];
+        pos += 2; // padding
+
+        bool hasDiag  = (flags & 1) != 0;
+        bool hasPrior = (flags & 2) != 0;
+
+        ReadFloats(span, ref pos, target.Mu.Buffer.AsSpan());
+        ReadFloats(span, ref pos, target.PredictionError.Buffer.AsSpan());
+
+        if (lowerSize > 0)
+        {
+            ReadFloats(span, ref pos, target.GenerativeWeights!.Buffer.AsSpan());
+            ReadFloats(span, ref pos, target.Bias!.Buffer.AsSpan());
+            ReadFloats(span, ref pos, target.PreActivation!.Buffer.AsSpan());
+            ReadFloats(span, ref pos, target.Prediction!.Buffer.AsSpan());
+        }
+
+        if (hasDiag)  ReadFloats(span, ref pos, target.DiagonalPrecision!.Buffer.AsSpan());
+        if (hasPrior) ReadFloats(span, ref pos, target.PriorMean!.Buffer.AsSpan());
+    }
+
+    // ── Byte-length calculation ───────────────────────────────────────────────
+
+    public static int ComputeByteLength(int size, int lowerSize, bool hasDiag, bool hasPrior)
+    {
+        int n = FixedHeaderBytes;
+        n += size * 4 * 2; // Mu + PredictionError
+        if (lowerSize > 0)
+            n += (lowerSize * size + lowerSize * 3) * 4; // W + b + preAct + pred
+        if (hasDiag)  n += size * 4;
+        if (hasPrior) n += size * 4;
+        return n;
+    }
+
+    // ── Primitive writers ─────────────────────────────────────────────────────
+
+    private static void WriteInt(Span<byte> span, ref int pos, int value)
+    {
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(pos), value);
+        pos += 4;
+    }
+
+    private static void WriteFloat(Span<byte> span, ref int pos, float value)
+    {
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(pos), BitConverter.SingleToInt32Bits(value));
+        pos += 4;
+    }
+
+    private static void WriteFloats(Span<byte> span, ref int pos, Span<float> floats)
+    {
+        var bytes = MemoryMarshal.Cast<float, byte>(floats);
+        bytes.CopyTo(span.Slice(pos));
+        pos += bytes.Length;
+    }
+
+    // ── Primitive readers ─────────────────────────────────────────────────────
+
+    private static int ReadInt(ReadOnlySpan<byte> span, ref int pos)
+    {
+        int v = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(pos));
+        pos += 4;
+        return v;
+    }
+
+    private static float ReadFloat(ReadOnlySpan<byte> span, ref int pos)
+    {
+        float v = BitConverter.Int32BitsToSingle(
+            BinaryPrimitives.ReadInt32LittleEndian(span.Slice(pos)));
+        pos += 4;
+        return v;
+    }
+
+    private static void ReadFloats(ReadOnlySpan<byte> span, ref int pos, Span<float> target)
+    {
+        var dst = MemoryMarshal.Cast<float, byte>(target);
+        span.Slice(pos, dst.Length).CopyTo(dst);
+        pos += dst.Length;
+    }
+}
