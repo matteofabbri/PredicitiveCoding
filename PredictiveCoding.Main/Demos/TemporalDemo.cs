@@ -1,5 +1,6 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Model;
+using PredictiveCoding.Networks;
 
 namespace PredictiveCoding.Main.Demos;
 
@@ -69,9 +70,7 @@ public static class TemporalDemo
             };
 
             using var baseNet  = new Network(cfg with { Path = baseNetPath }, new Random(1));
-            using var temporal = new TemporalNetwork(
-                new Network(cfg with { Path = tempNetPath }, new Random(1)),
-                temporalPrecision: TEMPORAL_PRECISION);
+            using var temporal = new TemporalNetwork(new Network(cfg with { Path = tempNetPath }, new Random(1)), temporalPrecision: TEMPORAL_PRECISION);
 
             // ── Training ───────────────────────────────────────────────────────
             Console.WriteLine("  Training...");

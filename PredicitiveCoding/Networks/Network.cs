@@ -41,11 +41,7 @@ public sealed class Network : IDisposable
     /// then iterates multiple hidden-state update steps.
     /// The inferred state is transient — it is not persisted to the store.
     /// </summary>
-    public void Infer(
-        DenseTensor<float>  input,
-        int                 inferenceSteps,
-        bool                clampTop = false,
-        DenseTensor<float>? label    = null)
+    public void Infer(DenseTensor<float>  input, int inferenceSteps, bool clampTop = false, DenseTensor<float>? label = null)
     {
         _rwLock.EnterReadLock();
         try
@@ -56,12 +52,7 @@ public sealed class Network : IDisposable
         finally { _rwLock.ExitReadLock(); }
     }
 
-    private void InferCore(
-        Layer[]             layers,
-        DenseTensor<float>  input,
-        int                 inferenceSteps,
-        bool                clampTop,
-        DenseTensor<float>? label)
+    private void InferCore(Layer[] layers, DenseTensor<float>  input, int inferenceSteps, bool clampTop, DenseTensor<float>? label)
     {
         ClampLayer(layers, 0, Flatten(input));
 

@@ -183,7 +183,6 @@ public sealed class Layer
 
         var pre = TensorUtils.MatVecMul(GenerativeWeights, Mu);
         TensorUtils.InPlaceAdd(Bias!, pre);
-        pre.CopyTo(PreActivation!);
         ActivationFn.Apply(pre, ActivationType).CopyTo(Prediction!);
     }
 

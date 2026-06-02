@@ -84,7 +84,7 @@ public class PCLayerTests
     {
         var layer = MakeLayer(size: 2, lowerSize: 0);
         layer.Mu[0] = 3f; layer.Mu[1] = 5f;
-        var pred = new DenseTensor<float>(new float[] { 1f, 2f }, 2);
+        var pred = new DenseTensor<float>([1f, 2f], 2);
 
         layer.SetPredictionError(pred);
 

@@ -47,7 +47,7 @@ public sealed class NetworkConcurrencyTests : IDisposable
     }
 
     private static DenseTensor<float> Input(float a, float b, float c, float d) =>
-        new(new[] { a, b, c, d }, 4);
+        new([a, b, c, d], 4);
 
     private static DenseTensor<float> OneHot(int index, int size = 2)
     {

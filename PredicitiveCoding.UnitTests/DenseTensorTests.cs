@@ -29,7 +29,7 @@ public class DenseTensorTests
     [Fact]
     public void Clone_IsDeepCopy()
     {
-        var original = new DenseTensor<float>(new float[] { 1f, 2f, 3f }, 3);
+        var original = new DenseTensor<float>([1f, 2f, 3f], 3);
         var clone = original.Clone();
 
         clone[0] = 99f;
@@ -48,7 +48,7 @@ public class DenseTensorTests
     [Fact]
     public void Zero_ClearsAllElements()
     {
-        var t = new DenseTensor<float>(new float[] { 1f, 2f, 3f }, 3);
+        var t = new DenseTensor<float>([1f, 2f, 3f], 3);
         t.Zero();
         Assert.All(t.Buffer, v => Assert.Equal(0f, v));
     }
@@ -57,7 +57,7 @@ public class DenseTensorTests
     public void Indexer2D_RowMajorAccess()
     {
         // [[1,2],[3,4]]
-        var t = new DenseTensor<float>(new float[] { 1, 2, 3, 4 }, 2, 2);
+        var t = new DenseTensor<float>([1, 2, 3, 4], 2, 2);
         Assert.Equal(1f, t[0, 0]);
         Assert.Equal(2f, t[0, 1]);
         Assert.Equal(3f, t[1, 0]);
@@ -94,7 +94,7 @@ public class DenseTensorTests
         // Shape [2, 3, 4, 5]: flat index of [1,2,3,4] = 1*60 + 2*20 + 3*5 + 4 = 119
         var t = new DenseTensor<float>(2, 3, 4, 5);
         t.Buffer[119] = 99f;
-        Assert.Equal(99f, t[new int[] { 1, 2, 3, 4 }]);
+        Assert.Equal(99f, t[[1, 2, 3, 4]]);
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public class DenseTensorTests
     {
         // Shape [2, 2, 2, 2, 2] = 32 elements; [1,1,1,1,1] = flat 31
         var t = new DenseTensor<float>(2, 2, 2, 2, 2);
-        t[new int[] { 1, 1, 1, 1, 1 }] = 7f;
+        t[[1, 1, 1, 1, 1]] = 7f;
         Assert.Equal(7f, t.Buffer[31]);
     }
 
@@ -110,14 +110,14 @@ public class DenseTensorTests
     public void IndexerND_WrongRank_Throws()
     {
         var t = new DenseTensor<float>(2, 3, 4);
-        Assert.Throws<ArgumentException>(() => t[new int[] { 0, 1 }]);
-        Assert.Throws<ArgumentException>(() => t[new int[] { 0, 1, 2, 3 }]);
+        Assert.Throws<ArgumentException>(() => t[[0, 1]]);
+        Assert.Throws<ArgumentException>(() => t[[0, 1, 2, 3]]);
     }
 
     [Fact]
     public void CopyTo_CopiesData()
     {
-        var src = new DenseTensor<float>(new float[] { 5f, 6f }, 2);
+        var src = new DenseTensor<float>([5f, 6f], 2);
         var dst = new DenseTensor<float>(2);
 
         src.CopyTo(dst);
@@ -129,7 +129,7 @@ public class DenseTensorTests
     [Fact]
     public void Like_CreatesSameShapeZeroTensor()
     {
-        var t = new DenseTensor<float>(new float[] { 1f, 2f, 3f }, 3);
+        var t = new DenseTensor<float>([1f, 2f, 3f], 3);
         var like = DenseTensor<float>.Like(t);
         Assert.Equal(t.Length, like.Length);
         Assert.All(like.Buffer, v => Assert.Equal(0f, v));
