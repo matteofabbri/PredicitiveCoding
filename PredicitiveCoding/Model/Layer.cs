@@ -210,14 +210,17 @@ public sealed class Layer
     // ── State update (inference step) ────────────────────────────────────────
 
     /// <summary>
-    /// μ_l ← μ_l − η_s (ε_l − W_l^T [f'(pre_l) ⊙ ε_{l-1}])
+    /// μ_l ← μ_l − η_s (ε_l − W_l^T [f'(pre_l) ⊙ ε_{l-1}] + λ_act · sign(μ_l))
     ///
     /// Because ε already carries the precision weighting (eq. 6), this gradient
     /// automatically implements the full Bogacz eq. 5:
     ///   dv/dt = g'(v)^T ε_x − ε_v
     /// (Rao &amp; Ballard eq. 2.3; Whittington &amp; Bogacz eq. 14)
+    ///
+    /// The optional <paramref name="activityReg"/> term adds an L1 sparsity
+    /// penalty on μ_l, encouraging sparse hidden representations.
     /// </summary>
-    public void UpdateState(DenseTensor<float>? lowerLayerError, float etaState)
+    public void UpdateState(DenseTensor<float>? lowerLayerError, float etaState, float activityReg = 0f)
     {
         if (IsClamped || GenerativeWeights == null) return;
 
@@ -232,6 +235,13 @@ public sealed class Layer
         else
         {
             grad = PredictionError.Clone();
+        }
+
+        // L1 activity regularisation: grad += λ_act · sign(μ_l)
+        if (activityReg > 0f)
+        {
+            for (int i = 0; i < Size; i++)
+                grad.Buffer[i] += activityReg * MathF.Sign(Mu[i]);
         }
 
         TensorUtils.InPlaceAxpy(-etaState, grad, Mu);

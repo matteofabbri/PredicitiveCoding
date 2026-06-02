@@ -63,6 +63,13 @@ public sealed class Network : IDisposable
         else
             layers[^1].IsClamped = false;
 
+        // FFG warm-start: single top-down pass seeds hidden μ before iteration
+        // (Feedforward Gist, Haider et al. 2024 — reduces inference steps needed)
+        if (Configuration.UseFeedforwardGistInit)
+            FeedforwardGistInit(layers);
+
+        float actReg = Configuration.ActivityRegularization;
+
         for (int step = 0; step < inferenceSteps; step++)
         {
             // Top-down pass: each layer generates predictions for the layer below
@@ -76,12 +83,32 @@ public sealed class Network : IDisposable
             // Top layer receives no prediction from above → ε_{L-1} = 0
             layers[^1].SetPredictionError(null);
 
-            // Hidden state update: μ_l ← μ_l − η_s · (ε_l − W_l^T δ_l)
+            // Hidden state update: μ_l ← μ_l − η_s · (ε_l − W_l^T δ_l + λ_act · sign(μ_l))
             for (int l = 1; l < layers.Length; l++)
             {
                 if (layers[l].IsClamped) continue;
-                layers[l].UpdateState(layers[l - 1].PredictionError, Configuration.StateLearningRate);
+                layers[l].UpdateState(layers[l - 1].PredictionError, Configuration.StateLearningRate, actReg);
             }
+        }
+    }
+
+    /// <summary>
+    /// Feedforward Gist initialisation (Haider et al. 2024, Frontiers Comput. Neurosci.).
+    /// Propagates the top-layer state downward through a single forward pass,
+    /// seeding each hidden layer μ_l with the top-down prediction:
+    ///   μ_l ← f(W_{l+1} μ_{l+1} + b_{l+1})
+    /// This warm-start is free (one forward sweep) and reduces the number of
+    /// iterative inference steps needed to reach the same free-energy minimum.
+    /// </summary>
+    private static void FeedforwardGistInit(Layer[] layers)
+    {
+        for (int l = layers.Length - 1; l >= 1; l--)
+        {
+            layers[l].ComputePrediction();
+            // Write the prediction into the layer below, but never overwrite
+            // a clamped layer (layer 0 is always clamped to the input).
+            if (l > 1 && !layers[l - 1].IsClamped)
+                layers[l].Prediction!.CopyTo(layers[l - 1].Mu);
         }
     }
 
@@ -165,7 +192,12 @@ public sealed class Network : IDisposable
         ClampLayer(layers, 0, flatInput);
         layers[^1].IsClamped = false;
 
-        var energies = new float[inferenceSteps];
+        if (Configuration.UseFeedforwardGistInit)
+            FeedforwardGistInit(layers);
+
+        float actReg   = Configuration.ActivityRegularization;
+        var   energies = new float[inferenceSteps];
+
         for (int step = 0; step < inferenceSteps; step++)
         {
             for (int l = layers.Length - 1; l >= 1; l--)
@@ -179,7 +211,7 @@ public sealed class Network : IDisposable
             for (int l = 1; l < layers.Length; l++)
             {
                 if (layers[l].IsClamped) continue;
-                layers[l].UpdateState(layers[l - 1].PredictionError, Configuration.StateLearningRate);
+                layers[l].UpdateState(layers[l - 1].PredictionError, Configuration.StateLearningRate, actReg);
             }
 
             energies[step] = ComputeEnergyCore(layers);
@@ -287,7 +319,10 @@ public sealed class Network : IDisposable
             Console.WriteLine($"  OutputShape    : [{string.Join(", ", outShape)}] → flattened to {Configuration.OutputSize}");
         Console.WriteLine($"  Activation: {Configuration.Activation}");
         Console.WriteLine($"  η_state={Configuration.StateLearningRate:F4}  η_weight={Configuration.WeightLearningRate:F4}  λ={Configuration.WeightDecay:G3}");
-        if (Configuration.UseDiagonalPrecision) Console.WriteLine("  Diagonal precision: enabled (Huang & Rao 2011)");
+        if (Configuration.UseDiagonalPrecision)   Console.WriteLine("  Diagonal precision:     enabled (Huang & Rao 2011)");
+        if (Configuration.UseFeedforwardGistInit) Console.WriteLine("  FFG warm-start:         enabled (Haider et al. 2024)");
+        if (Configuration.ActivityRegularization > 0f)
+            Console.WriteLine($"  Activity regularisation: λ_act={Configuration.ActivityRegularization:G3} (L1 on μ)");
         Console.WriteLine("════════════════════════════");
     }
 

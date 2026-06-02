@@ -185,4 +185,133 @@ public class NetworkTests : IDisposable
         Assert.Equal(0, net.Predict(x0, inferenceSteps: 20));
         Assert.Equal(1, net.Predict(x1, inferenceSteps: 20));
     }
+
+    // ── Feedforward Gist Init ─────────────────────────────────────────────────
+
+    [Fact]
+    public void FfgInit_LearnProducesFiniteEnergy()
+    {
+        var cfg = new NetworkConfig
+        {
+            Path                   = Path.Combine(_tempDir, "ffg"),
+            LayerSizes             = [4, 8, 2],
+            Activation             = ActivationType.Tanh,
+            StateLearningRate      = 0.1f,
+            WeightLearningRate     = 0.01f,
+            UseFeedforwardGistInit = true,
+        };
+        using var net = new Network(cfg, new Random(1));
+
+        net.Learn(Input(1f, 0f, 0f, 1f), OneHot(0, 2), inferenceSteps: 5);
+
+        float energy = net.ComputeEnergy();
+        Assert.True(energy >= 0f && float.IsFinite(energy));
+    }
+
+    [Fact]
+    public void FfgInit_ConvergesWithFewerSteps_EnergyLowerThanNoInit()
+    {
+        // FFG warm-start should yield lower (or equal) energy than cold-start
+        // given the same number of inference steps.
+        string basePath = Path.Combine(_tempDir, "ffg_cmp");
+
+        var cfgBase = new NetworkConfig
+        {
+            Path                   = Path.Combine(basePath, "cold"),
+            LayerSizes             = [4, 16, 2],
+            Activation             = ActivationType.Tanh,
+            StateLearningRate      = 0.15f,
+            WeightLearningRate     = 0.05f,
+            UseFeedforwardGistInit = false,
+        };
+        var cfgFfg = cfgBase with
+        {
+            Path                   = Path.Combine(basePath, "warm"),
+            UseFeedforwardGistInit = true,
+        };
+
+        using var netCold = new Network(cfgBase, new Random(7));
+        using var netWarm = new Network(cfgFfg,  new Random(7));
+
+        var x = Input(1f, 0f, 0f, 1f);
+        var y = OneHot(0, 2);
+
+        // Train both identically for 50 steps then measure energy after only 3
+        // inference steps — the warm-start should be at least as good.
+        for (int i = 0; i < 50; i++)
+        {
+            netCold.Learn(x, y, inferenceSteps: 20);
+            netWarm.Learn(x, y, inferenceSteps: 20);
+        }
+
+        netCold.Infer(x, inferenceSteps: 3, clampTop: true, label: y);
+        netWarm.Infer(x, inferenceSteps: 3, clampTop: true, label: y);
+
+        float energyCold = netCold.ComputeEnergy();
+        float energyWarm = netWarm.ComputeEnergy();
+
+        Assert.True(energyWarm <= energyCold + 1e-3f,
+            $"FFG warm-start energy {energyWarm:F6} should be ≤ cold-start {energyCold:F6}");
+    }
+
+    // ── L1 Activity Regularization ────────────────────────────────────────────
+
+    [Fact]
+    public void ActivityReg_LearnProducesFiniteEnergy()
+    {
+        var cfg = new NetworkConfig
+        {
+            Path                  = Path.Combine(_tempDir, "actreg"),
+            LayerSizes            = [4, 8, 2],
+            Activation            = ActivationType.Tanh,
+            StateLearningRate     = 0.1f,
+            WeightLearningRate    = 0.01f,
+            ActivityRegularization = 0.01f,
+        };
+        using var net = new Network(cfg, new Random(3));
+
+        net.Learn(Input(0f, 1f, 1f, 0f), OneHot(1, 2), inferenceSteps: 10);
+
+        float energy = net.ComputeEnergy();
+        Assert.True(energy >= 0f && float.IsFinite(energy));
+    }
+
+    [Fact]
+    public void ActivityReg_InferTrace_EnergyDecreases()
+    {
+        var cfg = new NetworkConfig
+        {
+            Path                  = Path.Combine(_tempDir, "actreg_trace"),
+            LayerSizes            = [4, 8, 2],
+            Activation            = ActivationType.Tanh,
+            StateLearningRate     = 0.1f,
+            WeightLearningRate    = 0.01f,
+            ActivityRegularization = 0.005f,
+        };
+        using var net = new Network(cfg, new Random(5));
+
+        // Train a bit so the network has non-trivial weights
+        var x = Input(1f, 0f, 1f, 0f);
+        var y = OneHot(0, 2);
+        for (int i = 0; i < 20; i++)
+            net.Learn(x, y, inferenceSteps: 10);
+
+        float[] trace = net.InferTrace(x, inferenceSteps: 30);
+
+        // Energy must be finite throughout and the last value ≤ the first
+        Assert.All(trace, e => Assert.True(float.IsFinite(e)));
+        Assert.True(trace[^1] <= trace[0] + 1e-3f);
+    }
+
+    [Fact]
+    public void ActivityReg_Validation_RejectsNegativeValue()
+    {
+        var cfg = new NetworkConfig
+        {
+            Path                  = Path.Combine(_tempDir, "actreg_val"),
+            LayerSizes            = [4, 8, 2],
+            ActivityRegularization = -0.1f,
+        };
+        Assert.Throws<InvalidOperationException>(() => new Network(cfg, new Random(0)));
+    }
 }
