@@ -538,9 +538,17 @@ public sealed class Network : IDisposable
 
     private DenseTensor<float> Flatten(DenseTensor<float> input)
     {
-        if (input.Rank == 1) return input;
-
         int expected = Configuration.LayerSizes[0];
+
+        if (input.Rank == 1)
+        {
+            if (input.Length != expected)
+                throw new ArgumentException(
+                    $"Input has {input.Length} elements but the network expects {expected} " +
+                    $"(LayerSizes[0]). Declared InputShape: [{string.Join(", ", Configuration.InputShape ?? [])}].");
+            return input;
+        }
+
         if (input.Length != expected)
             throw new ArgumentException(
                 $"Input has {input.Length} elements but the network expects {expected} " +
@@ -551,9 +559,17 @@ public sealed class Network : IDisposable
 
     private DenseTensor<float> FlattenLabel(DenseTensor<float> label)
     {
-        if (label.Rank == 1) return label;
-
         int expected = Configuration.LayerSizes[^1];
+
+        if (label.Rank == 1)
+        {
+            if (label.Length != expected)
+                throw new ArgumentException(
+                    $"Label has {label.Length} elements but the network expects {expected} " +
+                    $"(LayerSizes[^1]). Declared OutputShape: [{string.Join(", ", Configuration.OutputShape ?? [])}].");
+            return label;
+        }
+
         if (label.Length != expected)
             throw new ArgumentException(
                 $"Label has {label.Length} elements but the network expects {expected} " +

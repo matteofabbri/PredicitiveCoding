@@ -55,6 +55,7 @@ internal sealed class LayerStore : IDisposable
     private readonly Dictionary<int, byte[]> _cache = [];
     private readonly bool _lazyPersistence;
     private readonly HashSet<int> _dirtyKeys = [];
+    private int _disposed = 0;
 
     // In lazy mode, Layer objects are kept in memory so that ReadLayer can
     // return a clone without byte[] serialization/deserialization overhead.
@@ -298,6 +299,8 @@ internal sealed class LayerStore : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
         Flush();
 
         // Dispose every per-thread session created via ThreadLocal.
