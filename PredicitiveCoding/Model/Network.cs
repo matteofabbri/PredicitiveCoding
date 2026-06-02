@@ -12,8 +12,8 @@ namespace PredictiveCoding.Model;
 //
 // Storage:
 //   All layer state lives exclusively in _store (FasterKV<int, SpanByte>).
-//   Every public method loads a working copy from the store, operates on it,
-//   and — when the operation is a mutation — writes the result back.
+//   Layers are read individually via LayerStore.ReadLayer(index) and written
+//   back individually via LayerStore.Write(index, layer) only when modified.
 //
 // References:
 //   Rao & Ballard (1999); Friston (2005); Whittington & Bogacz (2017)
@@ -32,13 +32,6 @@ public sealed class Network : IDisposable
         _store = new LayerStore(config, rng);
     }
 
-
-    // ── Store helpers ─────────────────────────────────────────────────────────
-
-    private Layer[] LoadWorkingSet() => _store.ReadAll();
-
-    private void SaveWorkingSet(Layer[] layers) => _store.WriteAll(layers);
-
     // ── Inference ────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -52,7 +45,7 @@ public sealed class Network : IDisposable
         bool                clampTop = false,
         DenseTensor<float>? label    = null)
     {
-        var layers = LoadWorkingSet();
+        var layers = ReadAllLayers();
         InferCore(layers, input, inferenceSteps, clampTop, label);
     }
 
@@ -96,17 +89,19 @@ public sealed class Network : IDisposable
 
     /// <summary>
     /// Learning step: inference with both ends clamped, Hebbian weight update,
-    /// then the updated state is persisted to the store.
+    /// then the updated layers are persisted to the store.
     /// </summary>
     public void Learn(DenseTensor<float> input, DenseTensor<float> label, int inferenceSteps)
     {
-        var layers = LoadWorkingSet();
+        var layers = ReadAllLayers();
         InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
 
+        // Only layers with generative weights (1..L-1) are mutated.
         for (int l = 1; l < layers.Length; l++)
+        {
             layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
-
-        SaveWorkingSet(layers);
+            _store.Write(l, layers[l]);
+        }
     }
 
     // ── Prediction ───────────────────────────────────────────────────────────
@@ -121,7 +116,7 @@ public sealed class Network : IDisposable
     /// </summary>
     public int Predict(DenseTensor<float> input, int inferenceSteps)
     {
-        var   layers         = LoadWorkingSet();
+        var   layers         = ReadAllLayers();
         int   numClasses     = layers[^1].Size;
         float bestEnergy     = float.MaxValue;
         int   bestClass      = 0;
@@ -149,7 +144,9 @@ public sealed class Network : IDisposable
         candidateLabel.Zero();
         candidateLabel.Buffer[bestClass] = 1f;
         InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
-        SaveWorkingSet(layers);
+
+        for (int l = 0; l < layers.Length; l++)
+            _store.Write(l, layers[l]);
 
         return bestClass;
     }
@@ -159,17 +156,18 @@ public sealed class Network : IDisposable
     /// <summary>Global network energy F = ½ Σ_{l=0}^{L-2} ||ε_l||² loaded from store.</summary>
     public float ComputeEnergy()
     {
-        var layers = LoadWorkingSet();
-        return ComputeEnergyCore(layers);
+        float energy = 0f;
+        for (int l = 0; l < LayerCount - 1; l++)
+            energy += _store.ReadLayer(l).LocalEnergy();
+        return energy;
     }
 
     /// <summary>Per-layer energy array [L-1], loaded from store.</summary>
     public float[] ComputeLayerEnergies()
     {
-        var layers   = LoadWorkingSet();
-        var energies = new float[layers.Length - 1];
+        var energies = new float[LayerCount - 1];
         for (int l = 0; l < energies.Length; l++)
-            energies[l] = layers[l].LocalEnergy();
+            energies[l] = _store.ReadLayer(l).LocalEnergy();
         return energies;
     }
 
@@ -184,14 +182,23 @@ public sealed class Network : IDisposable
     /// <summary>Average L2 norm of the generative weights.</summary>
     public float AverageWeightNorm()
     {
-        var layers = LoadWorkingSet();
         float sum = 0f;
-        int   cnt = 0;
-        for (int l = 1; l < layers.Length; l++) { sum += layers[l].WeightNorm(); cnt++; }
-        return cnt > 0 ? sum / cnt : 0f;
+        for (int l = 1; l < LayerCount; l++)
+            sum += _store.ReadLayer(l).WeightNorm();
+        return LayerCount > 1 ? sum / (LayerCount - 1) : 0f;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    // InferCore operates on all layers simultaneously (top-down + bottom-up passes
+    // in the same step), so they must all be in memory together.
+    private Layer[] ReadAllLayers()
+    {
+        var layers = new Layer[LayerCount];
+        for (int l = 0; l < LayerCount; l++)
+            layers[l] = _store.ReadLayer(l);
+        return layers;
+    }
 
     private DenseTensor<float> Flatten(DenseTensor<float> input)
     {
@@ -229,11 +236,10 @@ public sealed class Network : IDisposable
 
     public void PrintArchitecture()
     {
-        var layers = LoadWorkingSet();
         Console.WriteLine("═══ Network Architecture ═══");
-        for (int l = 0; l < layers.Length; l++)
+        for (int l = 0; l < LayerCount; l++)
         {
-            var    layer = layers[l];
+            var    layer = _store.ReadLayer(l);
             string w     = layer.GenerativeWeights != null
                 ? $"W={layer.GenerativeWeights}"
                 : "(no weights)";
