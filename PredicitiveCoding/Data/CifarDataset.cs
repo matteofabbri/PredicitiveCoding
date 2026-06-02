@@ -95,7 +95,8 @@ public sealed class CifarDataset : IDataset
 
     /// <summary>
     /// Returns a new dataset where every image has additive Gaussian pixel
-    /// noise N(0, sigma²) clipped to [0, 1].
+    /// noise N(0, sigma²) in normalised pixel space (no clipping — the
+    /// normalised values are already centred near zero).
     /// </summary>
     public CifarDataset WithGaussianNoise(float sigma, Random rng)
     {
@@ -104,8 +105,7 @@ public sealed class CifarDataset : IDataset
         {
             var img = _inputs[i].Clone();
             for (int p = 0; p < img.Length; p++)
-                img.Buffer[p] = Math.Clamp(
-                    img.Buffer[p] + RandomUtils.SampleNormal(0f, sigma, rng), 0f, 1f);
+                img.Buffer[p] += RandomUtils.SampleNormal(0f, sigma, rng);
             noisy[i] = img;
         }
         return new CifarDataset(noisy, _labels, $"{Name} +noise(σ={sigma:F2})");
@@ -169,6 +169,14 @@ public sealed class CifarDataset : IDataset
     // Each record: 1 byte label + 3072 bytes pixels (R×1024, G×1024, B×1024)
     private const int RecordBytes = 1 + 3 * 32 * 32;
 
+    // Per-channel mean and standard deviation computed over the full CIFAR-10
+    // training set.  Normalising with these values centres each channel near
+    // zero and scales to unit variance, which is essential for Tanh-based
+    // networks: without it most neurons saturate and gradients vanish.
+    // Values from: https://github.com/kuangliu/pytorch-cifar/blob/master/main.py
+    private static readonly float[] ChannelMean = [0.4914f, 0.4822f, 0.4465f];
+    private static readonly float[] ChannelStd  = [0.2023f, 0.1994f, 0.2010f];
+
     private static (List<DenseTensor<float>>, List<DenseTensor<float>>) ParseBatch(
         string path, int maxCount)
     {
@@ -186,9 +194,17 @@ public sealed class CifarDataset : IDataset
 
             int labelIdx = buf[0];
 
+            // Layout: channels-first [C=3, H=32, W=32]
+            // Normalise: x_norm = (x / 255 - mean) / std
             var img = new DenseTensor<float>(3, 32, 32);
-            for (int i = 0; i < 3 * 32 * 32; i++)
-                img.Buffer[i] = buf[1 + i] / 255f;
+            for (int c = 0; c < 3; c++)
+            {
+                float mean = ChannelMean[c];
+                float invStd = 1f / ChannelStd[c];
+                int offset = 1 + c * 32 * 32;
+                for (int p = 0; p < 32 * 32; p++)
+                    img.Buffer[c * 32 * 32 + p] = (buf[offset + p] / 255f - mean) * invStd;
+            }
 
             var label = DenseTensor<float>.Zeros(10);
             label.Buffer[labelIdx] = 1f;

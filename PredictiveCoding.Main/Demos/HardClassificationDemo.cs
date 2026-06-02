@@ -42,8 +42,11 @@ public static class HardClassificationDemo
     private const int BatchSize        =     32;
     private const int LogEvery         =      5;
 
-    // Network: 3072 → 512 → 256 → 10
-    private static readonly int[] LayerSizes = [3 * 32 * 32, 512, 256, 10];
+    // Network: 3072 → 64 → 10
+    // W[64, 3072] = 786 KB (manageable LOH pressure during training).
+    // A deeper/wider net (e.g. 512 hidden) would need array-pooling in
+    // TensorUtils to avoid per-sample LOH GC; that is a separate optimization.
+    private static readonly int[] LayerSizes = [3 * 32 * 32, 64, 10];
 
     public static void Run(string cifarCacheDir = "./cifar-10-data")
     {
@@ -91,8 +94,9 @@ public static class HardClassificationDemo
             Path               = netDir,
             LayerSizes         = LayerSizes,
             Activation         = ActivationType.Tanh,
-            StateLearningRate  = 0.05f,
-            WeightLearningRate = 0.001f,
+            StateLearningRate  = 0.02f,    // reduced: 3072-dim input magnifies gradients
+            WeightLearningRate = 0.0005f,  // reduced: avoid weight divergence
+            WeightDecay        = 0.001f,   // L2 regularisation: prevents unbounded growth
             InputShape         = CifarDataset.InputShape,
             LazyPersistence    = true,   // defer FasterKV writes to FlushStore()
         };
