@@ -178,6 +178,146 @@ public sealed class Network : IDisposable
         return bestClass;
     }
 
+    // ── Temporal inference & learning ────────────────────────────────────────
+
+    /// <summary>
+    /// Temporal learning step: same as <see cref="Learn"/> but injects the
+    /// hidden states from the previous timestep as temporal priors before
+    /// running inference (Friston 2008 dynamic causal modelling).
+    ///
+    /// Returns the hidden states <c>μ[1..L-2]</c> after inference so that
+    /// the caller (typically <see cref="TemporalNetwork"/>) can pass them as
+    /// priors on the next call.
+    /// </summary>
+    /// <param name="temporalPriors">
+    /// Hidden states from the previous timestep (length = LayerCount − 2).
+    /// Null on the first timestep of a new sequence.
+    /// </param>
+    /// <param name="temporalPrecision">
+    /// Π_t: strength of the continuity gradient toward the previous state.
+    /// </param>
+    public DenseTensor<float>[] LearnTemporal(
+        DenseTensor<float>    input,
+        DenseTensor<float>    label,
+        int                   inferenceSteps,
+        DenseTensor<float>[]? temporalPriors,
+        float                 temporalPrecision)
+    {
+        var layers = ReadAllLayers();
+        if (temporalPriors != null)
+            InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+
+        InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+
+        for (int l = 1; l < layers.Length; l++)
+        {
+            layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
+            _store.Write(l, layers[l]);
+        }
+
+        return ExtractHiddenStates(layers);
+    }
+
+    /// <summary>
+    /// Temporal prediction: minimum-energy classification conditioned on the
+    /// hidden states from the previous timestep.
+    /// </summary>
+    public int PredictTemporal(
+        DenseTensor<float>    input,
+        int                   inferenceSteps,
+        DenseTensor<float>[]? temporalPriors,
+        float                 temporalPrecision)
+    {
+        var   layers         = ReadAllLayers();
+        int   numClasses     = layers[^1].Size;
+        float bestEnergy     = float.MaxValue;
+        int   bestClass      = 0;
+        var   candidateLabel = DenseTensor<float>.Zeros(numClasses);
+        var   flatInput      = Flatten(input);
+
+        for (int c = 0; c < numClasses; c++)
+        {
+            for (int l = 1; l < layers.Length - 1; l++)
+                layers[l].Mu.Zero();
+
+            if (temporalPriors != null)
+                InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+
+            candidateLabel.Zero();
+            candidateLabel.Buffer[c] = 1f;
+
+            InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
+
+            float energy = ComputeEnergyCore(layers);
+            if (energy < bestEnergy) { bestEnergy = energy; bestClass = c; }
+        }
+
+        // Re-run for winner so persisted state reflects the best explanation.
+        for (int l = 1; l < layers.Length - 1; l++)
+            layers[l].Mu.Zero();
+
+        if (temporalPriors != null)
+            InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+
+        candidateLabel.Zero();
+        candidateLabel.Buffer[bestClass] = 1f;
+        InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
+
+        for (int l = 0; l < layers.Length; l++)
+            _store.Write(l, layers[l]);
+
+        return bestClass;
+    }
+
+    /// <summary>
+    /// Runs inference with optional temporal priors and returns the hidden
+    /// states after convergence.  Transient: weights are not modified.
+    /// </summary>
+    public DenseTensor<float>[] InferTemporal(
+        DenseTensor<float>    input,
+        int                   inferenceSteps,
+        DenseTensor<float>[]? temporalPriors,
+        float                 temporalPrecision,
+        bool                  clampTop = false,
+        DenseTensor<float>?   label    = null)
+    {
+        var layers = ReadAllLayers();
+        if (temporalPriors != null)
+            InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+        InferCore(layers, input, inferenceSteps, clampTop, label);
+        return ExtractHiddenStates(layers);
+    }
+
+    // ── Temporal helpers ─────────────────────────────────────────────────────
+
+    private static void InjectTemporalPriors(
+        Layer[]               layers,
+        DenseTensor<float>[]  priors,
+        float                 precision)
+    {
+        // priors covers hidden layers 1..L-2  (length = L-2)
+        int hiddenCount = layers.Length - 2;
+        if (priors.Length != hiddenCount)
+            throw new ArgumentException(
+                $"Expected {hiddenCount} temporal prior(s) (one per hidden layer) " +
+                $"but got {priors.Length}.");
+
+        for (int i = 0; i < hiddenCount; i++)
+        {
+            layers[i + 1].TemporalPrior     = priors[i];
+            layers[i + 1].TemporalPrecision = precision;
+        }
+    }
+
+    private static DenseTensor<float>[] ExtractHiddenStates(Layer[] layers)
+    {
+        int hiddenCount = layers.Length - 2;
+        var states = new DenseTensor<float>[hiddenCount];
+        for (int i = 0; i < hiddenCount; i++)
+            states[i] = layers[i + 1].Mu.Clone();
+        return states;
+    }
+
     // ── Inference trace ──────────────────────────────────────────────────────
 
     /// <summary>

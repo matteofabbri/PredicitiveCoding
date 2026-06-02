@@ -80,6 +80,22 @@ public sealed class Layer
     public float WeightDecay { get; internal set; } = 0f;
 
     /// <summary>
+    /// μ_l^{t-1} : hidden state from the previous timestep, used as a temporal
+    /// prior during inference (Friston 2008 dynamic causal modelling).
+    /// When non-null, adds a quadratic penalty toward the previous state:
+    ///   grad_l += Π_t · (μ_l − μ_l^{t-1})
+    /// Managed externally by <see cref="TemporalNetwork"/>; not persisted in
+    /// <see cref="LayerStore"/> (it is transient working memory, not a weight).
+    /// </summary>
+    public DenseTensor<float>? TemporalPrior     { get; internal set; }
+
+    /// <summary>
+    /// Π_t : temporal precision — strength of the continuity pull toward the
+    /// previous state <see cref="TemporalPrior"/>.  0 = disabled (default).
+    /// </summary>
+    public float               TemporalPrecision { get; internal set; } = 0f;
+
+    /// <summary>
     /// v_p : prior mean for the top layer (Bogacz eq. 6: ε_v = Π_v (v − v_p)).
     /// Null (default) → flat prior (ε_top = 0, MLE inference).
     /// Set on the top-most layer to obtain proper Bayesian inference.
@@ -242,6 +258,15 @@ public sealed class Layer
         {
             for (int i = 0; i < Size; i++)
                 grad.Buffer[i] += activityReg * MathF.Sign(Mu[i]);
+        }
+
+        // Temporal prior: grad += Π_t · (μ_l − μ_l^{t-1})
+        // Pulls the current state toward the previous timestep's state,
+        // implementing temporal continuity (Friston 2008).
+        if (TemporalPrecision > 0f && TemporalPrior != null)
+        {
+            for (int i = 0; i < Size; i++)
+                grad.Buffer[i] += TemporalPrecision * (Mu[i] - TemporalPrior[i]);
         }
 
         TensorUtils.InPlaceAxpy(-etaState, grad, Mu);

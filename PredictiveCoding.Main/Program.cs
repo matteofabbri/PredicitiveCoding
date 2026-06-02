@@ -13,6 +13,7 @@ Console.WriteLine();
 Console.WriteLine("  1  Standard training run (synthetic blobs)");
 Console.WriteLine("  2  Millidge, Seth & Buckley (2022) demo");
 Console.WriteLine("  3  CIFAR-10 hard classification demo");
+Console.WriteLine("  4  Temporal PC demo (sequence learning)");
 Console.Write("\n  Choice [1]: ");
 string? choice = Console.ReadLine()?.Trim();
 
@@ -25,6 +26,12 @@ if (choice == "2")
 if (choice == "3")
 {
     HardClassificationDemo.Run();
+    return;
+}
+
+if (choice == "4")
+{
+    TemporalDemo.Run();
     return;
 }
 
