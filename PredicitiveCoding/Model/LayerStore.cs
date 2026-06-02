@@ -78,7 +78,7 @@ internal sealed class LayerStore : IDisposable
         }
     }
 
-    private void Initialize(int index)
+    private Layer Initialize(int index)
     {
         int lowerSize = index > 0 ? Configuration.LayerSizes[index - 1] : 0;
         var layer = new Layer
@@ -95,6 +95,7 @@ internal sealed class LayerStore : IDisposable
         layer.Initialize(Random);
 
         if (Configuration.UseDiagonalPrecision) layer.InitDiagonalPrecision();
+        return layer;
     }
 
     // ── Factory read ─────────────────────────────────────────────────────────
@@ -104,11 +105,16 @@ internal sealed class LayerStore : IDisposable
     /// <see cref="Layer"/> from the binary header, deserializes all fields into
     /// it, and returns it.  Returns <c>null</c> if the key is not present.
     /// </summary>
-    public Layer? ReadLayer(int index, NetworkConfig config)
+    public Layer ReadLayer(int index)
     {
         SpanByteAndMemory output = default;
         Status status = _session.Read(ref index, ref output);
-        if (!status.Found) return null;
+        if (!status.Found)
+        {
+            var newLayer = Initialize(index);
+            Write(index, newLayer);
+            return newLayer;
+        }
 
         try
         {
@@ -116,7 +122,7 @@ internal sealed class LayerStore : IDisposable
                 ? output.SpanByte.AsReadOnlySpan()
                 : output.Memory!.Memory.Span[..output.Length];
 
-            return LayerSerializer.AllocateAndDeserialize(bytes, index, config.Activation);
+            return LayerSerializer.AllocateAndDeserialize(bytes, index, Configuration.Activation);
         }
         finally
         {
@@ -130,11 +136,11 @@ internal sealed class LayerStore : IDisposable
     /// returns them as a freshly allocated array.
     /// Throws <see cref="InvalidOperationException"/> if any layer is missing.
     /// </summary>
-    public Layer[] ReadAll(NetworkConfig config)
+    public Layer[] ReadAll()
     {
-        var layers = new Layer[config.LayerSizes.Length];
+        var layers = new Layer[Configuration.LayerSizes.Length];
         for (int l = 0; l < layers.Length; l++)
-            layers[l] = ReadLayer(l, config)
+            layers[l] = ReadLayer(l)
                 ?? throw new InvalidOperationException(
                     $"Layer {l} not found in store — call WriteAll before ReadAll.");
         return layers;
@@ -175,35 +181,6 @@ internal sealed class LayerStore : IDisposable
         {
             var layer = layers[index];
             Write(index, layer);
-        }
-    }
-
-    // ── Read ──────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Reads the stored state for <paramref name="index"/> and writes it into
-    /// <paramref name="target"/>.  Returns false if no entry exists.
-    /// </summary>
-    public bool TryRead(int index, Layer target)
-    {
-        SpanByteAndMemory output = default;
-        Status status = _session.Read(ref index, ref output);
-
-        if (!status.Found) return false;
-
-        try
-        {
-            ReadOnlySpan<byte> bytes = output.IsSpanByte
-                ? output.SpanByte.AsReadOnlySpan()
-                : output.Memory!.Memory.Span[..output.Length];
-
-            LayerSerializer.Deserialize(bytes, target);
-            return true;
-        }
-        finally
-        {
-            if (!output.IsSpanByte)
-                output.Memory?.Dispose();
         }
     }
 

@@ -35,7 +35,7 @@ public sealed class Network : IDisposable
 
     // ── Store helpers ─────────────────────────────────────────────────────────
 
-    private Layer[] LoadWorkingSet() => _store.ReadAll(Configuration);
+    private Layer[] LoadWorkingSet() => _store.ReadAll();
 
     private void SaveWorkingSet(Layer[] layers) => _store.WriteAll(layers);
 
