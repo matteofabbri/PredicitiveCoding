@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using PredictiveCoding.Core;
 
 namespace PredictiveCoding.Model;
 
@@ -35,6 +36,33 @@ namespace PredictiveCoding.Model;
 internal static class LayerSerializer
 {
     private const int FixedHeaderBytes = 4 + 4 + 4 + 4 + 4 + 4 + 1 + 1 + 2;
+
+    // ── Allocate + Deserialize ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Peeks the binary header, allocates a <see cref="Layer"/> with the correct
+    /// tensor shapes, then deserializes all fields into it.
+    /// </summary>
+    public static Layer AllocateAndDeserialize(ReadOnlySpan<byte> span, int index, ActivationType activation)
+    {
+        // Header peek (no advancing): offsets 0,4,25 are fixed by the layout.
+        int  size      = BinaryPrimitives.ReadInt32LittleEndian(span);
+        int  lowerSize = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(4));
+        byte flags     = span[25];
+        bool hasDiag   = (flags & 1) != 0;
+        bool hasPrior  = (flags & 2) != 0;
+
+        var layer = new Layer
+        {
+            Index          = index,
+            Size           = size,
+            LowerSize      = lowerSize,
+            ActivationType = activation,
+        };
+        layer.AllocateTensors(hasDiag, hasPrior);
+        Deserialize(span, layer);
+        return layer;
+    }
 
     // ── Serialize ─────────────────────────────────────────────────────────────
 

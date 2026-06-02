@@ -6,20 +6,14 @@ namespace PredictiveCoding.Model;
 // Network  —  Hierarchical Predictive Coding network
 //
 // Structure:
-//   _buf[0]     : sensory layer (input), state clamped to x
-//   _buf[1..L-2]: hidden layers (free inference)
-//   _buf[L-1]   : class/label layer (clamped to y during training)
+//   layer[0]     : sensory layer (input), state clamped to x
+//   layer[1..L-2]: hidden layers (free inference)
+//   layer[L-1]   : class/label layer (clamped to y during training)
 //
-// Dynamics:
-//   1. INFERENCE  (multiple inference steps, Rao & Ballard style):
-//      a. Top-down:  pred_l = f(W_l μ_l + b_l)   ∀l ≥ 1
-//      b. Bottom-up: ε_{l-1} = μ_{l-1} − pred_l  ∀l ≥ 1
-//      c. Update:    μ_l ← μ_l − η_s ∂F/∂μ_l     ∀l not clamped
-//
-//   2. LEARNING (after inference convergence):
-//      W_l ← W_l + η_W δ_l ⊗ μ_l^T              ∀l ≥ 1
-//
-//   Global energy:  F = ½ Σ_{l=0}^{L-2} ||ε_l||²
+// Storage:
+//   All layer state lives exclusively in _store (FasterKV<int, SpanByte>).
+//   Every public method loads a working copy from the store, operates on it,
+//   and — when the operation is a mutation — writes the result back.
 //
 // References:
 //   Rao & Ballard (1999); Friston (2005); Whittington & Bogacz (2017)
@@ -27,38 +21,24 @@ namespace PredictiveCoding.Model;
 
 public sealed class Network : IDisposable
 {
-    // _store is the backing store; _buf is the live working copy kept in sync.
-    private readonly LayerStore _store;
-    private readonly Layer[]    _buf;
-
-    /// <summary>Live layer objects backed by <see cref="_store"/>.</summary>
-    public Layer[]       Layers        => _buf;
-    public NetworkConfig Configuration { get; }
+    private readonly LayerStore  _store;
+    public  NetworkConfig        Configuration { get; }
+    public  int                  LayerCount    => Configuration.LayerSizes.Length;
 
     public Network(NetworkConfig config, Random rng)
     {
         config.Validate();
         Configuration = config;
         _store = new LayerStore(config.Path);
-        _buf   = BuildLayers(rng);
-        _store.WriteAll(_buf);
+        _store.WriteAll(BuildInitialLayers(rng));
     }
 
-    private Layer[] BuildLayers(Random rng)
+    private Layer[] BuildInitialLayers(Random rng)
     {
-        /*if (Directory.GetFiles(Configuration.Path, "*.*", SearchOption.AllDirectories).Length > 0)
-        {
-
-            return;
-        }*/
-
         var layers = new Layer[Configuration.LayerSizes.Length];
-
-        for (int l = 0; l < Configuration.LayerSizes.Length; l++)
+        for (int l = 0; l < layers.Length; l++)
         {
             int lowerSize = l > 0 ? Configuration.LayerSizes[l - 1] : 0;
-            // Layer l generates predictions for layer l-1
-            // → W_l has shape [Configuration.LayerSizes[l-1], Configuration.LayerSizes[l]]
             var layer = new Layer
             {
                 Index              = l,
@@ -70,24 +50,24 @@ public sealed class Network : IDisposable
                 ActivationType     = Configuration.Activation,
             };
             layer.Initialize(rng);
-
             if (Configuration.UseDiagonalPrecision) layer.InitDiagonalPrecision();
             layers[l] = layer;
         }
-
         return layers;
     }
+
+    // ── Store helpers ─────────────────────────────────────────────────────────
+
+    private Layer[] LoadWorkingSet() => _store.ReadAll(Configuration);
+
+    private void SaveWorkingSet(Layer[] layers) => _store.WriteAll(layers);
 
     // ── Inference ────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Runs a full inference pass: clamps the input, optionally the top layer,
     /// then iterates multiple hidden-state update steps.
-    ///
-    /// Each step:
-    ///   1. Top-down  : compute predictions W_l μ_l for each l ≥ 1
-    ///   2. Bottom-up : compute errors ε_{l-1} = μ_{l-1} − pred_l
-    ///   3. Update    : μ_l ← μ_l − η_s ∂F/∂μ_l for all non-clamped l
+    /// The inferred state is transient — it is not persisted to the store.
     /// </summary>
     public void Infer(
         DenseTensor<float>  input,
@@ -95,31 +75,42 @@ public sealed class Network : IDisposable
         bool                clampTop = false,
         DenseTensor<float>? label    = null)
     {
-        ClampLayer(0, Flatten(input));
+        var layers = LoadWorkingSet();
+        InferCore(layers, input, inferenceSteps, clampTop, label);
+    }
+
+    private void InferCore(
+        Layer[]             layers,
+        DenseTensor<float>  input,
+        int                 inferenceSteps,
+        bool                clampTop,
+        DenseTensor<float>? label)
+    {
+        ClampLayer(layers, 0, Flatten(input));
 
         if (clampTop && label != null)
-            ClampLayer(_buf.Length - 1, FlattenLabel(label));
+            ClampLayer(layers, layers.Length - 1, FlattenLabel(label));
         else
-            _buf[_buf.Length - 1].IsClamped = false;
+            layers[^1].IsClamped = false;
 
         for (int step = 0; step < inferenceSteps; step++)
         {
             // Top-down pass: each layer generates predictions for the layer below
-            for (int l = _buf.Length - 1; l >= 1; l--)
-                _buf[l].ComputePrediction();
+            for (int l = layers.Length - 1; l >= 1; l--)
+                layers[l].ComputePrediction();
 
             // Bottom-up pass: ε_{l-1} = μ_{l-1} − pred_l   for l = 1..L-1
-            for (int l = 1; l < _buf.Length; l++)
-                _buf[l - 1].SetPredictionError(_buf[l].Prediction);
+            for (int l = 1; l < layers.Length; l++)
+                layers[l - 1].SetPredictionError(layers[l].Prediction);
 
             // Top layer receives no prediction from above → ε_{L-1} = 0
-            _buf[_buf.Length - 1].SetPredictionError(null);
+            layers[^1].SetPredictionError(null);
 
             // Hidden state update: μ_l ← μ_l − η_s · (ε_l − W_l^T δ_l)
-            for (int l = 1; l < _buf.Length; l++)
+            for (int l = 1; l < layers.Length; l++)
             {
-                if (_buf[l].IsClamped) continue;
-                _buf[l].UpdateState(_buf[l - 1].PredictionError, Configuration.StateLearningRate);
+                if (layers[l].IsClamped) continue;
+                layers[l].UpdateState(layers[l - 1].PredictionError, Configuration.StateLearningRate);
             }
         }
     }
@@ -127,97 +118,104 @@ public sealed class Network : IDisposable
     // ── Learning ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Learning step: inference with both ends clamped,
-    /// then Hebbian update of the generative weights.
-    ///
-    ///   W_l ← W_l + η_W · δ_l ⊗ μ_l^T
-    ///   b_l ← b_l + η_W · δ_l
-    ///
-    /// Corresponds to the learning rule of Rao &amp; Ballard (eq. 4) and
-    /// the Hebbian equivalent of Whittington &amp; Bogacz (2017, eq. 20).
+    /// Learning step: inference with both ends clamped, Hebbian weight update,
+    /// then the updated state is persisted to the store.
     /// </summary>
     public void Learn(DenseTensor<float> input, DenseTensor<float> label, int inferenceSteps)
     {
-        Infer(input, inferenceSteps, clampTop: true, label: label);
+        var layers = LoadWorkingSet();
+        InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
 
-        for (int l = 1; l < _buf.Length; l++)
-            _buf[l].UpdateWeights(_buf[l - 1].PredictionError, Configuration.WeightLearningRate);
+        for (int l = 1; l < layers.Length; l++)
+            layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
 
-        _store.WriteAll(_buf);
+        SaveWorkingSet(layers);
     }
 
     // ── Prediction ───────────────────────────────────────────────────────────
 
     /// <summary>
     /// Predicts the class for an input via minimum-energy classification:
-    ///
     ///   c* = argmin_c  F(x, one-hot(c))
     ///
-    /// For each candidate c, fixes both the input and label = one-hot(c),
-    /// converges the hidden states, and measures the residual energy.
-    /// The class with the lowest energy is the most compatible with the input
-    /// according to the learned generative model.
-    /// (Friston 2005, "A theory of cortical responses")
+    /// After returning, the store holds the network state corresponding to the
+    /// winning inference so that <see cref="ComputeEnergy"/> and
+    /// <see cref="ComputeLayerEnergies"/> reflect the post-inference residuals.
     /// </summary>
     public int Predict(DenseTensor<float> input, int inferenceSteps)
     {
-        int   numClasses = _buf[_buf.Length - 1].Size;
-        float bestEnergy = float.MaxValue;
-        int   bestClass  = 0;
-
-        var candidateLabel = DenseTensor<float>.Zeros(numClasses);
+        var   layers         = LoadWorkingSet();
+        int   numClasses     = layers[^1].Size;
+        float bestEnergy     = float.MaxValue;
+        int   bestClass      = 0;
+        var   candidateLabel = DenseTensor<float>.Zeros(numClasses);
+        var   flatInput      = Flatten(input);
 
         for (int c = 0; c < numClasses; c++)
         {
-            // Reset hidden states to neutral prior (zero)
-            for (int l = 1; l < _buf.Length - 1; l++)
-                _buf[l].Mu.Zero();
+            for (int l = 1; l < layers.Length - 1; l++)
+                layers[l].Mu.Zero();
 
             candidateLabel.Zero();
             candidateLabel.Buffer[c] = 1f;
 
-            Infer(input, inferenceSteps, clampTop: true, label: candidateLabel);
+            InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
 
-            float energy = ComputeEnergy();
+            float energy = ComputeEnergyCore(layers);
             if (energy < bestEnergy) { bestEnergy = energy; bestClass = c; }
         }
+
+        // Re-run inference for the winning class so the persisted state reflects
+        // the best explanation, not whichever candidate happened to run last.
+        for (int l = 1; l < layers.Length - 1; l++)
+            layers[l].Mu.Zero();
+        candidateLabel.Zero();
+        candidateLabel.Buffer[bestClass] = 1f;
+        InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
+        SaveWorkingSet(layers);
 
         return bestClass;
     }
 
     // ── Energy ───────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Global network energy F = ½ Σ_{l=0}^{L-2} ||ε_l||²
-    ///
-    /// Friston (2005) free energy for a Gaussian PC network.
-    /// Decreases during inference and learning.
-    /// </summary>
+    /// <summary>Global network energy F = ½ Σ_{l=0}^{L-2} ||ε_l||² loaded from store.</summary>
     public float ComputeEnergy()
     {
+        var layers = LoadWorkingSet();
+        return ComputeEnergyCore(layers);
+    }
+
+    /// <summary>Per-layer energy array [L-1], loaded from store.</summary>
+    public float[] ComputeLayerEnergies()
+    {
+        var layers   = LoadWorkingSet();
+        var energies = new float[layers.Length - 1];
+        for (int l = 0; l < energies.Length; l++)
+            energies[l] = layers[l].LocalEnergy();
+        return energies;
+    }
+
+    private static float ComputeEnergyCore(Layer[] layers)
+    {
         float energy = 0f;
-        for (int l = 0; l < _buf.Length - 1; l++)
-            energy += _buf[l].LocalEnergy();
+        for (int l = 0; l < layers.Length - 1; l++)
+            energy += layers[l].LocalEnergy();
         return energy;
     }
 
-    /// <summary>Average L2 norm of the generative weights (training monitoring).</summary>
+    /// <summary>Average L2 norm of the generative weights.</summary>
     public float AverageWeightNorm()
     {
+        var layers = LoadWorkingSet();
         float sum = 0f;
         int   cnt = 0;
-        for (int l = 1; l < _buf.Length; l++) { sum += _buf[l].WeightNorm(); cnt++; }
+        for (int l = 1; l < layers.Length; l++) { sum += layers[l].WeightNorm(); cnt++; }
         return cnt > 0 ? sum / cnt : 0f;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Returns a 1-D view of <paramref name="input"/>.
-    /// If the input is already 1-D it is returned as-is (zero-copy).
-    /// If it is multidimensional it is reshaped to a flat vector; the total
-    /// number of elements must equal LayerSizes[0].
-    /// </summary>
     private DenseTensor<float> Flatten(DenseTensor<float> input)
     {
         if (input.Rank == 1) return input;
@@ -244,20 +242,21 @@ public sealed class Network : IDisposable
         return TensorUtils.Reshape(label, expected);
     }
 
-    private void ClampLayer(int index, DenseTensor<float> value)
+    private static void ClampLayer(Layer[] layers, int index, DenseTensor<float> value)
     {
-        value.CopyTo(_buf[index].Mu);
-        _buf[index].IsClamped = true;
+        value.CopyTo(layers[index].Mu);
+        layers[index].IsClamped = true;
     }
 
     // ── Diagnostics ──────────────────────────────────────────────────────────
 
     public void PrintArchitecture()
     {
+        var layers = LoadWorkingSet();
         Console.WriteLine("═══ Network Architecture ═══");
-        for (int l = 0; l < _buf.Length; l++)
+        for (int l = 0; l < layers.Length; l++)
         {
-            var    layer = _buf[l];
+            var    layer = layers[l];
             string w     = layer.GenerativeWeights != null
                 ? $"W={layer.GenerativeWeights}"
                 : "(no weights)";

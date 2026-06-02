@@ -115,6 +115,24 @@ public sealed class Layer
 
     // ── Initialisation ───────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Allocates all tensors to zero without random initialisation.
+    /// Used when deserializing from <see cref="LayerStore"/> — the store
+    /// overwrites the buffers immediately after allocation.
+    /// </summary>
+    internal void AllocateTensors(bool hasDiagonalPrecision = false, bool hasPriorMean = false)
+    {
+        Mu              = DenseTensor<float>.Zeros(Size);
+        PredictionError = DenseTensor<float>.Zeros(Size);
+        if (hasDiagonalPrecision) DiagonalPrecision = DenseTensor<float>.Zeros(Size);
+        if (hasPriorMean)         PriorMean         = DenseTensor<float>.Zeros(Size);
+        if (LowerSize == 0) return;
+        GenerativeWeights = new DenseTensor<float>(LowerSize, Size);
+        Bias              = DenseTensor<float>.Zeros(LowerSize);
+        PreActivation     = DenseTensor<float>.Zeros(LowerSize);
+        Prediction        = DenseTensor<float>.Zeros(LowerSize);
+    }
+
     public void Initialize(Random rng)
     {
         Mu              = RandomUtils.SampleNormal([Size], 0f, 0.01f, rng);

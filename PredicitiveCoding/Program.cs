@@ -82,21 +82,24 @@ Console.WriteLine("Done.");
 
 static void AnalyzeLayerEnergies(Network net, IDataset testSet, TrainingConfig cfg, Random rng)
 {
-    int   maxSamples     = Math.Min(50, testSet.TotalSamples);
-    var   energiesByLayer = new float[net.Layers.Length - 1];
-    int   count           = 0;
+    int     maxSamples     = Math.Min(50, testSet.TotalSamples);
+    float[]? energiesByLayer = null;
+    int     count           = 0;
 
     foreach (var batch in testSet.GetBatches(1, rng))
     {
         if (count >= maxSamples) break;
         net.Predict(batch.Inputs[0], cfg.InferenceSteps);
-        for (int l = 0; l < net.Layers.Length  - 1; l++)
-            energiesByLayer[l] += net.Layers[l].LocalEnergy();
+        var layerE = net.ComputeLayerEnergies();
+        energiesByLayer ??= new float[layerE.Length];
+        for (int l = 0; l < layerE.Length; l++)
+            energiesByLayer[l] += layerE[l];
         count++;
     }
 
+    if (energiesByLayer is null) return;
     Console.WriteLine($"  Average energy per layer (over {count} test samples):");
-    for (int l = 0; l < net.Layers.Length - 1; l++)
+    for (int l = 0; l < energiesByLayer.Length; l++)
         Console.WriteLine($"    ε[{l}]  =  {energiesByLayer[l] / count:F4}");
 }
 
