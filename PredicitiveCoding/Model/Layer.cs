@@ -318,6 +318,39 @@ public sealed class Layer
         }
     }
 
+    // ── Clone ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Deep-copies this layer: all tensor buffers are cloned so the
+    /// returned instance is fully independent from the original.
+    /// Used by <see cref="LayerStore"/> to serve <see cref="LayerStore.ReadLayer"/>
+    /// without serialization/deserialization when lazy persistence is enabled.
+    /// </summary>
+    internal Layer Clone()
+    {
+        var c = new Layer
+        {
+            Index              = Index,
+            Size               = Size,
+            LowerSize          = LowerSize,
+            StateLearningRate  = StateLearningRate,
+            WeightLearningRate = WeightLearningRate,
+            WeightDecay        = WeightDecay,
+            ActivationType     = ActivationType,
+            Precision          = Precision,
+            IsClamped          = IsClamped,
+            Mu                 = Mu.Clone(),
+            PredictionError    = PredictionError.Clone(),
+        };
+        if (GenerativeWeights != null) c.GenerativeWeights = GenerativeWeights.Clone();
+        if (Bias              != null) c.Bias              = Bias.Clone();
+        if (PreActivation     != null) c.PreActivation     = PreActivation.Clone();
+        if (Prediction        != null) c.Prediction        = Prediction.Clone();
+        if (DiagonalPrecision != null) c.DiagonalPrecision = DiagonalPrecision.Clone();
+        if (PriorMean         != null) c.PriorMean         = PriorMean.Clone();
+        return c;
+    }
+
     // ── Utilities ─────────────────────────────────────────────────────────────
 
     public float WeightNorm() =>

@@ -38,8 +38,19 @@ internal sealed class LayerStore : IDisposable
     // Read path, regardless of whether the record is in the mutable or
     // read-only region.  We keep a serialized copy of every layer in a
     // plain dictionary so that ReadLayer always gets correct data.
-    // FasterKV is still written on every mutation for on-disk persistence.
+    // FasterKV is still written on every mutation for on-disk persistence
+    // when _lazyPersistence is false.  When true, FasterKV writes are
+    // deferred until Flush() — useful for large networks where per-sample
+    // persistence would saturate I/O (e.g. CIFAR-10 with 6 MB weight matrices).
     private readonly Dictionary<int, byte[]> _cache = [];
+    private readonly bool _lazyPersistence;
+    private readonly HashSet<int> _dirtyKeys = [];
+
+    // In lazy mode, Layer objects are kept in memory so that ReadLayer can
+    // return a clone without byte[] serialization/deserialization overhead.
+    // This eliminates ~6 MB of GC-allocated arrays per training sample when
+    // working with large weight matrices (e.g. CIFAR-10, 3072×512 weights).
+    private readonly Dictionary<int, Layer>? _resident;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -47,10 +58,12 @@ internal sealed class LayerStore : IDisposable
     /// Directory for the log device.  When null the store uses an ephemeral
     /// temp file that is deleted on disposal.
     /// </param>
-    public LayerStore(NetworkConfig config, Random random)
+    public LayerStore(NetworkConfig config, Random random, bool lazyPersistence = false)
     {
-        Configuration = config;
-        Random = random;
+        Configuration    = config;
+        Random           = random;
+        _lazyPersistence = lazyPersistence;
+        if (_lazyPersistence) _resident = [];
 
         Directory.CreateDirectory(config.Path);
 
@@ -122,7 +135,11 @@ internal sealed class LayerStore : IDisposable
                     ? output.SpanByte.AsReadOnlySpan()
                     : output.Memory!.Memory.Span[..output.Length];
 
-                _cache[index] = bytes.ToArray();
+                byte[] arr = bytes.ToArray();
+                _cache[index] = arr;
+                if (_lazyPersistence)
+                    _resident![index] = LayerSerializer.AllocateAndDeserialize(
+                        arr, index, Configuration.Activation);
             }
             finally
             {
@@ -153,7 +170,9 @@ internal sealed class LayerStore : IDisposable
     {
         byte[] payload = LayerSerializer.Serialize(layer);
         _cache[index] = payload;
-        PersistToStore(index, payload);
+        PersistToStore(index, payload);   // always write at init time
+        if (_lazyPersistence)
+            _resident![index] = layer;    // keep live object for fast reads
     }
 
     private void PersistToStore(int index, byte[] payload)
@@ -177,17 +196,19 @@ internal sealed class LayerStore : IDisposable
     // ── Factory read ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Reads the stored bytes for <paramref name="index"/>, allocates a new
-    /// <see cref="Layer"/> from the binary header, deserializes all fields into
-    /// it, and returns it.  Returns <c>null</c> if the key is not present.
+    /// Returns a fresh <see cref="Layer"/> for <paramref name="index"/>.
+    /// In lazy mode: clones the resident Layer object (no byte[] round-trip).
+    /// In eager mode: deserializes from the byte[] cache (original behaviour).
     /// </summary>
     public Layer ReadLayer(int index)
     {
+        if (_lazyPersistence && _resident!.TryGetValue(index, out Layer? resident))
+            return resident.Clone();
+
         if (_cache.TryGetValue(index, out byte[]? cached))
             return LayerSerializer.AllocateAndDeserialize(cached, index, Configuration.Activation);
 
-        // Cache miss (e.g. first access after a recovery that didn't populate
-        // this slot) — initialize and persist.
+        // Cache miss — initialize and persist.
         var newLayer = Initialize(index);
         CacheAndPersist(index, newLayer);
         return newLayer;
@@ -210,12 +231,25 @@ internal sealed class LayerStore : IDisposable
 
     // ── Write ───────────────────────────────────────────────────────────────
 
-    /// <summary>Serializes <paramref name="layer"/>, updates the cache, and upserts it by index.</summary>
+    /// <summary>
+    /// Persists <paramref name="layer"/> to the store.
+    /// Lazy mode: stores the live Layer object in the resident cache and defers
+    ///            serialization + FasterKV write until <see cref="Flush"/>.
+    /// Eager mode: serializes immediately and upserts to FasterKV.
+    /// </summary>
     public void Write(int index, Layer layer)
     {
-        byte[] payload = LayerSerializer.Serialize(layer);
-        _cache[index] = payload;
-        PersistToStore(index, payload);
+        if (_lazyPersistence)
+        {
+            _resident![index] = layer;   // keep reference — no serialization
+            _dirtyKeys.Add(index);
+        }
+        else
+        {
+            byte[] payload = LayerSerializer.Serialize(layer);
+            _cache[index] = payload;
+            PersistToStore(index, payload);
+        }
     }
 
     /// <summary>Checkpoints every layer in <paramref name="layers"/>.</summary>
@@ -228,8 +262,25 @@ internal sealed class LayerStore : IDisposable
         }
     }
 
-    /// <summary>Forces all pending log writes to the device.</summary>
-    public void Flush() => _store.Log.FlushAndEvict(wait: true);
+    /// <summary>
+    /// Flushes dirty resident layers to the byte[] cache and FasterKV
+    /// (no-op in eager mode), then forces the device log.
+    /// Call once per epoch when <see cref="NetworkConfig.LazyPersistence"/> is true.
+    /// </summary>
+    public void Flush()
+    {
+        if (_lazyPersistence)
+        {
+            foreach (int idx in _dirtyKeys)
+            {
+                byte[] payload = LayerSerializer.Serialize(_resident![idx]);
+                _cache[idx] = payload;
+                PersistToStore(idx, payload);
+            }
+            _dirtyKeys.Clear();
+        }
+        _store.Log.FlushAndEvict(wait: true);
+    }
 
     public void Dispose()
     {

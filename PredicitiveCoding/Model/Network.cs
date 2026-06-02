@@ -29,7 +29,7 @@ public sealed class Network : IDisposable
     {
         config.Validate();
         Configuration = config;
-        _store = new LayerStore(config, rng);
+        _store = new LayerStore(config, rng, config.LazyPersistence);
     }
 
     // ── Inference ────────────────────────────────────────────────────────────
@@ -290,6 +290,14 @@ public sealed class Network : IDisposable
         if (Configuration.UseDiagonalPrecision) Console.WriteLine("  Diagonal precision: enabled (Huang & Rao 2011)");
         Console.WriteLine("════════════════════════════");
     }
+
+    // ── Persistence ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Flushes any deferred writes to the persistent store.
+    /// Call once per epoch when <see cref="NetworkConfig.LazyPersistence"/> is true.
+    /// </summary>
+    public void FlushStore() => _store.Flush();
 
     // ── Disposal ─────────────────────────────────────────────────────────────
 

@@ -12,12 +12,19 @@ Console.WriteLine("╚═══════════════════�
 Console.WriteLine();
 Console.WriteLine("  1  Standard training run (synthetic blobs)");
 Console.WriteLine("  2  Millidge, Seth & Buckley (2022) demo");
+Console.WriteLine("  3  CIFAR-10 hard classification demo");
 Console.Write("\n  Choice [1]: ");
 string? choice = Console.ReadLine()?.Trim();
 
 if (choice == "2")
 {
     MillidgeReview2022Demo.Run();
+    return;
+}
+
+if (choice == "3")
+{
+    HardClassificationDemo.Run();
     return;
 }
 

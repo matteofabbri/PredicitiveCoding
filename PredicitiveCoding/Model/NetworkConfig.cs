@@ -40,6 +40,14 @@ public sealed record NetworkConfig
     public bool UseDiagonalPrecision { get; init; } = false;
 
     /// <summary>
+    /// When true, LayerStore defers FasterKV persistence until an explicit
+    /// Flush().  All reads are always served from the in-memory cache.
+    /// Dramatically improves throughput for large weight matrices (e.g.
+    /// CIFAR-10) where per-sample disk writes would saturate I/O.
+    /// </summary>
+    public bool LazyPersistence { get; init; } = false;
+
+    /// <summary>
     /// Optional shape of the raw input tensor, e.g. [28, 28] for a grayscale image
     /// or [3, 32, 32] for an RGB image.  When set, <see cref="Network.Infer"/> and
     /// <see cref="Network.Learn"/> automatically flatten the input before processing.
