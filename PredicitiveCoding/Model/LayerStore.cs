@@ -27,11 +27,16 @@ internal sealed class LayerStore : IDisposable
     private readonly NetworkConfig Configuration;
     private readonly Random Random;
 
-    // SpanByteFunctions<TKey, TOutput, TContext>:  Input=SpanByte, Output=SpanByteAndMemory
-    private readonly ClientSession<
+    // FasterKV is thread-safe at the store level; sessions are NOT.
+    // Each thread gets its own session created on first use via ThreadLocal.
+    // The store itself is shared and lock-free internally.
+    private readonly ThreadLocal<ClientSession<
         int, SpanByte,
         SpanByte, SpanByteAndMemory,
-        Empty, SpanByteFunctions<int, SpanByteAndMemory, Empty>> _session;
+        Empty, SpanByteFunctions<int, SpanByteAndMemory, Empty>>> _sessions;
+
+    private ClientSession<int, SpanByte, SpanByte, SpanByteAndMemory, Empty,
+        SpanByteFunctions<int, SpanByteAndMemory, Empty>> Session => _sessions.Value!;
 
     // Write-through cache: FasterKV v2.6.5 does not reliably populate
     // SpanByteAndMemory for large records (>~256 bytes) via its synchronous
@@ -42,6 +47,10 @@ internal sealed class LayerStore : IDisposable
     // when _lazyPersistence is false.  When true, FasterKV writes are
     // deferred until Flush() — useful for large networks where per-sample
     // persistence would saturate I/O (e.g. CIFAR-10 with 6 MB weight matrices).
+    //
+    // Thread safety: _cache, _resident and _dirtyKeys are protected by
+    // Network's ReaderWriterLockSlim (all callers hold it before entering
+    // LayerStore).  No additional lock is needed here.
     private readonly Dictionary<int, byte[]> _cache = [];
     private readonly bool _lazyPersistence;
     private readonly HashSet<int> _dirtyKeys = [];
@@ -84,9 +93,13 @@ internal sealed class LayerStore : IDisposable
                 MemorySizeBits = memorySizeBits,
             });
 
-        _session = _store
-            .For(new SpanByteFunctions<int, SpanByteAndMemory, Empty>())
-            .NewSession<SpanByteFunctions<int, SpanByteAndMemory, Empty>>();
+        _sessions = new ThreadLocal<ClientSession<
+                int, SpanByte, SpanByte, SpanByteAndMemory, Empty,
+                SpanByteFunctions<int, SpanByteAndMemory, Empty>>>(
+            () => _store
+                .For(new SpanByteFunctions<int, SpanByteAndMemory, Empty>())
+                .NewSession<SpanByteFunctions<int, SpanByteAndMemory, Empty>>(),
+            trackAllValues: true);
 
         if (Directory.GetFiles(config.Path, "*.*", SearchOption.AllDirectories).Any())
         {
@@ -111,11 +124,11 @@ internal sealed class LayerStore : IDisposable
         for (int index = 0; index < Configuration.LayerSizes.Length; index++)
         {
             SpanByteAndMemory output = default;
-            Status status = _session.Read(ref index, ref output);
+            Status status = Session.Read(ref index, ref output);
 
             if (status.IsPending)
             {
-                _session.CompletePendingWithOutputs(out var iter, wait: true);
+                Session.CompletePendingWithOutputs(out var iter, wait: true);
                 using (iter)
                 {
                     if (iter.Next())
@@ -185,7 +198,7 @@ internal sealed class LayerStore : IDisposable
         try
         {
             ref SpanByte sb = ref SpanByte.Reinterpret(ref buf[0]);
-            _session.Upsert(ref index, ref sb);
+            Session.Upsert(ref index, ref sb);
         }
         finally
         {
@@ -286,7 +299,11 @@ internal sealed class LayerStore : IDisposable
     {
         Flush();
 
-        _session.Dispose();
+        // Dispose every per-thread session created via ThreadLocal.
+        foreach (var session in _sessions.Values)
+            session.Dispose();
+        _sessions.Dispose();
+
         _store.Dispose();
         _device.Dispose();
     }

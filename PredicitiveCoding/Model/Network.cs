@@ -21,9 +21,10 @@ namespace PredictiveCoding.Model;
 
 public sealed class Network : IDisposable
 {
-    private readonly LayerStore  _store;
-    public  NetworkConfig        Configuration { get; }
-    public  int                  LayerCount    => Configuration.LayerSizes.Length;
+    private readonly LayerStore             _store;
+    private readonly ReaderWriterLockSlim   _rwLock = new(LockRecursionPolicy.SupportsRecursion);
+    public  NetworkConfig                   Configuration { get; }
+    public  int                             LayerCount    => Configuration.LayerSizes.Length;
 
     public Network(NetworkConfig config, Random rng)
     {
@@ -45,8 +46,13 @@ public sealed class Network : IDisposable
         bool                clampTop = false,
         DenseTensor<float>? label    = null)
     {
-        var layers = ReadAllLayers();
-        InferCore(layers, input, inferenceSteps, clampTop, label);
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            InferCore(layers, input, inferenceSteps, clampTop, label);
+        }
+        finally { _rwLock.ExitReadLock(); }
     }
 
     private void InferCore(
@@ -120,15 +126,20 @@ public sealed class Network : IDisposable
     /// </summary>
     public void Learn(DenseTensor<float> input, DenseTensor<float> label, int inferenceSteps)
     {
-        var layers = ReadAllLayers();
-        InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
-
-        // Only layers with generative weights (1..L-1) are mutated.
-        for (int l = 1; l < layers.Length; l++)
+        _rwLock.EnterWriteLock();
+        try
         {
-            layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
-            _store.Write(l, layers[l]);
+            var layers = ReadAllLayers();
+            InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+
+            // Only layers with generative weights (1..L-1) are mutated.
+            for (int l = 1; l < layers.Length; l++)
+            {
+                layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
+                _store.Write(l, layers[l]);
+            }
         }
+        finally { _rwLock.ExitWriteLock(); }
     }
 
     /// <summary>
@@ -149,21 +160,26 @@ public sealed class Network : IDisposable
         int                inferenceSteps,
         float              gateWeight)
     {
-        var   layers = ReadAllLayers();
-        InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
-        float energy = ComputeEnergyCore(layers);
-
-        if (gateWeight > 0f)
+        _rwLock.EnterWriteLock();
+        try
         {
-            float effectiveLr = Configuration.WeightLearningRate * gateWeight;
-            for (int l = 1; l < layers.Length; l++)
-            {
-                layers[l].UpdateWeights(layers[l - 1].PredictionError, effectiveLr);
-                _store.Write(l, layers[l]);
-            }
-        }
+            var   layers = ReadAllLayers();
+            InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+            float energy = ComputeEnergyCore(layers);
 
-        return energy;
+            if (gateWeight > 0f)
+            {
+                float effectiveLr = Configuration.WeightLearningRate * gateWeight;
+                for (int l = 1; l < layers.Length; l++)
+                {
+                    layers[l].UpdateWeights(layers[l - 1].PredictionError, effectiveLr);
+                    _store.Write(l, layers[l]);
+                }
+            }
+
+            return energy;
+        }
+        finally { _rwLock.ExitWriteLock(); }
     }
 
     /// <summary>
@@ -174,9 +190,14 @@ public sealed class Network : IDisposable
     /// </summary>
     public float InferEnergy(DenseTensor<float> input, DenseTensor<float> label, int inferenceSteps)
     {
-        var layers = ReadAllLayers();
-        InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
-        return ComputeEnergyCore(layers);
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+            return ComputeEnergyCore(layers);
+        }
+        finally { _rwLock.ExitReadLock(); }
     }
 
     /// <summary>
@@ -186,9 +207,9 @@ public sealed class Network : IDisposable
     /// </summary>
     public (int cls, float energy) PredictWithEnergy(DenseTensor<float> input, int inferenceSteps)
     {
-        int   cls    = Predict(input, inferenceSteps);
-        float energy = ComputeEnergy();
-        return (cls, energy);
+        _rwLock.EnterWriteLock();
+        try   { return PredictCore(input, inferenceSteps); }
+        finally { _rwLock.ExitWriteLock(); }
     }
 
     // ── Prediction ───────────────────────────────────────────────────────────
@@ -202,6 +223,14 @@ public sealed class Network : IDisposable
     /// <see cref="ComputeLayerEnergies"/> reflect the post-inference residuals.
     /// </summary>
     public int Predict(DenseTensor<float> input, int inferenceSteps)
+    {
+        _rwLock.EnterWriteLock();
+        try   { return PredictCore(input, inferenceSteps).cls; }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
+    // Caller must hold _rwLock (write).
+    private (int cls, float energy) PredictCore(DenseTensor<float> input, int inferenceSteps)
     {
         var   layers         = ReadAllLayers();
         int   numClasses     = layers[^1].Size;
@@ -232,10 +261,11 @@ public sealed class Network : IDisposable
         candidateLabel.Buffer[bestClass] = 1f;
         InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
 
+        float winnerEnergy = ComputeEnergyCore(layers);
         for (int l = 0; l < layers.Length; l++)
             _store.Write(l, layers[l]);
 
-        return bestClass;
+        return (bestClass, winnerEnergy);
     }
 
     // ── Temporal inference & learning ────────────────────────────────────────
@@ -263,19 +293,24 @@ public sealed class Network : IDisposable
         DenseTensor<float>[]? temporalPriors,
         float                 temporalPrecision)
     {
-        var layers = ReadAllLayers();
-        if (temporalPriors != null)
-            InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
-
-        InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
-
-        for (int l = 1; l < layers.Length; l++)
+        _rwLock.EnterWriteLock();
+        try
         {
-            layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
-            _store.Write(l, layers[l]);
-        }
+            var layers = ReadAllLayers();
+            if (temporalPriors != null)
+                InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
 
-        return ExtractHiddenStates(layers);
+            InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+
+            for (int l = 1; l < layers.Length; l++)
+            {
+                layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
+                _store.Write(l, layers[l]);
+            }
+
+            return ExtractHiddenStates(layers);
+        }
+        finally { _rwLock.ExitWriteLock(); }
     }
 
     /// <summary>
@@ -288,15 +323,34 @@ public sealed class Network : IDisposable
         DenseTensor<float>[]? temporalPriors,
         float                 temporalPrecision)
     {
-        var   layers         = ReadAllLayers();
-        int   numClasses     = layers[^1].Size;
-        float bestEnergy     = float.MaxValue;
-        int   bestClass      = 0;
-        var   candidateLabel = DenseTensor<float>.Zeros(numClasses);
-        var   flatInput      = Flatten(input);
-
-        for (int c = 0; c < numClasses; c++)
+        _rwLock.EnterWriteLock();
+        try
         {
+            var   layers         = ReadAllLayers();
+            int   numClasses     = layers[^1].Size;
+            float bestEnergy     = float.MaxValue;
+            int   bestClass      = 0;
+            var   candidateLabel = DenseTensor<float>.Zeros(numClasses);
+            var   flatInput      = Flatten(input);
+
+            for (int c = 0; c < numClasses; c++)
+            {
+                for (int l = 1; l < layers.Length - 1; l++)
+                    layers[l].Mu.Zero();
+
+                if (temporalPriors != null)
+                    InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+
+                candidateLabel.Zero();
+                candidateLabel.Buffer[c] = 1f;
+
+                InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
+
+                float energy = ComputeEnergyCore(layers);
+                if (energy < bestEnergy) { bestEnergy = energy; bestClass = c; }
+            }
+
+            // Re-run for winner so persisted state reflects the best explanation.
             for (int l = 1; l < layers.Length - 1; l++)
                 layers[l].Mu.Zero();
 
@@ -304,29 +358,15 @@ public sealed class Network : IDisposable
                 InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
 
             candidateLabel.Zero();
-            candidateLabel.Buffer[c] = 1f;
-
+            candidateLabel.Buffer[bestClass] = 1f;
             InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
 
-            float energy = ComputeEnergyCore(layers);
-            if (energy < bestEnergy) { bestEnergy = energy; bestClass = c; }
+            for (int l = 0; l < layers.Length; l++)
+                _store.Write(l, layers[l]);
+
+            return bestClass;
         }
-
-        // Re-run for winner so persisted state reflects the best explanation.
-        for (int l = 1; l < layers.Length - 1; l++)
-            layers[l].Mu.Zero();
-
-        if (temporalPriors != null)
-            InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
-
-        candidateLabel.Zero();
-        candidateLabel.Buffer[bestClass] = 1f;
-        InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
-
-        for (int l = 0; l < layers.Length; l++)
-            _store.Write(l, layers[l]);
-
-        return bestClass;
+        finally { _rwLock.ExitWriteLock(); }
     }
 
     /// <summary>
@@ -341,11 +381,16 @@ public sealed class Network : IDisposable
         bool                  clampTop = false,
         DenseTensor<float>?   label    = null)
     {
-        var layers = ReadAllLayers();
-        if (temporalPriors != null)
-            InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
-        InferCore(layers, input, inferenceSteps, clampTop, label);
-        return ExtractHiddenStates(layers);
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            if (temporalPriors != null)
+                InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+            InferCore(layers, input, inferenceSteps, clampTop, label);
+            return ExtractHiddenStates(layers);
+        }
+        finally { _rwLock.ExitReadLock(); }
     }
 
     // ── Temporal helpers ─────────────────────────────────────────────────────
@@ -387,6 +432,13 @@ public sealed class Network : IDisposable
     /// </summary>
     public float[] InferTrace(DenseTensor<float> input, int inferenceSteps)
     {
+        _rwLock.EnterReadLock();
+        try { return InferTraceCore(input, inferenceSteps); }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
+    private float[] InferTraceCore(DenseTensor<float> input, int inferenceSteps)
+    {
         var layers   = ReadAllLayers();
         var flatInput = Flatten(input);
         ClampLayer(layers, 0, flatInput);
@@ -424,19 +476,29 @@ public sealed class Network : IDisposable
     /// <summary>Global network energy F = ½ Σ_{l=0}^{L-2} ||ε_l||² loaded from store.</summary>
     public float ComputeEnergy()
     {
-        float energy = 0f;
-        for (int l = 0; l < LayerCount - 1; l++)
-            energy += _store.ReadLayer(l).LocalEnergy();
-        return energy;
+        _rwLock.EnterReadLock();
+        try
+        {
+            float energy = 0f;
+            for (int l = 0; l < LayerCount - 1; l++)
+                energy += _store.ReadLayer(l).LocalEnergy();
+            return energy;
+        }
+        finally { _rwLock.ExitReadLock(); }
     }
 
     /// <summary>Per-layer energy array [L-1], loaded from store.</summary>
     public float[] ComputeLayerEnergies()
     {
-        var energies = new float[LayerCount - 1];
-        for (int l = 0; l < energies.Length; l++)
-            energies[l] = _store.ReadLayer(l).LocalEnergy();
-        return energies;
+        _rwLock.EnterReadLock();
+        try
+        {
+            var energies = new float[LayerCount - 1];
+            for (int l = 0; l < energies.Length; l++)
+                energies[l] = _store.ReadLayer(l).LocalEnergy();
+            return energies;
+        }
+        finally { _rwLock.ExitReadLock(); }
     }
 
     private static float ComputeEnergyCore(Layer[] layers)
@@ -450,10 +512,15 @@ public sealed class Network : IDisposable
     /// <summary>Average L2 norm of the generative weights.</summary>
     public float AverageWeightNorm()
     {
-        float sum = 0f;
-        for (int l = 1; l < LayerCount; l++)
-            sum += _store.ReadLayer(l).WeightNorm();
-        return LayerCount > 1 ? sum / (LayerCount - 1) : 0f;
+        _rwLock.EnterReadLock();
+        try
+        {
+            float sum = 0f;
+            for (int l = 1; l < LayerCount; l++)
+                sum += _store.ReadLayer(l).WeightNorm();
+            return LayerCount > 1 ? sum / (LayerCount - 1) : 0f;
+        }
+        finally { _rwLock.ExitReadLock(); }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -532,9 +599,18 @@ public sealed class Network : IDisposable
     /// Flushes any deferred writes to the persistent store.
     /// Call once per epoch when <see cref="NetworkConfig.LazyPersistence"/> is true.
     /// </summary>
-    public void FlushStore() => _store.Flush();
+    public void FlushStore()
+    {
+        _rwLock.EnterWriteLock();
+        try   { _store.Flush(); }
+        finally { _rwLock.ExitWriteLock(); }
+    }
 
     // ── Disposal ─────────────────────────────────────────────────────────────
 
-    public void Dispose() => _store.Dispose();
+    public void Dispose()
+    {
+        _store.Dispose();
+        _rwLock.Dispose();
+    }
 }
