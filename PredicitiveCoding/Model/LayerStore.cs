@@ -1,6 +1,6 @@
+using FASTER.core;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using FASTER.core;
 
 namespace PredictiveCoding.Model;
 
@@ -24,6 +24,8 @@ internal sealed class LayerStore : IDisposable
 {
     private readonly FasterKV<int, SpanByte> _store;
     private readonly IDevice _device;
+    private readonly NetworkConfig Configuration;
+    private readonly Random Random;
 
     // SpanByteFunctions<TKey, TOutput, TContext>:  Input=SpanByte, Output=SpanByteAndMemory
     private readonly ClientSession<
@@ -37,16 +39,17 @@ internal sealed class LayerStore : IDisposable
     /// Directory for the log device.  When null the store uses an ephemeral
     /// temp file that is deleted on disposal.
     /// </param>
-    public LayerStore(string? storagePath = null)
+    public LayerStore(NetworkConfig config, Random random)
     {
-        bool ephemeral = storagePath is null;
-        string dir = storagePath ?? Path.Combine(Path.GetTempPath(), $"faster_layers_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dir);
+        Configuration = config;
+        Random = random;
+
+        Directory.CreateDirectory(config.Path);
 
         _device = Devices.CreateLogDevice(
-            Path.Combine(dir, "layers.log"),
+            Path.Combine(config.Path, "layers.log"),
             preallocateFile: false,
-            deleteOnClose: ephemeral);
+            deleteOnClose: false);
 
         _store = new FasterKV<int, SpanByte>(
             size: 1L << 20,
@@ -60,6 +63,38 @@ internal sealed class LayerStore : IDisposable
         _session = _store
             .For(new SpanByteFunctions<int, SpanByteAndMemory, Empty>())
             .NewSession<SpanByteFunctions<int, SpanByteAndMemory, Empty>>();
+
+        if (Directory.GetFiles(config.Path, "*.*", SearchOption.AllDirectories).Any())
+        {
+            _store.Recover();
+            return;
+        }
+
+        //Storage is empty, initialize it with blank layers.
+        var layers = new Layer[Configuration.LayerSizes.Length];
+        for (int index = 0; index < layers.Length; index++)
+        {
+            Initialize(index);
+        }
+    }
+
+    private void Initialize(int index)
+    {
+        int lowerSize = index > 0 ? Configuration.LayerSizes[index - 1] : 0;
+        var layer = new Layer
+        {
+            Index = index,
+            Size = Configuration.LayerSizes[index],
+            LowerSize = lowerSize,
+            StateLearningRate = Configuration.StateLearningRate,
+            WeightLearningRate = Configuration.WeightLearningRate,
+            WeightDecay = Configuration.WeightDecay,
+            ActivationType = Configuration.Activation,
+        };
+
+        layer.Initialize(Random);
+
+        if (Configuration.UseDiagonalPrecision) layer.InitDiagonalPrecision();
     }
 
     // ── Factory read ─────────────────────────────────────────────────────────
@@ -105,12 +140,11 @@ internal sealed class LayerStore : IDisposable
         return layers;
     }
 
-    // ── Write ─────────────────────────────────────────────────────────────────
+    // ── Write ───────────────────────────────────────────────────────────────
 
     /// <summary>Serializes <paramref name="layer"/> and upserts it by index.</summary>
-    public void Write(Layer layer)
+    public void Write(int index, Layer layer)
     {
-        int    key     = layer.Index;
         byte[] payload = LayerSerializer.Serialize(layer);
 
         // SpanByte on-disk layout: [int32 length][byte... data].
@@ -126,7 +160,7 @@ internal sealed class LayerStore : IDisposable
         try
         {
             ref SpanByte sb = ref SpanByte.Reinterpret(ref buf[0]);
-            _session.Upsert(ref key, ref sb);
+            _session.Upsert(ref index, ref sb);
         }
         finally
         {
@@ -137,8 +171,11 @@ internal sealed class LayerStore : IDisposable
     /// <summary>Checkpoints every layer in <paramref name="layers"/>.</summary>
     public void WriteAll(IReadOnlyList<Layer> layers)
     {
-        foreach (var layer in layers)
-            Write(layer);
+        for (int index = 0; index < layers.Count; index++)
+        {
+            var layer = layers[index];
+            Write(index, layer);
+        }
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
@@ -170,29 +207,13 @@ internal sealed class LayerStore : IDisposable
         }
     }
 
-    /// <summary>
-    /// Restores every layer in <paramref name="layers"/> from the store.
-    /// Throws <see cref="KeyNotFoundException"/> if any layer index is missing.
-    /// </summary>
-    public void ReadAll(IReadOnlyList<Layer> layers)
-    {
-        foreach (var layer in layers)
-        {
-            if (!TryRead(layer.Index, layer))
-                throw new KeyNotFoundException(
-                    $"No checkpoint found for layer index {layer.Index}.");
-        }
-    }
-
-    // ── Persistence ───────────────────────────────────────────────────────────
-
     /// <summary>Forces all pending log writes to the device.</summary>
     public void Flush() => _store.Log.FlushAndEvict(wait: true);
 
-    // ── Disposal ──────────────────────────────────────────────────────────────
-
     public void Dispose()
     {
+        Flush();
+
         _session.Dispose();
         _store.Dispose();
         _device.Dispose();

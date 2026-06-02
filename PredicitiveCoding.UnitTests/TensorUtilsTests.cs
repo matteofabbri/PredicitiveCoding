@@ -10,8 +10,8 @@ public class TensorUtilsTests
     public void MatVecMul_IdentityMatrix_ReturnsVector()
     {
         // W = I (2×2), v = [3, 5]  →  y = [3, 5]
-        var w = new DenseTensor<float>(new float[] { 1, 0, 0, 1 }, 2, 2);
-        var v = new DenseTensor<float>(new float[] { 3f, 5f }, 2);
+        var w = new DenseTensor<float>([1, 0, 0, 1], 2, 2);
+        var v = new DenseTensor<float>([3f, 5f], 2);
 
         var y = TensorUtils.MatVecMul(w, v);
 
@@ -24,8 +24,8 @@ public class TensorUtilsTests
     public void MatVecMul_KnownMatrix_CorrectResult()
     {
         // W = [[1,2],[3,4]], v = [1,1]  →  y = [3, 7]
-        var w = new DenseTensor<float>(new float[] { 1, 2, 3, 4 }, 2, 2);
-        var v = new DenseTensor<float>(new float[] { 1f, 1f }, 2);
+        var w = new DenseTensor<float>([1, 2, 3, 4], 2, 2);
+        var v = new DenseTensor<float>([1f, 1f], 2);
 
         var y = TensorUtils.MatVecMul(w, v);
 
@@ -39,8 +39,8 @@ public class TensorUtilsTests
     public void MatVecMulT_KnownMatrix_CorrectTransposeResult()
     {
         // W = [[1,2],[3,4]], v = [1,1]  →  W^T @ v = [4, 6]
-        var w = new DenseTensor<float>(new float[] { 1, 2, 3, 4 }, 2, 2);
-        var v = new DenseTensor<float>(new float[] { 1f, 1f }, 2);
+        var w = new DenseTensor<float>([1, 2, 3, 4], 2, 2);
+        var v = new DenseTensor<float>([1f, 1f], 2);
 
         var y = TensorUtils.MatVecMulT(w, v);
 
@@ -54,8 +54,8 @@ public class TensorUtilsTests
     public void OuterProduct_TwoVectors_CorrectMatrix()
     {
         // a = [1,2], b = [3,4]  →  C = [[3,4],[6,8]]
-        var a = new DenseTensor<float>(new float[] { 1f, 2f }, 2);
-        var b = new DenseTensor<float>(new float[] { 3f, 4f }, 2);
+        var a = new DenseTensor<float>([1f, 2f], 2);
+        var b = new DenseTensor<float>([3f, 4f], 2);
 
         var c = TensorUtils.OuterProduct(a, b);
 
@@ -72,8 +72,8 @@ public class TensorUtilsTests
     [Fact]
     public void ElementwiseAdd_ReturnsCorrectSum()
     {
-        var x = new DenseTensor<float>(new float[] { 1f, 2f, 3f }, 3);
-        var y = new DenseTensor<float>(new float[] { 4f, 5f, 6f }, 3);
+        var x = new DenseTensor<float>([1f, 2f, 3f], 3);
+        var y = new DenseTensor<float>([4f, 5f, 6f], 3);
 
         var z = TensorUtils.ElementwiseAdd(x, y);
 
@@ -85,8 +85,8 @@ public class TensorUtilsTests
     [Fact]
     public void ElementwiseSub_ReturnsCorrectDifference()
     {
-        var x = new DenseTensor<float>(new float[] { 10f, 7f, 3f }, 3);
-        var y = new DenseTensor<float>(new float[] { 1f,  2f, 3f }, 3);
+        var x = new DenseTensor<float>([10f, 7f, 3f], 3);
+        var y = new DenseTensor<float>([1f,  2f, 3f], 3);
 
         var z = TensorUtils.ElementwiseSub(x, y);
 
@@ -98,8 +98,8 @@ public class TensorUtilsTests
     [Fact]
     public void ElementwiseMul_ReturnsCorrectProduct()
     {
-        var x = new DenseTensor<float>(new float[] { 2f, 3f, 4f }, 3);
-        var y = new DenseTensor<float>(new float[] { 5f, 6f, 7f }, 3);
+        var x = new DenseTensor<float>([2f, 3f, 4f], 3);
+        var y = new DenseTensor<float>([5f, 6f, 7f], 3);
 
         var z = TensorUtils.ElementwiseMul(x, y);
 
@@ -113,8 +113,8 @@ public class TensorUtilsTests
     [Fact]
     public void InPlaceAxpy_AddsScaledSource()
     {
-        var dst = new DenseTensor<float>(new float[] { 1f, 2f, 3f }, 3);
-        var src = new DenseTensor<float>(new float[] { 1f, 1f, 1f }, 3);
+        var dst = new DenseTensor<float>([1f, 2f, 3f], 3);
+        var src = new DenseTensor<float>([1f, 1f, 1f], 3);
 
         TensorUtils.InPlaceAxpy(2f, src, dst);
 
@@ -128,7 +128,7 @@ public class TensorUtilsTests
     [Fact]
     public void SumSquares_CorrectValue()
     {
-        var x = new DenseTensor<float>(new float[] { 3f, 4f }, 2);
+        var x = new DenseTensor<float>([3f, 4f], 2);
 
         float result = TensorUtils.SumSquares(x);
 
@@ -140,7 +140,7 @@ public class TensorUtilsTests
     [Fact]
     public void Argmax_ReturnsIndexOfMaximum()
     {
-        var x = new DenseTensor<float>(new float[] { 0.1f, 0.9f, 0.3f, 0.5f }, 4);
+        var x = new DenseTensor<float>([0.1f, 0.9f, 0.3f, 0.5f], 4);
 
         int idx = TensorUtils.Argmax(x);
 
@@ -153,7 +153,7 @@ public class TensorUtilsTests
     public void Transpose2D_KnownMatrix_CorrectResult()
     {
         // W = [[1,2,3],[4,5,6]]  (2×3)  →  W^T = [[1,4],[2,5],[3,6]]  (3×2)
-        var w = new DenseTensor<float>(new float[] { 1, 2, 3, 4, 5, 6 }, 2, 3);
+        var w = new DenseTensor<float>([1, 2, 3, 4, 5, 6], 2, 3);
 
         var wt = TensorUtils.Transpose2D(w);
 
@@ -172,8 +172,8 @@ public class TensorUtilsTests
     [Fact]
     public void Concat_TwoVectors_ConcatenatesCorrectly()
     {
-        var a = new DenseTensor<float>(new float[] { 1f, 2f }, 2);
-        var b = new DenseTensor<float>(new float[] { 3f, 4f, 5f }, 3);
+        var a = new DenseTensor<float>([1f, 2f], 2);
+        var b = new DenseTensor<float>([3f, 4f, 5f], 3);
 
         var result = TensorUtils.Concat([a, b]);
 
@@ -188,7 +188,7 @@ public class TensorUtilsTests
     [Fact]
     public void Clip_ClampsValuesWithinRange()
     {
-        var x = new DenseTensor<float>(new float[] { -2f, 0.5f, 3f }, 3);
+        var x = new DenseTensor<float>([-2f, 0.5f, 3f], 3);
 
         var z = TensorUtils.Clip(x, 0f, 1f);
 

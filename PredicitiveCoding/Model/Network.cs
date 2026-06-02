@@ -29,32 +29,9 @@ public sealed class Network : IDisposable
     {
         config.Validate();
         Configuration = config;
-        _store = new LayerStore(config.Path);
-        _store.WriteAll(BuildInitialLayers(rng));
+        _store = new LayerStore(config, rng);
     }
 
-    private Layer[] BuildInitialLayers(Random rng)
-    {
-        var layers = new Layer[Configuration.LayerSizes.Length];
-        for (int l = 0; l < layers.Length; l++)
-        {
-            int lowerSize = l > 0 ? Configuration.LayerSizes[l - 1] : 0;
-            var layer = new Layer
-            {
-                Index              = l,
-                Size               = Configuration.LayerSizes[l],
-                LowerSize          = lowerSize,
-                StateLearningRate  = Configuration.StateLearningRate,
-                WeightLearningRate = Configuration.WeightLearningRate,
-                WeightDecay        = Configuration.WeightDecay,
-                ActivationType     = Configuration.Activation,
-            };
-            layer.Initialize(rng);
-            if (Configuration.UseDiagonalPrecision) layer.InitDiagonalPrecision();
-            layers[l] = layer;
-        }
-        return layers;
-    }
 
     // ── Store helpers ─────────────────────────────────────────────────────────
 
