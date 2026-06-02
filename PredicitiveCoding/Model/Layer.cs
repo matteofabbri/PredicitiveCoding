@@ -1,4 +1,7 @@
+using System.Runtime.CompilerServices;
 using PredictiveCoding.Core;
+
+[assembly: InternalsVisibleTo("PredicitiveCoding.UnitTests")]
 
 namespace PredictiveCoding.Model;
 
@@ -35,8 +38,8 @@ public sealed class Layer
     public int LowerSize { get; init; }   // dimensionality of the layer below (0 if input)
 
     // ── Hyperparameters ───────────────────────────────────────────────────────
-    public float          StateLearningRate  { get; set; }
-    public float          WeightLearningRate { get; set; }
+    public float          StateLearningRate  { get; internal set; }
+    public float          WeightLearningRate { get; internal set; }
     public ActivationType ActivationType    { get; init; }
 
     // ── Bogacz (2017) precision and prior (eq. 6) ─────────────────────────────
@@ -51,7 +54,7 @@ public sealed class Layer
     ///
     /// Ignored when DiagonalPrecision is non-null.
     /// </summary>
-    public float Precision { get; set; } = 1f;
+    public float Precision { get; internal set; } = 1f;
 
     /// <summary>
     /// Π_l[i] : per-unit (diagonal) precision vector  [Size].
@@ -67,24 +70,24 @@ public sealed class Layer
     ///
     /// Null (default) → fall back to scalar <see cref="Precision"/>.
     /// </summary>
-    public DenseTensor<float>? DiagonalPrecision { get; set; }
+    public DenseTensor<float>? DiagonalPrecision { get; internal set; }
 
     /// <summary>
     /// λ_l : L2 weight decay coefficient (Huang &amp; Rao 2011, regularisation term λ||W||²).
     /// Applied during weight updates: ΔW -= λ · W.
     /// Default = 0 (no regularisation).
     /// </summary>
-    public float WeightDecay { get; set; } = 0f;
+    public float WeightDecay { get; internal set; } = 0f;
 
     /// <summary>
     /// v_p : prior mean for the top layer (Bogacz eq. 6: ε_v = Π_v (v − v_p)).
     /// Null (default) → flat prior (ε_top = 0, MLE inference).
     /// Set on the top-most layer to obtain proper Bayesian inference.
     /// </summary>
-    public DenseTensor<float>? PriorMean { get; set; }
+    public DenseTensor<float>? PriorMean { get; internal set; }
 
     // ── Flag ─────────────────────────────────────────────────────────────────
-    public bool IsClamped { get; set; }
+    public bool IsClamped { get; internal set; }
 
     // ── Latent state ─────────────────────────────────────────────────────────
     /// <summary>μ_l : current latent state  [Size]</summary>
