@@ -151,6 +151,42 @@ public sealed class Network : IDisposable
         return bestClass;
     }
 
+    // ── Inference trace ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Runs inference and returns the free energy F after every step.
+    /// The returned array has length <paramref name="inferenceSteps"/>.
+    /// Transient: weights are not modified.
+    /// </summary>
+    public float[] InferTrace(DenseTensor<float> input, int inferenceSteps)
+    {
+        var layers   = ReadAllLayers();
+        var flatInput = Flatten(input);
+        ClampLayer(layers, 0, flatInput);
+        layers[^1].IsClamped = false;
+
+        var energies = new float[inferenceSteps];
+        for (int step = 0; step < inferenceSteps; step++)
+        {
+            for (int l = layers.Length - 1; l >= 1; l--)
+                layers[l].ComputePrediction();
+
+            for (int l = 1; l < layers.Length; l++)
+                layers[l - 1].SetPredictionError(layers[l].Prediction);
+
+            layers[^1].SetPredictionError(null);
+
+            for (int l = 1; l < layers.Length; l++)
+            {
+                if (layers[l].IsClamped) continue;
+                layers[l].UpdateState(layers[l - 1].PredictionError, Configuration.StateLearningRate);
+            }
+
+            energies[step] = ComputeEnergyCore(layers);
+        }
+        return energies;
+    }
+
     // ── Energy ───────────────────────────────────────────────────────────────
 
     /// <summary>Global network energy F = ½ Σ_{l=0}^{L-2} ||ε_l||² loaded from store.</summary>

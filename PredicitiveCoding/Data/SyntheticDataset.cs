@@ -89,7 +89,8 @@ public sealed class SyntheticDataset : IDataset
         int   totalPerClass   = 200,
         float testFraction    = 0.2f,
         float noise           = 0.4f,
-        int   seed            = 42)
+        int   seed            = 42,
+        bool  verbose         = true)
     {
         var rng = new Random(seed);
 
@@ -143,8 +144,11 @@ public sealed class SyntheticDataset : IDataset
             [.. testInputs], [.. testLabels], inputDim, numClasses,
             $"Test ({numClasses}cl × {testPerClass}={testInputs.Count})");
 
-        Console.WriteLine($"[SyntheticDataset] {numClasses} classi, dim={inputDim}, noise={noise:F2}");
-        Console.WriteLine($"  Train: {train.TotalSamples}  |  Test: {test.TotalSamples}");
+        if (verbose)
+        {
+            Console.WriteLine($"[SyntheticDataset] {numClasses} classi, dim={inputDim}, noise={noise:F2}");
+            Console.WriteLine($"  Train: {train.TotalSamples}  |  Test: {test.TotalSamples}");
+        }
 
         return (train, test);
     }
