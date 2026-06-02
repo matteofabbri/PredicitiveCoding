@@ -34,14 +34,16 @@ namespace PredictiveCoding.Model;
 public sealed class Layer
 {
     // ── Structure ────────────────────────────────────────────────────────────
-    public int Index     { get; init; }   // index in network (0 = sensory)
-    public int Size      { get; init; }   // dimensionality of this layer
+    public int Index { get; init; }   // index in network (0 = sensory)
+
+    public int Size { get; init; }   // dimensionality of this layer
     public int LowerSize { get; init; }   // dimensionality of the layer below (0 if input)
 
     // ── Hyperparameters ───────────────────────────────────────────────────────
-    public float          StateLearningRate  { get; internal set; }
-    public float          WeightLearningRate { get; internal set; }
-    public ActivationType ActivationType    { get; init; }
+    public float StateLearningRate { get; internal set; }
+
+    public float WeightLearningRate { get; internal set; }
+    public ActivationType ActivationType { get; init; }
 
     // ── Bogacz (2017) precision and prior (eq. 6) ─────────────────────────────
 
@@ -88,13 +90,13 @@ public sealed class Layer
     /// Managed externally by <see cref="TemporalNetwork"/>; not persisted in
     /// <see cref="LayerStore"/> (it is transient working memory, not a weight).
     /// </summary>
-    public DenseTensor<float>? TemporalPrior     { get; internal set; }
+    public DenseTensor<float>? TemporalPrior { get; internal set; }
 
     /// <summary>
     /// Π_t : temporal precision — strength of the continuity pull toward the
     /// previous state <see cref="TemporalPrior"/>.  0 = disabled (default).
     /// </summary>
-    public float               TemporalPrecision { get; internal set; } = 0f;
+    public float TemporalPrecision { get; internal set; } = 0f;
 
     /// <summary>
     /// v_p : prior mean for the top layer (Bogacz eq. 6: ε_v = Π_v (v − v_p)).
@@ -139,28 +141,28 @@ public sealed class Layer
     /// </summary>
     internal void AllocateTensors(bool hasDiagonalPrecision = false, bool hasPriorMean = false)
     {
-        Mu              = DenseTensor<float>.Zeros(Size);
+        Mu = DenseTensor<float>.Zeros(Size);
         PredictionError = DenseTensor<float>.Zeros(Size);
         if (hasDiagonalPrecision) DiagonalPrecision = DenseTensor<float>.Zeros(Size);
-        if (hasPriorMean)         PriorMean         = DenseTensor<float>.Zeros(Size);
+        if (hasPriorMean) PriorMean = DenseTensor<float>.Zeros(Size);
         if (LowerSize == 0) return;
         GenerativeWeights = new DenseTensor<float>(LowerSize, Size);
-        Bias              = DenseTensor<float>.Zeros(LowerSize);
-        PreActivation     = DenseTensor<float>.Zeros(LowerSize);
-        Prediction        = DenseTensor<float>.Zeros(LowerSize);
+        Bias = DenseTensor<float>.Zeros(LowerSize);
+        PreActivation = DenseTensor<float>.Zeros(LowerSize);
+        Prediction = DenseTensor<float>.Zeros(LowerSize);
     }
 
     public void Initialize(Random rng)
     {
-        Mu              = RandomUtils.SampleNormal([Size], 0f, 0.01f, rng);
+        Mu = RandomUtils.SampleNormal([Size], 0f, 0.01f, rng);
         PredictionError = DenseTensor<float>.Zeros(Size);
 
         if (LowerSize == 0) return;
 
         GenerativeWeights = RandomUtils.InitWeights(Size, LowerSize, ActivationType, rng);
-        Bias              = RandomUtils.ZeroBias(LowerSize);
-        PreActivation     = DenseTensor<float>.Zeros(LowerSize);
-        Prediction        = DenseTensor<float>.Zeros(LowerSize);
+        Bias = RandomUtils.ZeroBias(LowerSize);
+        PreActivation = DenseTensor<float>.Zeros(LowerSize);
+        Prediction = DenseTensor<float>.Zeros(LowerSize);
     }
 
     /// <summary>
@@ -243,8 +245,8 @@ public sealed class Layer
         DenseTensor<float> grad;
         if (lowerLayerError != null)
         {
-            var fPrime  = ActivationFn.Derivative(PreActivation!, Prediction, ActivationType);
-            var delta   = TensorUtils.ElementwiseMul(fPrime, lowerLayerError);
+            var fPrime = ActivationFn.Derivative(PreActivation!, Prediction, ActivationType);
+            var delta = TensorUtils.ElementwiseMul(fPrime, lowerLayerError);
             var wTDelta = TensorUtils.MatVecMulT(GenerativeWeights, delta);
             grad = TensorUtils.ElementwiseSub(PredictionError, wTDelta);
         }
@@ -285,11 +287,11 @@ public sealed class Layer
     {
         if (GenerativeWeights == null || lowerLayerError == null) return;
 
-        var fPrime   = ActivationFn.Derivative(PreActivation!, Prediction, ActivationType);
-        var delta    = TensorUtils.ElementwiseMul(fPrime, lowerLayerError);
-        var deltaW   = TensorUtils.OuterProduct(delta, Mu);
+        var fPrime = ActivationFn.Derivative(PreActivation!, Prediction, ActivationType);
+        var delta = TensorUtils.ElementwiseMul(fPrime, lowerLayerError);
+        var deltaW = TensorUtils.OuterProduct(delta, Mu);
         TensorUtils.InPlaceAxpy(etaWeight, deltaW, GenerativeWeights);
-        TensorUtils.InPlaceAxpy(etaWeight, delta,  Bias!);
+        TensorUtils.InPlaceAxpy(etaWeight, delta, Bias!);
 
         // L2 regularisation: ΔW -= λ · W  (Huang & Rao 2011, loss term λ||W||²)
         if (WeightDecay > 0f)
@@ -365,24 +367,24 @@ public sealed class Layer
     {
         var c = new Layer
         {
-            Index              = Index,
-            Size               = Size,
-            LowerSize          = LowerSize,
-            StateLearningRate  = StateLearningRate,
+            Index = Index,
+            Size = Size,
+            LowerSize = LowerSize,
+            StateLearningRate = StateLearningRate,
             WeightLearningRate = WeightLearningRate,
-            WeightDecay        = WeightDecay,
-            ActivationType     = ActivationType,
-            Precision          = Precision,
-            IsClamped          = IsClamped,
-            Mu                 = Mu.Clone(),
-            PredictionError    = PredictionError.Clone(),
+            WeightDecay = WeightDecay,
+            ActivationType = ActivationType,
+            Precision = Precision,
+            IsClamped = IsClamped,
+            Mu = Mu.Clone(),
+            PredictionError = PredictionError.Clone(),
         };
         if (GenerativeWeights != null) c.GenerativeWeights = GenerativeWeights.Clone();
-        if (Bias              != null) c.Bias              = Bias.Clone();
-        if (PreActivation     != null) c.PreActivation     = PreActivation.Clone();
-        if (Prediction        != null) c.Prediction        = Prediction.Clone();
+        if (Bias != null) c.Bias = Bias.Clone();
+        if (PreActivation != null) c.PreActivation = PreActivation.Clone();
+        if (Prediction != null) c.Prediction = Prediction.Clone();
         if (DiagonalPrecision != null) c.DiagonalPrecision = DiagonalPrecision.Clone();
-        if (PriorMean         != null) c.PriorMean         = PriorMean.Clone();
+        if (PriorMean != null) c.PriorMean = PriorMean.Clone();
         return c;
     }
 
@@ -419,10 +421,10 @@ public sealed class Layer
         sb.Append(LowerSize > 0 ? $" LowerSize={LowerSize}" : " (input)");
         sb.Append($" Act={ActivationType}");
         if (DiagonalPrecision != null) sb.Append(" [diag-Π]");
-        else if (Precision != 1f)      sb.Append($" Π={Precision:F3}");
-        if (WeightDecay > 0f)  sb.Append($" λ={WeightDecay:G3}");
+        else if (Precision != 1f) sb.Append($" Π={Precision:F3}");
+        if (WeightDecay > 0f) sb.Append($" λ={WeightDecay:G3}");
         if (PriorMean != null) sb.Append(" [has prior]");
-        if (IsClamped)         sb.Append(" [CLAMPED]");
+        if (IsClamped) sb.Append(" [CLAMPED]");
         return sb.ToString();
     }
 }

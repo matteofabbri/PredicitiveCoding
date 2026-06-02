@@ -385,6 +385,127 @@ public sealed class Network : IDisposable
         finally { _rwLock.ExitReadLock(); }
     }
 
+    /// <summary>
+    /// Probes the temporal free energy without updating any weights.
+    /// Equivalent to <see cref="InferEnergy"/> but injects temporal priors first.
+    /// Used by <see cref="TemporalMixtureOfExperts"/> to compute per-expert gate
+    /// weights before deciding how much each expert should learn.
+    /// </summary>
+    public float InferEnergyTemporal(
+        DenseTensor<float>    input,
+        DenseTensor<float>    label,
+        int                   inferenceSteps,
+        DenseTensor<float>[]? temporalPriors,
+        float                 temporalPrecision)
+    {
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            if (temporalPriors != null)
+                InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+            InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+            return ComputeEnergyCore(layers);
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
+    /// <summary>
+    /// Gated temporal learning step for <see cref="TemporalMixtureOfExperts"/>.
+    /// Injects temporal priors, runs inference, then scales the weight update by
+    /// <paramref name="gateWeight"/>.  When <paramref name="gateWeight"/> == 0 the
+    /// weight update is skipped (pure temporal context advance).
+    /// Returns the post-inference hidden states and free energy.
+    /// </summary>
+    public (DenseTensor<float>[] hiddenStates, float energy) LearnTemporalGated(
+        DenseTensor<float>    input,
+        DenseTensor<float>    label,
+        int                   inferenceSteps,
+        DenseTensor<float>[]? temporalPriors,
+        float                 temporalPrecision,
+        float                 gateWeight)
+    {
+        _rwLock.EnterWriteLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            if (temporalPriors != null)
+                InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+            InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+            float energy = ComputeEnergyCore(layers);
+
+            if (gateWeight > 0f)
+            {
+                float effectiveLr = Configuration.WeightLearningRate * gateWeight;
+                for (int l = 1; l < layers.Length; l++)
+                {
+                    layers[l].UpdateWeights(layers[l - 1].PredictionError, effectiveLr);
+                    _store.Write(l, layers[l]);
+                }
+            }
+
+            return (ExtractHiddenStates(layers), energy);
+        }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
+    /// <summary>
+    /// Temporal minimum-energy classification that also returns the winning free
+    /// energy.  Combines <see cref="PredictTemporal"/> and energy reporting in a
+    /// single write-lock pass.
+    /// </summary>
+    public (int cls, float energy) PredictWithEnergyTemporal(
+        DenseTensor<float>    input,
+        int                   inferenceSteps,
+        DenseTensor<float>[]? temporalPriors,
+        float                 temporalPrecision)
+    {
+        _rwLock.EnterWriteLock();
+        try
+        {
+            var   layers         = ReadAllLayers();
+            int   numClasses     = layers[^1].Size;
+            float bestEnergy     = float.MaxValue;
+            int   bestClass      = 0;
+            var   candidateLabel = DenseTensor<float>.Zeros(numClasses);
+            var   flatInput      = Flatten(input);
+
+            for (int c = 0; c < numClasses; c++)
+            {
+                for (int l = 1; l < layers.Length - 1; l++)
+                    layers[l].Mu.Zero();
+
+                if (temporalPriors != null)
+                    InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+
+                candidateLabel.Zero();
+                candidateLabel.Buffer[c] = 1f;
+                InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
+
+                float energy = ComputeEnergyCore(layers);
+                if (energy < bestEnergy) { bestEnergy = energy; bestClass = c; }
+            }
+
+            // Re-run for winner so persisted state reflects the best explanation.
+            for (int l = 1; l < layers.Length - 1; l++)
+                layers[l].Mu.Zero();
+
+            if (temporalPriors != null)
+                InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+
+            candidateLabel.Zero();
+            candidateLabel.Buffer[bestClass] = 1f;
+            InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
+
+            float winnerEnergy = ComputeEnergyCore(layers);
+            for (int l = 0; l < layers.Length; l++)
+                _store.Write(l, layers[l]);
+
+            return (bestClass, winnerEnergy);
+        }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
     // ── Temporal helpers ─────────────────────────────────────────────────────
 
     private static void InjectTemporalPriors(
