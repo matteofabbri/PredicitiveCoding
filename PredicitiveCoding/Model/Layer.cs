@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using PredictiveCoding.Core;
+using PredictiveCoding.Networks;
 
 [assembly: InternalsVisibleTo("PredicitiveCoding.UnitTests")]
 

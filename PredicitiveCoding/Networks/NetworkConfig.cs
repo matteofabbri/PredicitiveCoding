@@ -1,6 +1,6 @@
 using PredictiveCoding.Core;
 
-namespace PredictiveCoding.Model;
+namespace PredictiveCoding.Networks;
 
 public sealed record NetworkConfig
 {

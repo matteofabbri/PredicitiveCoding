@@ -1,4 +1,5 @@
 using FASTER.core;
+using PredictiveCoding.Networks;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 

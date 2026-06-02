@@ -4,6 +4,7 @@ using PredictiveCoding.Logging;
 using PredictiveCoding.Model;
 using PredictiveCoding.Training;
 using PredictiveCoding.Main.Demos;
+using PredictiveCoding.Networks;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 Console.WriteLine("╔══════════════════════════════════════════════════════╗");
@@ -96,7 +97,7 @@ var net = new Network(cfg.Network, rng);
 var logger    = new MetricLogger(verbose: true);
 using var csv = new CsvLogger(cfg.CsvOutputPath ?? "metrics.csv");
 
-PCTrainer.Train(net, trainSet, testSet, cfg, logger, csv);
+Trainer.Train(net, trainSet, testSet, cfg, logger, csv);
 
 // ── 5. Post-training analysis ─────────────────────────────────────────────────
 

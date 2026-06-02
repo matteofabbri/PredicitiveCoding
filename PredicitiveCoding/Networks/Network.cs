@@ -1,6 +1,7 @@
 using PredictiveCoding.Core;
+using PredictiveCoding.Model;
 
-namespace PredictiveCoding.Model;
+namespace PredictiveCoding.Networks;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Network  —  Hierarchical Predictive Coding network

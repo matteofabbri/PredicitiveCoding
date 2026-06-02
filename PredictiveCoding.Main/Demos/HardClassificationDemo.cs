@@ -3,6 +3,7 @@ using PredictiveCoding.Core;
 using PredictiveCoding.Data;
 using PredictiveCoding.Logging;
 using PredictiveCoding.Model;
+using PredictiveCoding.Networks;
 using PredictiveCoding.Training;
 
 namespace PredictiveCoding.Main.Demos;
@@ -175,7 +176,7 @@ public static class HardClassificationDemo
         for (int epoch = 1; epoch <= cfg.Epochs; epoch++)
         {
             sw.Restart();
-            var (trainE, _) = PCTrainer.TrainEpoch(net, train, cfg, trainRng);
+            var (trainE, _) = Trainer.TrainEpoch(net, train, cfg, trainRng);
 
             // Persist accumulated dirty writes once per epoch
             net.FlushStore();
@@ -185,7 +186,7 @@ public static class HardClassificationDemo
 
             if (doEval)
             {
-                var (testE, testAcc) = PCTrainer.Evaluate(net, evalSet, cfg);
+                var (testE, testAcc) = Trainer.Evaluate(net, evalSet, cfg);
                 double elapsed = sw.Elapsed.TotalSeconds;
 
                 var r = new EpochResult(epoch, trainE, testE, testAcc, elapsed);

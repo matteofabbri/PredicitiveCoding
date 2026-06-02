@@ -2,6 +2,7 @@ using PredictiveCoding.Core;
 using PredictiveCoding.Data;
 using PredictiveCoding.Logging;
 using PredictiveCoding.Model;
+using PredictiveCoding.Networks;
 using PredictiveCoding.Training;
 
 namespace PredictiveCoding.Main.Demos;
@@ -137,7 +138,7 @@ public static class MillidgeReview2022Demo
         foreach (int T in steps)
         {
             var cfg = baselineCfg with { InferenceSteps = T };
-            var (energy, acc) = PCTrainer.Evaluate(net, testSet, cfg);
+            var (energy, acc) = Trainer.Evaluate(net, testSet, cfg);
             string bar = AsciiBar(acc, 1f, width: 25);
             Console.WriteLine($"  T={T,3}   {acc * 100,8:F1}%   {energy,10:F3}   {bar}");
         }
@@ -178,7 +179,7 @@ public static class MillidgeReview2022Demo
             using var net = TrainNetwork(layers, train, epochs: 30, inferenceSteps: 20, label);
 
             var cfg        = new TrainingConfig { InferenceSteps = 20 };
-            var (_, acc)   = PCTrainer.Evaluate(net, test, cfg);
+            var (_, acc)   = Trainer.Evaluate(net, test, cfg);
             string arch    = "[" + string.Join(", ", layers) + "]";
             string bar     = AsciiBar(acc, 1f, width: 22);
             Console.WriteLine($"  {label,-12}  {arch,-28}  {acc * 100,8:F1}%   {bar}");
@@ -222,7 +223,7 @@ public static class MillidgeReview2022Demo
         foreach (float noise in noiseValues)
         {
             var (_, testNoise) = MakeDataset(noise: noise, seed: Seed);
-            var (_, acc) = PCTrainer.Evaluate(net, testNoise, cfg);
+            var (_, acc) = Trainer.Evaluate(net, testNoise, cfg);
             string marker = Math.Abs(noise - BaseNoise) < 0.01f ? "  ← train noise" : "";
             string bar    = AsciiBar(acc, 1f, width: 25);
             Console.WriteLine($"  σ={noise,5:F2}   {acc * 100,8:F1}%   {bar}{marker}");
@@ -334,7 +335,7 @@ public static class MillidgeReview2022Demo
         // Minimal training loop (no evaluation in the loop for speed).
         var trainRng = new Random(Seed);
         for (int epoch = 1; epoch <= epochs; epoch++)
-            PCTrainer.TrainEpoch(net, trainSet, cfg, trainRng);
+            Trainer.TrainEpoch(net, trainSet, cfg, trainRng);
 
         Console.WriteLine(" done.");
 

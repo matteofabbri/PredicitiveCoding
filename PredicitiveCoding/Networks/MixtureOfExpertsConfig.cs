@@ -1,4 +1,4 @@
-namespace PredictiveCoding.Model;
+namespace PredictiveCoding.Networks;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MixtureOfExpertsConfig

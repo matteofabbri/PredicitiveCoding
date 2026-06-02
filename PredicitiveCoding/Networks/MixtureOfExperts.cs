@@ -1,6 +1,6 @@
 using PredictiveCoding.Core;
 
-namespace PredictiveCoding.Model;
+namespace PredictiveCoding.Networks;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MixtureOfExperts  —  PC network ensemble with energy-based gating

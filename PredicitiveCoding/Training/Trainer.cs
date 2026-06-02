@@ -2,7 +2,7 @@ using System.Diagnostics;
 using PredictiveCoding.Core;
 using PredictiveCoding.Data;
 using PredictiveCoding.Logging;
-using PredictiveCoding.Model;
+using PredictiveCoding.Networks;
 
 namespace PredictiveCoding.Training;
 
@@ -32,7 +32,7 @@ namespace PredictiveCoding.Training;
 //   l'errore di predizione?" (Friston 2005, Free Energy Principle).
 // ─────────────────────────────────────────────────────────────────────────────
 
-public sealed class PCTrainer
+public sealed class Trainer
 {
     // ── Training epoch ────────────────────────────────────────────────────────
 
