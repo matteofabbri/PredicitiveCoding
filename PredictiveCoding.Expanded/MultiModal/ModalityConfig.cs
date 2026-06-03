@@ -1,6 +1,6 @@
 using PredictiveCoding.Networks;
 
-namespace PredictiveCoding.Brain.MultiModal;
+namespace PredictiveCoding.Expanded.MultiModal;
 
 /// <summary>
 /// Configuration for a single sensory modality within a <see cref="MultiModalNetwork"/>.

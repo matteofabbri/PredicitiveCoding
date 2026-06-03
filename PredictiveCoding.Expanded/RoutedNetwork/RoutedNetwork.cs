@@ -1,7 +1,7 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Networks;
 
-namespace PredictiveCoding.Brain.RoutedNetwork;
+namespace PredictiveCoding.Expanded.RoutedNetwork;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RoutedNetwork  —  PC ensemble with learned router + PE-based gating

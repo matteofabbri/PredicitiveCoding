@@ -1,6 +1,6 @@
 using PredictiveCoding.Networks;
 
-namespace PredictiveCoding.Brain.MultiModal;
+namespace PredictiveCoding.Expanded.MultiModal;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MultiModalNetworkConfig  —  configuration for a multi-sensory PCN

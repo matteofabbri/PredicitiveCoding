@@ -1,7 +1,7 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Networks;
 
-namespace PredictiveCoding.Brain.MemoryNetwork;
+namespace PredictiveCoding.Expanded.MemoryNetwork;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MemoryNetwork  —  PC network augmented with differentiable episodic memory

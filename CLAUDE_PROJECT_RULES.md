@@ -43,7 +43,7 @@
 |------|-------------|
 | `PrediciiveCoding.slnx` | Solution file |
 | `PredicitiveCoding/` | Core PC library — layers, networks, training, data, logging |
-| `PredictiveCoding.Brain/` | Brain-inspired extensions (generative, memory, multi-modal, routed) |
+| `PredictiveCoding.Expanded/` | Expanded PC extensions (generative, memory, multi-modal, routed) |
 | `PredictiveCoding.Main/` | Demo entry point and CIFAR-10 runner |
 | `PredicitiveCoding.UnitTests/` | Unit test suite (xUnit) |
 | `PredictiveCoding.Tests/` | Integration test harness (WinUI) |
@@ -83,20 +83,20 @@
 | `PredicitiveCoding/Logging/CsvLogger.cs` | CSV export |
 | `PredicitiveCoding/Logging/EpochMetrics.cs` | `EpochMetrics` record |
 
-### Brain module (`PredictiveCoding.Brain/`)
+### Expanded module (`PredictiveCoding.Expanded/`)
 
 | Path | Key types |
 |------|-----------|
-| `PredictiveCoding.Brain/GenerativeNetwork/GenerativeNetwork.cs` | VAE-like unsupervised PC — Encode, Decode, Sample |
-| `PredictiveCoding.Brain/GenerativeNetwork/GenerativeNetworkConfig.cs` | `GenerativeNetworkConfig` |
-| `PredictiveCoding.Brain/MemoryNetwork/MemoryNetwork.cs` | Hippocampal memory prior — episodic retrieval + top-layer bias |
-| `PredictiveCoding.Brain/MemoryNetwork/MemoryBank.cs` | `MemoryBank` — cosine-similarity key-value store |
-| `PredictiveCoding.Brain/MemoryNetwork/MemoryNetworkConfig.cs` | `MemoryNetworkConfig` |
-| `PredictiveCoding.Brain/MultiModal/MultiModalNetwork.cs` | N-modality encoders + shared associative PCN |
-| `PredictiveCoding.Brain/MultiModal/MultiModalNetworkConfig.cs` | `MultiModalNetworkConfig` |
-| `PredictiveCoding.Brain/MultiModal/ModalityConfig.cs` | Per-modality config |
-| `PredictiveCoding.Brain/RoutedNetwork/RoutedNetwork.cs` | Router PCN — amortized gating |
-| `PredictiveCoding.Brain/RoutedNetwork/RoutedNetworkConfig.cs` | `RoutedNetworkConfig` |
+| `PredictiveCoding.Expanded/GenerativeNetwork/GenerativeNetwork.cs` | VAE-like unsupervised PC — Encode, Decode, Sample |
+| `PredictiveCoding.Expanded/GenerativeNetwork/GenerativeNetworkConfig.cs` | `GenerativeNetworkConfig` |
+| `PredictiveCoding.Expanded/MemoryNetwork/MemoryNetwork.cs` | Hippocampal memory prior — episodic retrieval + top-layer bias |
+| `PredictiveCoding.Expanded/MemoryNetwork/MemoryBank.cs` | `MemoryBank` — cosine-similarity key-value store |
+| `PredictiveCoding.Expanded/MemoryNetwork/MemoryNetworkConfig.cs` | `MemoryNetworkConfig` |
+| `PredictiveCoding.Expanded/MultiModal/MultiModalNetwork.cs` | N-modality encoders + shared associative PCN |
+| `PredictiveCoding.Expanded/MultiModal/MultiModalNetworkConfig.cs` | `MultiModalNetworkConfig` |
+| `PredictiveCoding.Expanded/MultiModal/ModalityConfig.cs` | Per-modality config |
+| `PredictiveCoding.Expanded/RoutedNetwork/RoutedNetwork.cs` | Router PCN — amortized gating |
+| `PredictiveCoding.Expanded/RoutedNetwork/RoutedNetworkConfig.cs` | `RoutedNetworkConfig` |
 
 ### Main application (`PredictiveCoding.Main/`)
 
@@ -140,10 +140,10 @@
 | `PredictiveCoding.Training` | `Trainer`, `TrainingConfig`, `Batch` |
 | `PredictiveCoding.Data` | `IDataset`, `SyntheticDataset` |
 | `PredictiveCoding.Logging` | `MetricLogger`, `CsvLogger`, `EpochMetrics` |
-| `PredictiveCoding.Brain.GenerativeNetwork` | `GenerativeNetwork`, `GenerativeNetworkConfig` |
-| `PredictiveCoding.Brain.MemoryNetwork` | `MemoryNetwork`, `MemoryBank`, `MemoryNetworkConfig` |
-| `PredictiveCoding.Brain.MultiModal` | `MultiModalNetwork`, `ModalityConfig`, `MultiModalNetworkConfig` |
-| `PredictiveCoding.Brain.RoutedNetwork` | `RoutedNetwork`, `RoutedNetworkConfig`, `RoutedPrediction` |
+| `PredictiveCoding.Expanded.GenerativeNetwork` | `GenerativeNetwork`, `GenerativeNetworkConfig` |
+| `PredictiveCoding.Expanded.MemoryNetwork` | `MemoryNetwork`, `MemoryBank`, `MemoryNetworkConfig` |
+| `PredictiveCoding.Expanded.MultiModal` | `MultiModalNetwork`, `ModalityConfig`, `MultiModalNetworkConfig` |
+| `PredictiveCoding.Expanded.RoutedNetwork` | `RoutedNetwork`, `RoutedNetworkConfig`, `RoutedPrediction` |
 
 ### Core inference loop (`Network`)
 

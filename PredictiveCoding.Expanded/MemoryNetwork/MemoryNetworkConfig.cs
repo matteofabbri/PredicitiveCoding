@@ -1,6 +1,6 @@
 using PredictiveCoding.Networks;
 
-namespace PredictiveCoding.Brain.MemoryNetwork;
+namespace PredictiveCoding.Expanded.MemoryNetwork;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MemoryNetworkConfig  —  configuration for PCN + episodic memory

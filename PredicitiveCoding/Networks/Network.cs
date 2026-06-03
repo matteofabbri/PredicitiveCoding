@@ -774,7 +774,7 @@ public sealed class Network : IDisposable
     /// <summary>
     /// Runs free inference (top layer unclamped) and returns a clone of
     /// μ_{L-1} after convergence.  Used as an encoder by
-    /// <c>Brain.GenerativeNetwork</c> and <c>Brain.MultiModalNetwork</c>.
+    /// <c>Expanded.GenerativeNetwork</c> and <c>Expanded.MultiModalNetwork</c>.
     /// Transient: weights are not modified.
     /// </summary>
     public DenseTensor<float> InferGetTop(DenseTensor<float> input, int inferenceSteps)
@@ -874,10 +874,75 @@ public sealed class Network : IDisposable
     }
 
     /// <summary>
+    /// Temporal unsupervised learning step (encoder + dynamics): injects the
+    /// previous timestep's hidden states as temporal priors, runs inference with
+    /// the top layer FREE (no label clamp), updates all generative weights via the
+    /// Hebbian rule, and returns both the converged top latent μ_{L-1} and the new
+    /// hidden states for the next timestep.
+    ///
+    /// This is the temporal counterpart of <see cref="LearnUnsupervised"/> and the
+    /// unsupervised counterpart of <see cref="LearnTemporal"/>.  It is the building
+    /// block for <c>Expanded.DeepRecurrent.DeepRecurrentNetwork</c>, where each stage
+    /// must (a) learn to encode its input, (b) carry temporal context across steps,
+    /// and (c) emit a top latent that feeds the stage above.
+    /// </summary>
+    public (DenseTensor<float> topLatent, DenseTensor<float>[] hiddenStates) LearnUnsupervisedTemporal(
+        DenseTensor<float>    input,
+        int                   inferenceSteps,
+        DenseTensor<float>[]? temporalPriors,
+        float                 temporalPrecision)
+    {
+        _rwLock.EnterWriteLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            if (temporalPriors != null)
+                InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+
+            InferCore(layers, input, inferenceSteps, clampTop: false, label: null);
+
+            for (int l = 1; l < layers.Length; l++)
+            {
+                layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
+                _store.Write(l, layers[l]);
+            }
+
+            return (layers[^1].Mu.Clone(), ExtractHiddenStates(layers));
+        }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
+    /// <summary>
+    /// Temporal encoder probe: injects the previous timestep's hidden states as
+    /// temporal priors, runs free inference (top layer unclamped) and returns the
+    /// converged top latent μ_{L-1} together with the new hidden states.
+    /// Transient — no weights are modified.  Used by
+    /// <c>Expanded.DeepRecurrent.DeepRecurrentNetwork</c> during evaluation to roll
+    /// the temporal context forward while feeding latents up the cascade.
+    /// </summary>
+    public (DenseTensor<float> topLatent, DenseTensor<float>[] hiddenStates) InferGetTopTemporal(
+        DenseTensor<float>    input,
+        int                   inferenceSteps,
+        DenseTensor<float>[]? temporalPriors,
+        float                 temporalPrecision)
+    {
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            if (temporalPriors != null)
+                InjectTemporalPriors(layers, temporalPriors, temporalPrecision);
+            InferCore(layers, input, inferenceSteps, clampTop: false, label: null);
+            return (layers[^1].Mu.Clone(), ExtractHiddenStates(layers));
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
+    /// <summary>
     /// Sets (or clears) the <see cref="Model.Layer.PriorMean"/> and
     /// <see cref="Model.Layer.Precision"/> of the top layer.
     /// Pass <c>null</c> to restore a flat (uninformative) prior.
-    /// Used by <c>Brain.MemoryNetwork</c> to inject memory-retrieved priors
+    /// Used by <c>Expanded.MemoryNetwork</c> to inject memory-retrieved priors
     /// before inference without re-creating the network.
     /// </summary>
     public void SetTopLayerPrior(DenseTensor<float>? prior, float precision = 1f)

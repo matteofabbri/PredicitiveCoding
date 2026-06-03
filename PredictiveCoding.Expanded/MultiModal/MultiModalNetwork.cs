@@ -1,7 +1,7 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Networks;
 
-namespace PredictiveCoding.Brain.MultiModal;
+namespace PredictiveCoding.Expanded.MultiModal;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MultiModalNetwork  —  multi-sensory PCN with cross-modal completion

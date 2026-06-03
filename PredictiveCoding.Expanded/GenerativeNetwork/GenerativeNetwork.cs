@@ -1,7 +1,7 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Networks;
 
-namespace PredictiveCoding.Brain.GenerativeNetwork;
+namespace PredictiveCoding.Expanded.GenerativeNetwork;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GenerativeNetwork  —  biologically-plausible VAE without backprop

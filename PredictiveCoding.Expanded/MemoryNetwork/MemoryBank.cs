@@ -1,4 +1,4 @@
-namespace PredictiveCoding.Brain.MemoryNetwork;
+namespace PredictiveCoding.Expanded.MemoryNetwork;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MemoryBank  —  fixed-capacity associative key-value memory

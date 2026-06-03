@@ -1,6 +1,6 @@
 using PredictiveCoding.Networks;
 
-namespace PredictiveCoding.Brain.RoutedNetwork;
+namespace PredictiveCoding.Expanded.RoutedNetwork;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RoutedNetworkConfig  —  configuration for Routing-by-Prediction-Error

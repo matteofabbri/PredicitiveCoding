@@ -1,6 +1,6 @@
 using PredictiveCoding.Networks;
 
-namespace PredictiveCoding.Brain.GenerativeNetwork;
+namespace PredictiveCoding.Expanded.GenerativeNetwork;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GenerativeNetworkConfig  —  configuration for a PC-native generative model
