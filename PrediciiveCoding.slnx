@@ -2,5 +2,7 @@
   <Project Path="PredicitiveCoding.UnitTests/PredicitiveCoding.UnitTests.csproj" />
   <Project Path="PredicitiveCoding/PredictiveCoding.csproj" />
   <Project Path="PredictiveCoding.Expanded/PredictiveCoding.Expanded.csproj" />
+  <Project Path="PredictiveCoding.Cortex/PredictiveCoding.Cortex.csproj" />
+  <Project Path="PredictiveCoding.CortexApp/PredictiveCoding.CortexApp.csproj" />
   <Project Path="PredictiveCoding.Main/PredictiveCoding.Main.csproj" Id="e8a35ce4-78ad-497a-a9a5-6099d702940c" />
 </Solution>

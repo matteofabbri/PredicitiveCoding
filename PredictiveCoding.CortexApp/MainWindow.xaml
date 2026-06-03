@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="PredictiveCoding.CortexApp.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:PredictiveCoding.CortexApp"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="Predictive Coding — Visual Cortex">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="Hierarchical Predictive-Coding Visual Cortex"
+                       Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       TextWrapping="Wrap"
+                       Text="V1 (weight-shared retinotopic columns) → V2→V4→IT (deep modular hierarchy) → readout. Trains on synthetic shapes, then classifies and reconstructs a noisy test image — all by local predictive coding, no backprop." />
+        </StackPanel>
+
+        <!-- Controls -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <NumberBox x:Name="EpochsBox" Header="Epochs" Value="15"
+                       Minimum="1" Maximum="200" SpinButtonPlacementMode="Compact" Width="120" />
+            <NumberBox x:Name="StepsBox" Header="Inference steps" Value="8"
+                       Minimum="1" Maximum="100" SpinButtonPlacementMode="Compact" Width="140" />
+            <Button x:Name="RunButton" Content="Run Visual Cortex" Click="RunButton_Click"
+                    VerticalAlignment="Bottom" Style="{StaticResource AccentButtonStyle}" />
+            <ProgressRing x:Name="Busy" IsActive="False" Width="24" Height="24" VerticalAlignment="Bottom" />
+        </StackPanel>
+
+        <!-- Status -->
+        <TextBlock Grid.Row="2" x:Name="StatusText"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   Text="Ready." />
+
+        <!-- Results -->
+        <Grid Grid.Row="3" ColumnSpacing="24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Spacing="6">
+                <TextBlock Text="Input (test image)" FontWeight="SemiBold" />
+                <Border BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="6">
+                    <Image x:Name="InputImage" Width="192" Height="192" Stretch="Uniform" />
+                </Border>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Spacing="6">
+                <TextBlock Text="Top-down reconstruction" FontWeight="SemiBold" />
+                <Border BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="6">
+                    <Image x:Name="ReconImage" Width="192" Height="192" Stretch="Uniform" />
+                </Border>
+            </StackPanel>
+
+            <Border Grid.Column="2" Padding="16" CornerRadius="6"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    VerticalAlignment="Top">
+                <TextBlock x:Name="MetricsText" FontFamily="Consolas" TextWrapping="Wrap"
+                           Text="Run the model to see results." />
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

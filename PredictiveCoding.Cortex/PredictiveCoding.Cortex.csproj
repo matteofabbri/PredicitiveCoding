@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PredictiveCoding.Cortex</RootNamespace>
+    <AssemblyName>PredictiveCoding.Cortex</AssemblyName>
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Expanded\PredictiveCoding.Expanded.csproj" />
+  </ItemGroup>
+
+</Project>
