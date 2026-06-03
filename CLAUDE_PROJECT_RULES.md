@@ -62,18 +62,7 @@
 | `PredicitiveCoding/Model/LayerSerializer.cs` | Serialization for FASTER checkpoints |
 | `PredicitiveCoding/Networks/Network.cs` | `Network` — base hierarchical PC network |
 | `PredicitiveCoding/Networks/NetworkConfig.cs` | `NetworkConfig` record |
-| `PredicitiveCoding/Networks/ResidualNetwork.cs` | `ResidualNetwork` — 2-hop skip connections |
-| `PredicitiveCoding/Networks/ResidualNetworkConfig.cs` | `ResidualNetworkConfig` |
 | `PredicitiveCoding/Networks/TemporalNetwork.cs` | `TemporalNetwork` — carries μ^{t-1} across steps |
-| `PredicitiveCoding/Networks/AttentiveNetwork.cs` | `AttentiveNetwork` — per-unit learnable attention gates |
-| `PredicitiveCoding/Networks/MixtureOfExperts.cs` | `MixtureOfExperts` — energy-based gating |
-| `PredicitiveCoding/Networks/MixtureOfExpertsConfig.cs` | `MixtureOfExpertsConfig` |
-| `PredicitiveCoding/Networks/TemporalMixtureOfExperts.cs` | `TemporalMixtureOfExperts` |
-| `PredicitiveCoding/Networks/TemporalMoEConfig.cs` | `TemporalMoEConfig` |
-| `PredicitiveCoding/Networks/EnsembleNetwork.cs` | `EnsembleNetwork` — Bayesian model averaging |
-| `PredicitiveCoding/Networks/EnsembleConfig.cs` | `EnsembleConfig` |
-| `PredicitiveCoding/Networks/RoutedNetwork.cs` | `RoutedNetwork` — learned router + energy gating |
-| `PredicitiveCoding/Networks/RoutedNetworkConfig.cs` | `RoutedNetworkConfig` |
 | `PredicitiveCoding/Training/Trainer.cs` | `Trainer` — epoch loop, evaluate, full train |
 | `PredicitiveCoding/Training/TrainingConfig.cs` | `TrainingConfig` |
 | `PredicitiveCoding/Training/Batch.cs` | `Batch` |
@@ -97,6 +86,11 @@
 | `PredictiveCoding.Expanded/MultiModal/ModalityConfig.cs` | Per-modality config |
 | `PredictiveCoding.Expanded/RoutedNetwork/RoutedNetwork.cs` | Router PCN — amortized gating |
 | `PredictiveCoding.Expanded/RoutedNetwork/RoutedNetworkConfig.cs` | `RoutedNetworkConfig` |
+| `PredictiveCoding.Expanded/Networks/MixtureOfExperts.cs` | `MixtureOfExperts` — energy-based gating (+ `MixtureOfExpertsConfig`) |
+| `PredictiveCoding.Expanded/Networks/TemporalMixtureOfExperts.cs` | `TemporalMixtureOfExperts` (+ `TemporalMoEConfig`) |
+| `PredictiveCoding.Expanded/Networks/EnsembleNetwork.cs` | `EnsembleNetwork` — Bayesian model averaging (+ `EnsembleConfig`) |
+| `PredictiveCoding.Expanded/Networks/AttentiveNetwork.cs` | `AttentiveNetwork` — per-unit learnable attention gates (+ `AttentiveNetworkConfig`) |
+| `PredictiveCoding.Expanded/Networks/ResidualNetwork.cs` | `ResidualNetwork` — 2-hop skip connections (+ `ResidualNetworkConfig`) |
 
 ### Main application (`PredictiveCoding.Main/`)
 
@@ -136,7 +130,8 @@
 |-----------|-----------|
 | `PredictiveCoding.Core` | `DenseTensor<T>`, `ActivationFn`, `TensorUtils`, `RandomUtils` |
 | `PredictiveCoding.Model` | `Layer`, `LayerStore`, `LayerSerializer` |
-| `PredictiveCoding.Networks` | `Network`, `ResidualNetwork`, `TemporalNetwork`, `AttentiveNetwork`, `MixtureOfExperts`, `EnsembleNetwork`, `RoutedNetwork` + all `*Config` |
+| `PredictiveCoding.Networks` | `Network`, `TemporalNetwork`, `NetworkConfig` |
+| `PredictiveCoding.Expanded.Networks` | `MixtureOfExperts`, `TemporalMixtureOfExperts`, `EnsembleNetwork`, `AttentiveNetwork`, `ResidualNetwork` + their `*Config` |
 | `PredictiveCoding.Training` | `Trainer`, `TrainingConfig`, `Batch` |
 | `PredictiveCoding.Data` | `IDataset`, `SyntheticDataset` |
 | `PredictiveCoding.Logging` | `MetricLogger`, `CsvLogger`, `EpochMetrics` |

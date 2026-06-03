@@ -1,6 +1,7 @@
+using PredictiveCoding.Networks;
 using PredictiveCoding.Core;
 
-namespace PredictiveCoding.Networks;
+namespace PredictiveCoding.Expanded.Networks;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ResidualNetworkConfig  —  configuration for ResidualNetwork

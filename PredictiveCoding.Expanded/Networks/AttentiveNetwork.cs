@@ -1,7 +1,8 @@
+using PredictiveCoding.Networks;
 using PredictiveCoding.Core;
 using PredictiveCoding.Model;
 
-namespace PredictiveCoding.Networks;
+namespace PredictiveCoding.Expanded.Networks;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AttentiveNetwork  —  PC network with per-unit learnable attention gates

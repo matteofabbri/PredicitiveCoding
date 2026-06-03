@@ -1,4 +1,4 @@
-using PredictiveCoding.Networks;
+using PredictiveCoding.Expanded.Networks;
 
 namespace PredictiveCoding.Cortex;
 

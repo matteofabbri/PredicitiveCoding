@@ -1,4 +1,6 @@
-namespace PredictiveCoding.Networks;
+using PredictiveCoding.Networks;
+
+namespace PredictiveCoding.Expanded.Networks;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MixtureOfExpertsConfig

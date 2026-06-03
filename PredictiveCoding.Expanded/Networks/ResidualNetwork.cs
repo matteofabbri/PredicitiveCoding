@@ -1,7 +1,8 @@
+using PredictiveCoding.Networks;
 using PredictiveCoding.Core;
 using PredictiveCoding.Model;
 
-namespace PredictiveCoding.Networks;
+namespace PredictiveCoding.Expanded.Networks;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ResidualNetwork  —  Predictive Coding network with 2-hop skip connections

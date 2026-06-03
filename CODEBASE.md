@@ -10,7 +10,8 @@ Quick orientation document for future sessions. Read this instead of scanning ev
 PredicitiveCoding/          ← core library (net10)
   Core/                     Tensor primitives, activations, shapes, random utils
   Model/                    Layer, LayerStore, LayerSerializer (FasterKV persistence)
-  Networks/                 Network, TemporalNetwork, MixtureOfExperts + their configs
+  Networks/                 Network, TemporalNetwork + their configs
+                            (MixtureOfExperts, Ensemble, Attentive, Residual, TemporalMoE → PredictiveCoding.Expanded/Networks)
   Training/                 Trainer (static), TrainingConfig
   Data/                     IDataset, SyntheticDataset, CifarDataset
   Logging/                  MetricLogger (console), CsvLogger
@@ -103,7 +104,7 @@ int c = tnet.Predict(x, 20);
 
 ---
 
-### `MixtureOfExperts` (`Networks/MixtureOfExperts.cs`)
+### `MixtureOfExperts` (`PredictiveCoding.Expanded/Networks/MixtureOfExperts.cs`)
 
 Ensemble of `N` independent `Network` instances. Energy-based gating (novel):
 

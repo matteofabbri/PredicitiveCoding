@@ -1,5 +1,6 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Networks;
+using PredictiveCoding.Expanded.Networks;
 
 namespace PredictiveCoding.Expanded.RoutedNetwork;
 

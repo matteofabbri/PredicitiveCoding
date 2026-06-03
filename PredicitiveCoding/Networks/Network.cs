@@ -177,7 +177,7 @@ public sealed class Network : IDisposable
     /// <summary>
     /// Runs inference with both ends clamped and returns the resulting free
     /// energy without modifying any weights.  Used by
-    /// <see cref="MixtureOfExperts"/> to compute per-expert gate weights before
+    /// <c>MixtureOfExperts</c> to compute per-expert gate weights before
     /// deciding how much each expert should learn.
     /// </summary>
     public float InferEnergy(DenseTensor<float> input, DenseTensor<float> label, int inferenceSteps)
@@ -196,7 +196,7 @@ public sealed class Network : IDisposable
     /// Returns the free energy F(x, one-hot(c)) for every class c.
     /// Length of the returned array equals the number of output units.
     /// Transient: weights are not modified.
-    /// Used by <see cref="EnsembleNetwork"/> to aggregate probability
+    /// Used by <c>EnsembleNetwork</c> to aggregate probability
     /// distributions across members.
     /// </summary>
     public float[] ClassEnergies(DenseTensor<float> input, int inferenceSteps)
@@ -422,7 +422,7 @@ public sealed class Network : IDisposable
     /// <summary>
     /// Probes the temporal free energy without updating any weights.
     /// Equivalent to <see cref="InferEnergy"/> but injects temporal priors first.
-    /// Used by <see cref="TemporalMixtureOfExperts"/> to compute per-expert gate
+    /// Used by <c>TemporalMixtureOfExperts</c> to compute per-expert gate
     /// weights before deciding how much each expert should learn.
     /// </summary>
     public float InferEnergyTemporal(
@@ -445,7 +445,7 @@ public sealed class Network : IDisposable
     }
 
     /// <summary>
-    /// Gated temporal learning step for <see cref="TemporalMixtureOfExperts"/>.
+    /// Gated temporal learning step for <c>TemporalMixtureOfExperts</c>.
     /// Injects temporal priors, runs inference, then scales the weight update by
     /// <paramref name="gateWeight"/>.  When <paramref name="gateWeight"/> == 0 the
     /// weight update is skipped (pure temporal context advance).
