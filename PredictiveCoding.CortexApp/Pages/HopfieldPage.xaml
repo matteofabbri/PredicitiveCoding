@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="PredictiveCoding.CortexApp.Pages.HopfieldPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <StackPanel Padding="24" Spacing="16">
+            <TextBlock Text="Hopfield Episodic Memory" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                       Text="A generative PCN learns four 12×12 shapes and stores them as modern-Hopfield attractors. One shape is then corrupted and completed from the partial cue (pattern completion)." />
+
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <NumberBox x:Name="EpochsBox" Header="Epochs" Value="25" Minimum="1" Maximum="300" SpinButtonPlacementMode="Compact" Width="120" />
+                <NumberBox x:Name="StepsBox" Header="Inference steps" Value="12" Minimum="1" Maximum="100" SpinButtonPlacementMode="Compact" Width="140" />
+                <Button x:Name="RunButton" Content="Run" Click="RunButton_Click" VerticalAlignment="Bottom" Style="{StaticResource AccentButtonStyle}" />
+                <ProgressRing x:Name="Busy" IsActive="False" Width="24" Height="24" VerticalAlignment="Bottom" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="24">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Original" FontWeight="SemiBold" />
+                    <Image x:Name="OriginalImage" Width="160" Height="160" Stretch="Uniform" />
+                </StackPanel>
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Corrupted cue" FontWeight="SemiBold" />
+                    <Image x:Name="CorruptedImage" Width="160" Height="160" Stretch="Uniform" />
+                </StackPanel>
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Recalled" FontWeight="SemiBold" />
+                    <Image x:Name="RecalledImage" Width="160" Height="160" Stretch="Uniform" />
+                </StackPanel>
+            </StackPanel>
+
+            <TextBlock x:Name="StatusText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Ready." />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

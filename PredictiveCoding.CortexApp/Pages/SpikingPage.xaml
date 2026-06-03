@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="PredictiveCoding.CortexApp.Pages.SpikingPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <StackPanel Padding="24" Spacing="16">
+            <TextBlock Text="Spiking Predictive Coding" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                       Text="A leaky integrate-and-fire predictive-coding network: rate-coded states, errors as firing-rate differences, local Hebbian learning. Trains on three synthetic classes and reports test accuracy." />
+
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <NumberBox x:Name="EpochsBox" Header="Epochs" Value="40" Minimum="1" Maximum="500" SpinButtonPlacementMode="Compact" Width="120" />
+                <NumberBox x:Name="TicksBox" Header="Spike ticks" Value="24" Minimum="1" Maximum="100" SpinButtonPlacementMode="Compact" Width="130" />
+                <Button x:Name="RunButton" Content="Run" Click="RunButton_Click" VerticalAlignment="Bottom" Style="{StaticResource AccentButtonStyle}" />
+                <ProgressRing x:Name="Busy" IsActive="False" Width="24" Height="24" VerticalAlignment="Bottom" />
+            </StackPanel>
+
+            <Border Padding="16" CornerRadius="6" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                <TextBlock x:Name="ResultText" FontFamily="Consolas" TextWrapping="Wrap" Text="Run to train the spiking network." />
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

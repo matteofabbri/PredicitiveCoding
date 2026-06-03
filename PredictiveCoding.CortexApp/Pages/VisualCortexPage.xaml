@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="PredictiveCoding.CortexApp.Pages.VisualCortexPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <StackPanel Padding="24" Spacing="16">
+            <TextBlock Text="Visual Cortex" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                       Text="V1 (weight-shared retinotopic columns) → V2→V4→IT → readout. Trains on four synthetic shape classes, then classifies and reconstructs a noisy test image — all by local predictive coding." />
+
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <NumberBox x:Name="EpochsBox" Header="Epochs" Value="15" Minimum="1" Maximum="200" SpinButtonPlacementMode="Compact" Width="120" />
+                <NumberBox x:Name="StepsBox" Header="Inference steps" Value="8" Minimum="1" Maximum="100" SpinButtonPlacementMode="Compact" Width="140" />
+                <Button x:Name="RunButton" Content="Run" Click="RunButton_Click" VerticalAlignment="Bottom" Style="{StaticResource AccentButtonStyle}" />
+                <ProgressRing x:Name="Busy" IsActive="False" Width="24" Height="24" VerticalAlignment="Bottom" />
+            </StackPanel>
+
+            <TextBlock x:Name="StatusText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Ready." />
+
+            <StackPanel Orientation="Horizontal" Spacing="24">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Input (test image)" FontWeight="SemiBold" />
+                    <Border BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="6">
+                        <Image x:Name="InputImage" Width="180" Height="180" Stretch="Uniform" />
+                    </Border>
+                </StackPanel>
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Reconstruction" FontWeight="SemiBold" />
+                    <Border BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="6">
+                        <Image x:Name="ReconImage" Width="180" Height="180" Stretch="Uniform" />
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+
+            <Border Padding="16" CornerRadius="6" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                <TextBlock x:Name="MetricsText" FontFamily="Consolas" TextWrapping="Wrap" Text="Run the model to see results." />
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

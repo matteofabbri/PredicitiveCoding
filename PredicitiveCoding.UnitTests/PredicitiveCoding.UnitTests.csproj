@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Expanded\PredictiveCoding.Expanded.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Cortex\PredictiveCoding.Cortex.csproj" />
   </ItemGroup>
 
   <ItemGroup>
