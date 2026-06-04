@@ -11,8 +11,10 @@ This document tracks the functions/components required to build a Large Language
 > flash-style online softmax), BPE training, a streaming dataset, beam search, sampling
 > penalties and batched decoding. A **reverse-mode autodiff engine** (`Autograd`) provides
 > gradient-checked backpropagation through a transformer (`TinyTransformerLM`) with a plain
-> SGD step. The remaining gap is the **production training stack** — a real optimizer
-> (Adam/AdamW), LR schedules, dropout, checkpointing — and **hardware infrastructure**.
+> SGD step. The infrastructure primitives (mixed precision, batched SIMD GEMM, tensor
+> parallelism, int8/int4 quantization) are implemented on CPU with a pluggable GEMM backend
+> for a future GPU provider. The main remaining gap is the **production training stack** —
+> a real optimizer (Adam/AdamW), LR schedules, dropout, gradient clipping and checkpointing.
 
 ## Tensor & predictive-coding building blocks (from the core library)
 
@@ -91,9 +93,15 @@ This document tracks the functions/components required to build a Large Language
 
 ## Infrastructure
 
+> Implemented on CPU (managed .NET): SIMD-vectorised + multithreaded, with a
+> pluggable GEMM backend and a device-mesh abstraction where a GPU/multi-GPU
+> backend would slot in. The algorithms are identical to the accelerated versions.
+
 | Implemented | Function / component |
 |:-----------:|----------------------|
-| false | Mixed precision — fp16 / bf16 |
-| false | Batched / GPU matmul — GEMM (CUDA / Metal) |
-| false | Multi-device / tensor parallelism |
-| false | Quantization (int8 / int4) for inference |
+| true  | Mixed precision — fp16 / bf16 weight storage, fp32 accumulate (`LowPrecisionMatrix`, `BFloat16`) |
+| true  | Batched / SIMD-parallel GEMM with pluggable backend (`Gemm`, `IGemmProvider`) |
+| true  | Multi-device / tensor parallelism — column/row-parallel linear + all-reduce (`ShardedLinear`, `DeviceMesh`) |
+| true  | Quantization — int8 and packed int4 weight matrices (`Int8Matrix`, `Int4Matrix`) |
+| false | GPU / Metal GEMM backend implementing `IGemmProvider` |
+| false | Real cross-device collectives (NCCL-style) for multi-GPU |
