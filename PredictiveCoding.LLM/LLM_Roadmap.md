@@ -61,10 +61,17 @@ This document tracks the functions/components required to build a Large Language
 | true  | Layer normalization (`LayerNorm`) |
 | true  | RMSNorm (`RmsNorm`, `NormKind.RmsNorm`) |
 | true  | Feed-forward block with GELU (`FeedForward`) |
+| true  | SwiGLU gated feed-forward — Shazeer 2020 / Llama / Qwen (`SwiGluFeedForward`, `FeedForwardKind.SwiGlu`) |
+| true  | Multi-head Latent Attention (MLA) — DeepSeek-V2/V3, compressed KV cache (`LatentAttention`, `AttentionKind.Latent`) |
+| true  | QK-Norm — per-head RMS-norm of Q/K (OLMo 2 / Gemma 2 / Qwen3) (`UseQkNorm`) |
+| true  | Attention + final logit soft-capping — Gemma 2 (`AttnLogitSoftcap`, `FinalLogitSoftcap`) |
+| true  | Modern presets — Llama3 / DeepSeek-V3 style (`ModernPresets`) |
 | true  | Transformer block — pre-norm + residual (`TransformerBlock`) |
 | true  | Stacked decoder + final norm + LM head (`GptModel`) |
 | true  | Weight tying — embedding ↔ LM head (`TransformerConfig.TieEmbeddings`) |
 | true  | ALiBi positional bias (`PositionalKind.Alibi`) |
+| false | Mixture-of-Experts FFN (DeepSeekMoE — shared + fine-grained routed experts) |
+| false | Multi-Token Prediction objective (DeepSeek-V3 / Gloeckle 2024) |
 | false | Flash-attention fused GPU kernel (needs a GPU) |
 
 ## Generation / decoding

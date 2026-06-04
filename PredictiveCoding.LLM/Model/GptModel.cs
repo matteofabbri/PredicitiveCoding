@@ -40,7 +40,12 @@ public sealed class GptModel
     }
 
     /// <summary>Allocates a fresh key/value cache for one generation/sequence.</summary>
-    public KvCache CreateCache() => new(_cfg.NumLayers, _cfg.KvHeads);
+    public KvCache CreateCache()
+    {
+        var layers = new ILayerCache[_blocks.Length];
+        for (int l = 0; l < _blocks.Length; l++) layers[l] = _blocks[l].CreateCache();
+        return new KvCache(layers);
+    }
 
     /// <summary>
     /// Runs one decoding step: embeds <paramref name="token"/> at
@@ -56,6 +61,14 @@ public sealed class GptModel
             x = _blocks[l].Forward(x, cache.Layers[l], position);
 
         x = _lnFinal.Forward(x);
-        return _lmHead is null ? _embedding.Project(x) : _lmHead.Forward(x);
+        var logits = _lmHead is null ? _embedding.Project(x) : _lmHead.Forward(x);
+
+        if (_cfg.FinalLogitSoftcap > 0f)   // Gemma 2 final-logit soft-capping
+        {
+            float cap = _cfg.FinalLogitSoftcap;
+            var b = logits.Buffer;
+            for (int i = 0; i < b.Length; i++) b[i] = cap * MathF.Tanh(b[i] / cap);
+        }
+        return logits;
     }
 }

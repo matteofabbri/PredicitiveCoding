@@ -48,6 +48,25 @@ internal static class LlmMath
             v[i] = 0.5f * x * (1f + MathF.Tanh(c * (x + 0.044715f * x * x * x)));
         }
     }
+
+    /// <summary>SiLU / Swish activation  x·σ(x), in place (used by SwiGLU).</summary>
+    public static void SiluInPlace(float[] v)
+    {
+        for (int i = 0; i < v.Length; i++)
+        {
+            float x = v[i];
+            v[i] = x / (1f + MathF.Exp(-x));
+        }
+    }
+
+    /// <summary>RMS-normalises one head slice [offset, offset+dim) in place (QK-Norm core).</summary>
+    public static void RmsNormSlice(float[] buf, int offset, int dim, float eps)
+    {
+        float ms = 0f;
+        for (int i = 0; i < dim; i++) { float x = buf[offset + i]; ms += x * x; }
+        float inv = 1f / MathF.Sqrt(ms / dim + eps);
+        for (int i = 0; i < dim; i++) buf[offset + i] *= inv;
+    }
 }
 
 /// <summary>Dense linear projection  y = W·x + b,  W ∈ ℝ^{out×in}.</summary>

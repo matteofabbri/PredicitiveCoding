@@ -18,6 +18,24 @@ public enum NormKind
     RmsNorm,
 }
 
+/// <summary>Feed-forward block variant.</summary>
+public enum FeedForwardKind
+{
+    /// <summary>Classic GELU MLP (GPT-2).</summary>
+    Gelu,
+    /// <summary>Gated SwiGLU (Shazeer 2020; Llama / Qwen / DeepSeek / Mistral).</summary>
+    SwiGlu,
+}
+
+/// <summary>Self-attention variant.</summary>
+public enum AttentionKind
+{
+    /// <summary>Standard multi-head / grouped-query attention.</summary>
+    MultiHead,
+    /// <summary>Multi-head latent attention (DeepSeek-V2/V3): compresses the KV cache.</summary>
+    Latent,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TransformerConfig  —  hyperparameters for the decoder-only transformer (GPT).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,6 +85,29 @@ public sealed record TransformerConfig
     /// </summary>
     public bool UseFlashAttention { get; init; } = false;
 
+    // ── Modern (2024-2025) architecture options ─────────────────────────────────
+
+    /// <summary>Feed-forward variant (GELU MLP or gated SwiGLU).</summary>
+    public FeedForwardKind Ffn { get; init; } = FeedForwardKind.Gelu;
+
+    /// <summary>Self-attention variant (multi-head or multi-head latent / MLA).</summary>
+    public AttentionKind Attention { get; init; } = AttentionKind.MultiHead;
+
+    /// <summary>QK-Norm: RMS-normalise per-head Q/K before attention (OLMo 2 / Gemma 2 / Qwen3).</summary>
+    public bool UseQkNorm { get; init; } = false;
+
+    /// <summary>Attention-logit soft-cap c: score ← c·tanh(score/c) (Gemma 2). 0 = disabled.</summary>
+    public float AttnLogitSoftcap { get; init; } = 0f;
+
+    /// <summary>Final-logit soft-cap (Gemma 2). 0 = disabled.</summary>
+    public float FinalLogitSoftcap { get; init; } = 0f;
+
+    /// <summary>MLA: dimensionality of the compressed KV latent c_kv (the cached vector).</summary>
+    public int KvLatentDim { get; init; } = 64;
+
+    /// <summary>MLA: dimensionality of the decoupled-RoPE key/query per head.</summary>
+    public int RopeHeadDim { get; init; } = 16;
+
     /// <summary>Per-head dimensionality = EmbedDim / NumHeads.</summary>
     public int HeadDim => EmbedDim / NumHeads;
 
@@ -88,6 +129,14 @@ public sealed record TransformerConfig
             throw new InvalidOperationException($"NumHeads ({NumHeads}) must be divisible by KvHeads ({KvHeads}).");
         if (Positional == PositionalKind.Rotary && HeadDim % 2 != 0)
             throw new InvalidOperationException("RoPE requires an even HeadDim.");
+        if (Attention == AttentionKind.Latent)
+        {
+            if (KvLatentDim < 1) throw new InvalidOperationException("KvLatentDim must be >= 1 for latent attention.");
+            if (RopeHeadDim < 2 || RopeHeadDim % 2 != 0)
+                throw new InvalidOperationException("RopeHeadDim must be a positive even number for latent attention.");
+        }
+        if (AttnLogitSoftcap < 0f || FinalLogitSoftcap < 0f)
+            throw new InvalidOperationException("Soft-cap values must be >= 0 (0 disables).");
         if (NumLayers < 1)       throw new InvalidOperationException("NumLayers must be >= 1.");
         if (FeedForwardDim < 1)  throw new InvalidOperationException("FeedForwardDim must be >= 1.");
         if (LayerNormEps <= 0f)  throw new InvalidOperationException("LayerNormEps must be > 0.");
