@@ -32,23 +32,23 @@ public sealed class FeedForward
 
 public sealed class TransformerBlock
 {
-    private readonly LayerNorm            _ln1;
-    private readonly LayerNorm            _ln2;
+    private readonly INormLayer           _ln1;
+    private readonly INormLayer           _ln2;
     private readonly MultiHeadAttention   _attn;
     private readonly FeedForward          _ffn;
 
     public TransformerBlock(TransformerConfig cfg, Random rng)
     {
-        _ln1  = new LayerNorm(cfg.EmbedDim, cfg.LayerNormEps);
-        _ln2  = new LayerNorm(cfg.EmbedDim, cfg.LayerNormEps);
+        _ln1  = Norms.Create(cfg);
+        _ln2  = Norms.Create(cfg);
         _attn = new MultiHeadAttention(cfg, rng);
         _ffn  = new FeedForward(cfg, rng);
     }
 
-    public DenseTensor<float> Forward(DenseTensor<float> x, KvCacheLayer cache)
+    public DenseTensor<float> Forward(DenseTensor<float> x, KvCacheLayer cache, int position)
     {
-        // x = x + Attention(LN(x))
-        var a = _attn.Forward(_ln1.Forward(x), cache);
+        // x = x + Attention(Norm(x))
+        var a = _attn.Forward(_ln1.Forward(x), cache, position);
         var h = x.Clone();
         TensorUtils.InPlaceAxpy(1f, a, h);
 

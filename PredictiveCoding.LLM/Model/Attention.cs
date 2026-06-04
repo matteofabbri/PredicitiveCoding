@@ -5,23 +5,27 @@ namespace PredictiveCoding.LLM.Model;
 // ─────────────────────────────────────────────────────────────────────────────
 // Attention  —  causal multi-head self-attention with a key/value cache.
 //
-// The model decodes one position at a time.  Each step appends the new key and
-// value vectors (per head) to the cache and attends the current query over all
-// cached positions.  Because the cache only ever contains the current and past
-// positions, causality is enforced automatically — no explicit mask is needed.
+// Supports:
+//   • grouped-query / multi-query attention — NumKvHeads ≤ NumHeads query heads
+//     share key/value heads (NumKvHeads = 1 ⇒ MQA, = NumHeads ⇒ standard MHA);
+//   • rotary position embedding (RoPE) applied to Q/K;
+//   • flash-attention-style online softmax (single pass, no full score vector).
+//
+// The model decodes one position at a time, so causality is implicit: the cache
+// only ever holds the current and past positions.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// <summary>Per-layer key/value cache: one growing list of K and V vectors per head.</summary>
+/// <summary>Per-layer key/value cache: one growing list of K and V vectors per KV head.</summary>
 public sealed class KvCacheLayer
 {
     private readonly List<float[]>[] _k;
     private readonly List<float[]>[] _v;
 
-    public KvCacheLayer(int numHeads)
+    public KvCacheLayer(int numKvHeads)
     {
-        _k = new List<float[]>[numHeads];
-        _v = new List<float[]>[numHeads];
-        for (int h = 0; h < numHeads; h++) { _k[h] = []; _v[h] = []; }
+        _k = new List<float[]>[numKvHeads];
+        _v = new List<float[]>[numKvHeads];
+        for (int h = 0; h < numKvHeads; h++) { _k[h] = []; _v[h] = []; }
     }
 
     public int Length => _k[0].Count;
@@ -29,6 +33,18 @@ public sealed class KvCacheLayer
     public void Append(int head, float[] k, float[] v) { _k[head].Add(k); _v[head].Add(v); }
     public float[] Key(int head, int pos)   => _k[head][pos];
     public float[] Value(int head, int pos) => _v[head][pos];
+
+    /// <summary>Deep copy (used by beam search to fork a hypothesis).</summary>
+    public KvCacheLayer Clone()
+    {
+        var c = new KvCacheLayer(_k.Length);
+        for (int h = 0; h < _k.Length; h++)
+        {
+            foreach (var k in _k[h]) c._k[h].Add((float[])k.Clone());
+            foreach (var v in _v[h]) c._v[h].Add((float[])v.Clone());
+        }
+        return c;
+    }
 }
 
 /// <summary>Key/value cache across all transformer layers for one generation.</summary>
@@ -36,75 +52,131 @@ public sealed class KvCache
 {
     public KvCacheLayer[] Layers { get; }
 
-    public KvCache(int numLayers, int numHeads)
+    public KvCache(int numLayers, int numKvHeads)
     {
         Layers = new KvCacheLayer[numLayers];
-        for (int l = 0; l < numLayers; l++) Layers[l] = new KvCacheLayer(numHeads);
+        for (int l = 0; l < numLayers; l++) Layers[l] = new KvCacheLayer(numKvHeads);
     }
+
+    private KvCache(KvCacheLayer[] layers) => Layers = layers;
 
     /// <summary>Number of positions currently cached.</summary>
     public int Length => Layers.Length == 0 ? 0 : Layers[0].Length;
+
+    /// <summary>Deep copy (used by beam search to fork a hypothesis).</summary>
+    public KvCache Clone()
+    {
+        var layers = new KvCacheLayer[Layers.Length];
+        for (int l = 0; l < Layers.Length; l++) layers[l] = Layers[l].Clone();
+        return new KvCache(layers);
+    }
 }
 
 public sealed class MultiHeadAttention
 {
     private readonly Linear _q, _k, _v, _o;
     private readonly int    _numHeads;
+    private readonly int    _numKvHeads;
     private readonly int    _headDim;
+    private readonly int    _kvGroup;
     private readonly float  _scale;
+    private readonly bool   _rotary;
+    private readonly bool   _flash;
 
     public MultiHeadAttention(TransformerConfig cfg, Random rng)
     {
-        _numHeads = cfg.NumHeads;
-        _headDim  = cfg.HeadDim;
-        _scale    = 1f / MathF.Sqrt(_headDim);
+        _numHeads   = cfg.NumHeads;
+        _numKvHeads = cfg.KvHeads;
+        _headDim    = cfg.HeadDim;
+        _kvGroup    = cfg.KvGroupSize;
+        _scale      = 1f / MathF.Sqrt(_headDim);
+        _rotary     = cfg.Positional == PositionalKind.Rotary;
+        _flash      = cfg.UseFlashAttention;
 
-        _q = new Linear(cfg.EmbedDim, cfg.EmbedDim, rng);
-        _k = new Linear(cfg.EmbedDim, cfg.EmbedDim, rng);
-        _v = new Linear(cfg.EmbedDim, cfg.EmbedDim, rng);
-        _o = new Linear(cfg.EmbedDim, cfg.EmbedDim, rng);
+        int qDim  = _numHeads   * _headDim;   // = EmbedDim
+        int kvDim = _numKvHeads * _headDim;
+        _q = new Linear(cfg.EmbedDim, qDim,  rng);
+        _k = new Linear(cfg.EmbedDim, kvDim, rng);
+        _v = new Linear(cfg.EmbedDim, kvDim, rng);
+        _o = new Linear(qDim, cfg.EmbedDim,  rng);
     }
 
     /// <summary>
-    /// Attends the current token <paramref name="x"/> over the cached context,
-    /// appending its own key/value first.  Returns the attention output (EmbedDim).
+    /// Attends the current token <paramref name="x"/> at <paramref name="position"/>
+    /// over the cached context, appending its own key/value first.
     /// </summary>
-    public DenseTensor<float> Forward(DenseTensor<float> x, KvCacheLayer cache)
+    public DenseTensor<float> Forward(DenseTensor<float> x, KvCacheLayer cache, int position)
     {
-        float[] q = _q.Forward(x).Buffer;
-        float[] k = _k.Forward(x).Buffer;
+        float[] q = _q.Forward(x).Buffer;   // [numHeads·headDim]
+        float[] k = _k.Forward(x).Buffer;   // [numKvHeads·headDim]
         float[] v = _v.Forward(x).Buffer;
 
-        int embed = _numHeads * _headDim;
-        var ctx   = new DenseTensor<float>(embed);
-        var ctxB  = ctx.Buffer;
+        if (_rotary)
+        {
+            for (int h = 0; h < _numHeads;   h++) RotaryEmbedding.Rotate(q, h * _headDim, _headDim, position);
+            for (int g = 0; g < _numKvHeads; g++) RotaryEmbedding.Rotate(k, g * _headDim, _headDim, position);
+        }
+
+        // Append this position's key/value, once per KV head.
+        for (int g = 0; g < _numKvHeads; g++)
+        {
+            var kh = new float[_headDim];
+            var vh = new float[_headDim];
+            Array.Copy(k, g * _headDim, kh, 0, _headDim);
+            Array.Copy(v, g * _headDim, vh, 0, _headDim);
+            cache.Append(g, kh, vh);
+        }
+
+        var ctx  = new DenseTensor<float>(_numHeads * _headDim);
+        var ctxB = ctx.Buffer;
+        int n    = cache.Length;
 
         for (int h = 0; h < _numHeads; h++)
         {
             int off = h * _headDim;
-
-            // Append this position's key/value for the head.
-            var kh = new float[_headDim];
-            var vh = new float[_headDim];
-            Array.Copy(k, off, kh, 0, _headDim);
-            Array.Copy(v, off, vh, 0, _headDim);
-            cache.Append(h, kh, vh);
-
-            int n      = cache.Length;
-            var scores = new float[n];
-            for (int p = 0; p < n; p++)
-                scores[p] = LlmMath.Dot(q, off, cache.Key(h, p), 0, _headDim) * _scale;
-            LlmMath.SoftmaxInPlace(scores, n);
-
-            // Weighted sum of values → context for this head.
-            for (int p = 0; p < n; p++)
-            {
-                float w  = scores[p];
-                var   vp = cache.Value(h, p);
-                for (int i = 0; i < _headDim; i++) ctxB[off + i] += w * vp[i];
-            }
+            int g   = h / _kvGroup;               // which KV head this query head reads
+            if (_flash) AttendOnline(q, off, cache, g, n, ctxB, off);
+            else        AttendStandard(q, off, cache, g, n, ctxB, off);
         }
 
         return _o.Forward(ctx);
+    }
+
+    // Standard: materialise scores, softmax, weighted sum.
+    private void AttendStandard(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff)
+    {
+        var scores = new float[n];
+        for (int p = 0; p < n; p++)
+            scores[p] = LlmMath.Dot(q, qoff, cache.Key(g, p), 0, _headDim) * _scale;
+        LlmMath.SoftmaxInPlace(scores, n);
+        for (int p = 0; p < n; p++)
+        {
+            float w  = scores[p];
+            var   vp = cache.Value(g, p);
+            for (int i = 0; i < _headDim; i++) outB[outOff + i] += w * vp[i];
+        }
+    }
+
+    // Flash-style: online softmax in a single pass (running max / sum / accumulator).
+    private void AttendOnline(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff)
+    {
+        float m = float.NegativeInfinity, l = 0f;
+        Span<float> acc = stackalloc float[_headDim];
+        acc.Clear();
+
+        for (int p = 0; p < n; p++)
+        {
+            float s     = LlmMath.Dot(q, qoff, cache.Key(g, p), 0, _headDim) * _scale;
+            float mNew  = MathF.Max(m, s);
+            float scale = MathF.Exp(m - mNew);   // 0 on the first step (exp(-inf)) → fine
+            float pExp  = MathF.Exp(s - mNew);
+            l = l * scale + pExp;
+            var vp = cache.Value(g, p);
+            for (int i = 0; i < _headDim; i++) acc[i] = acc[i] * scale + pExp * vp[i];
+            m = mNew;
+        }
+
+        float inv = l > 0f ? 1f / l : 0f;
+        for (int i = 0; i < _headDim; i++) outB[outOff + i] = acc[i] * inv;
     }
 }

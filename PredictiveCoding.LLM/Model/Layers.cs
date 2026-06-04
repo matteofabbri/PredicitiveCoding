@@ -69,8 +69,74 @@ public sealed class Linear
         => TensorUtils.ElementwiseAdd(TensorUtils.MatVecMul(_w, x), _b);
 }
 
+/// <summary>Normalisation layer abstraction (LayerNorm or RMSNorm).</summary>
+public interface INormLayer
+{
+    DenseTensor<float> Forward(DenseTensor<float> x);
+}
+
+/// <summary>Creates the normalisation layer selected by the config.</summary>
+public static class Norms
+{
+    public static INormLayer Create(TransformerConfig cfg) => cfg.Norm switch
+    {
+        NormKind.RmsNorm => new RmsNorm(cfg.EmbedDim, cfg.LayerNormEps),
+        _                => new LayerNorm(cfg.EmbedDim, cfg.LayerNormEps),
+    };
+}
+
+/// <summary>Root-mean-square normalisation (Zhang &amp; Sennrich 2019): scale only, no mean subtraction.</summary>
+public sealed class RmsNorm : INormLayer
+{
+    private readonly float[] _gamma;
+    private readonly float   _eps;
+    private readonly int     _dim;
+
+    public RmsNorm(int dim, float eps)
+    {
+        _dim   = dim;
+        _eps   = eps;
+        _gamma = new float[dim];
+        Array.Fill(_gamma, 1f);
+    }
+
+    public DenseTensor<float> Forward(DenseTensor<float> x)
+    {
+        var src = x.Buffer;
+        float ms = 0f;
+        for (int i = 0; i < _dim; i++) ms += src[i] * src[i];
+        ms /= _dim;
+        float invRms = 1f / MathF.Sqrt(ms + _eps);
+
+        var outT = new DenseTensor<float>(_dim);
+        var dst  = outT.Buffer;
+        for (int i = 0; i < _dim; i++) dst[i] = src[i] * invRms * _gamma[i];
+        return outT;
+    }
+}
+
+/// <summary>Rotary position embedding (Su et al. 2021): rotates Q/K head pairs by position-dependent angles.</summary>
+public static class RotaryEmbedding
+{
+    /// <summary>Rotates one head slice (length headDim, even) in place for the given position.</summary>
+    public static void Rotate(float[] buf, int offset, int headDim, int position)
+    {
+        int half = headDim / 2;
+        for (int i = 0; i < half; i++)
+        {
+            float freq  = 1f / MathF.Pow(10000f, (float)(2 * i) / headDim);
+            float angle = position * freq;
+            float cos   = MathF.Cos(angle), sin = MathF.Sin(angle);
+            int   a = offset + 2 * i, b = a + 1;
+            float x0 = buf[a], x1 = buf[b];
+            buf[a] = x0 * cos - x1 * sin;
+            buf[b] = x0 * sin + x1 * cos;
+        }
+    }
+}
+
 /// <summary>Layer normalisation with learnable gain (γ) and bias (β).</summary>
-public sealed class LayerNorm
+public sealed class LayerNorm : INormLayer
 {
     private readonly float[] _gamma;
     private readonly float[] _beta;

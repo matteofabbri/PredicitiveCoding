@@ -24,6 +24,12 @@ public sealed record SamplingOptions
     /// <summary>Penalty applied to already-generated tokens (1 = none, &gt;1 discourages repeats).</summary>
     public float RepetitionPenalty { get; init; } = 1.0f;
 
+    /// <summary>Subtracted from a token's logit once it has appeared (OpenAI presence penalty).</summary>
+    public float PresencePenalty { get; init; } = 0.0f;
+
+    /// <summary>Subtracted from a token's logit per prior occurrence (OpenAI frequency penalty).</summary>
+    public float FrequencyPenalty { get; init; } = 0.0f;
+
     /// <summary>Greedy (argmax) decoding, ignoring the stochastic settings.</summary>
     public bool Greedy { get; init; } = false;
 
@@ -45,13 +51,20 @@ public sealed class Sampler
     {
         var l = (float[])logits.Buffer.Clone();
 
-        // Repetition penalty on tokens already emitted.
-        if (o.RepetitionPenalty != 1f && generated.Count > 0)
+        // Repetition / presence / frequency penalties on tokens already emitted.
+        bool hasPenalty = o.RepetitionPenalty != 1f || o.PresencePenalty != 0f || o.FrequencyPenalty != 0f;
+        if (hasPenalty && generated.Count > 0)
         {
-            float p = o.RepetitionPenalty;
+            var counts = new Dictionary<int, int>();
             foreach (int t in generated)
-                if (t >= 0 && t < l.Length)
-                    l[t] = l[t] > 0f ? l[t] / p : l[t] * p;
+                if (t >= 0 && t < l.Length) counts[t] = counts.GetValueOrDefault(t) + 1;
+
+            foreach (var (t, c) in counts)
+            {
+                if (o.RepetitionPenalty != 1f)
+                    l[t] = l[t] > 0f ? l[t] / o.RepetitionPenalty : l[t] * o.RepetitionPenalty;
+                l[t] -= o.PresencePenalty + o.FrequencyPenalty * c;
+            }
         }
 
         if (o.Greedy) return Argmax(l);
