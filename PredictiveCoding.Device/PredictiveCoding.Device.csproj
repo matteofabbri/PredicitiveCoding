@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>PredictiveCoding.Device</RootNamespace>
+    <AssemblyName>PredictiveCoding.Device</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.LLM\PredictiveCoding.LLM.csproj" />
+  </ItemGroup>
+
+  <!-- Native CUDA sources ship with the project but are built separately (see native/BUILD.md). -->
+  <ItemGroup>
+    <None Include="native\**\*" />
+  </ItemGroup>
+
+</Project>

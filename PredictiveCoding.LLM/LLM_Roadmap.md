@@ -110,5 +110,8 @@ This document tracks the functions/components required to build a Large Language
 | true  | Batched / SIMD-parallel GEMM with pluggable backend (`Gemm`, `IGemmProvider`) |
 | true  | Multi-device / tensor parallelism — column/row-parallel linear + all-reduce (`ShardedLinear`, `DeviceMesh`) |
 | true  | Quantization — int8 and packed int4 weight matrices (`Int8Matrix`, `Int4Matrix`) |
-| false | GPU / Metal GEMM backend implementing `IGemmProvider` |
-| false | Real cross-device collectives (NCCL-style) for multi-GPU |
+| true  | CUDA GEMM backend implementing `IGemmProvider` — cuBLASLt (`CudaGemmProvider`, project `PredictiveCoding.Device`) |
+| true  | Multi-GPU collectives (NCCL-style) — AllReduce/Broadcast/ReduceScatter/AllGather (`NcclProvider`) |
+| true  | Device management — `DeviceTensor<T>`, allocator/pooling, streams, async copies (`PredictiveCoding.Device`) |
+| false | Fused flash-attention GPU kernel |
+| false | Metal / ROCm backends (architecture in place via `IGemmProvider` / `IComputeDevice`) |
