@@ -88,7 +88,7 @@ public sealed class Layer
     /// prior during inference (Friston 2008 dynamic causal modelling).
     /// When non-null, adds a quadratic penalty toward the previous state:
     ///   grad_l += Π_t · (μ_l − μ_l^{t-1})
-    /// Managed externally by <see cref="TemporalNetwork"/>; not persisted in
+    /// Managed externally by <c>TemporalNetwork</c>; not persisted in
     /// <see cref="LayerStore"/> (it is transient working memory, not a weight).
     /// </summary>
     public DenseTensor<float>? TemporalPrior { get; internal set; }

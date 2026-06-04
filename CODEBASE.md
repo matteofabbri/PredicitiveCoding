@@ -10,8 +10,8 @@ Quick orientation document for future sessions. Read this instead of scanning ev
 PredicitiveCoding/          ← core library (net10)
   Core/                     Tensor primitives, activations, shapes, random utils
   Model/                    Layer, LayerStore, LayerSerializer (FasterKV persistence)
-  Networks/                 Network, TemporalNetwork + their configs
-                            (MixtureOfExperts, Ensemble, Attentive, Residual, TemporalMoE → PredictiveCoding.Expanded/Networks)
+  Networks/                 Network + NetworkConfig
+                            (TemporalNetwork, MixtureOfExperts, Ensemble, Attentive, Residual, TemporalMoE → PredictiveCoding.Expanded/Networks)
   Training/                 Trainer (static), TrainingConfig
   Data/                     IDataset, SyntheticDataset, CifarDataset
   Logging/                  MetricLogger (console), CsvLogger
@@ -89,7 +89,7 @@ FasterKV-backed store keyed by layer index. `ReadLayer(i)` → `Layer`. `Write(i
 
 ---
 
-### `TemporalNetwork` (`Networks/TemporalNetwork.cs`)
+### `TemporalNetwork` (`PredictiveCoding.Expanded/Networks/TemporalNetwork.cs`)
 
 Thin wrapper around `Network`. Maintains `_hiddenPriors` (μ^{t-1} for each hidden layer) across timesteps. Temporal continuity penalty: `grad_l += Π_t · (μ_l − μ_l^{t-1})` (Friston 2008 DCM).
 

@@ -302,7 +302,7 @@ public sealed class Network : IDisposable
     /// running inference (Friston 2008 dynamic causal modelling).
     ///
     /// Returns the hidden states <c>μ[1..L-2]</c> after inference so that
-    /// the caller (typically <see cref="TemporalNetwork"/>) can pass them as
+    /// the caller (typically <c>TemporalNetwork</c>) can pass them as
     /// priors on the next call.
     /// </summary>
     /// <param name="temporalPriors">

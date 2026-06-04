@@ -1,6 +1,7 @@
+using PredictiveCoding.Networks;
 using PredictiveCoding.Core;
 
-namespace PredictiveCoding.Networks;
+namespace PredictiveCoding.Expanded.Networks;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TemporalNetwork  —  Predictive Coding network with temporal continuity

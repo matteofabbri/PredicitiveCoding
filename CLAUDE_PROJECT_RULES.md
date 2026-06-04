@@ -62,7 +62,6 @@
 | `PredicitiveCoding/Model/LayerSerializer.cs` | Serialization for FASTER checkpoints |
 | `PredicitiveCoding/Networks/Network.cs` | `Network` — base hierarchical PC network |
 | `PredicitiveCoding/Networks/NetworkConfig.cs` | `NetworkConfig` record |
-| `PredicitiveCoding/Networks/TemporalNetwork.cs` | `TemporalNetwork` — carries μ^{t-1} across steps |
 | `PredicitiveCoding/Training/Trainer.cs` | `Trainer` — epoch loop, evaluate, full train |
 | `PredicitiveCoding/Training/TrainingConfig.cs` | `TrainingConfig` |
 | `PredicitiveCoding/Training/Batch.cs` | `Batch` |
@@ -91,6 +90,7 @@
 | `PredictiveCoding.Expanded/Networks/EnsembleNetwork.cs` | `EnsembleNetwork` — Bayesian model averaging (+ `EnsembleConfig`) |
 | `PredictiveCoding.Expanded/Networks/AttentiveNetwork.cs` | `AttentiveNetwork` — per-unit learnable attention gates (+ `AttentiveNetworkConfig`) |
 | `PredictiveCoding.Expanded/Networks/ResidualNetwork.cs` | `ResidualNetwork` — 2-hop skip connections (+ `ResidualNetworkConfig`) |
+| `PredictiveCoding.Expanded/Networks/TemporalNetwork.cs` | `TemporalNetwork` — carries μ^{t-1} across steps |
 
 ### Main application (`PredictiveCoding.Main/`)
 
@@ -130,8 +130,8 @@
 |-----------|-----------|
 | `PredictiveCoding.Core` | `DenseTensor<T>`, `ActivationFn`, `TensorUtils`, `RandomUtils` |
 | `PredictiveCoding.Model` | `Layer`, `LayerStore`, `LayerSerializer` |
-| `PredictiveCoding.Networks` | `Network`, `TemporalNetwork`, `NetworkConfig` |
-| `PredictiveCoding.Expanded.Networks` | `MixtureOfExperts`, `TemporalMixtureOfExperts`, `EnsembleNetwork`, `AttentiveNetwork`, `ResidualNetwork` + their `*Config` |
+| `PredictiveCoding.Networks` | `Network`, `NetworkConfig` |
+| `PredictiveCoding.Expanded.Networks` | `TemporalNetwork`, `MixtureOfExperts`, `TemporalMixtureOfExperts`, `EnsembleNetwork`, `AttentiveNetwork`, `ResidualNetwork` + their `*Config` |
 | `PredictiveCoding.Training` | `Trainer`, `TrainingConfig`, `Batch` |
 | `PredictiveCoding.Data` | `IDataset`, `SyntheticDataset` |
 | `PredictiveCoding.Logging` | `MetricLogger`, `CsvLogger`, `EpochMetrics` |
