@@ -79,9 +79,11 @@ public sealed class MultiHeadAttention
     private readonly int    _numKvHeads;
     private readonly int    _headDim;
     private readonly int    _kvGroup;
-    private readonly float  _scale;
-    private readonly bool   _rotary;
-    private readonly bool   _flash;
+    private readonly float   _scale;
+    private readonly bool    _rotary;
+    private readonly bool    _flash;
+    private readonly bool    _alibi;
+    private readonly float[] _slopes;
 
     public MultiHeadAttention(TransformerConfig cfg, Random rng)
     {
@@ -92,6 +94,11 @@ public sealed class MultiHeadAttention
         _scale      = 1f / MathF.Sqrt(_headDim);
         _rotary     = cfg.Positional == PositionalKind.Rotary;
         _flash      = cfg.UseFlashAttention;
+        _alibi      = cfg.Positional == PositionalKind.Alibi;
+
+        _slopes = new float[_numHeads];                       // geometric ALiBi slopes
+        for (int h = 0; h < _numHeads; h++)
+            _slopes[h] = MathF.Pow(2f, -(8f / _numHeads) * (h + 1));
 
         int qDim  = _numHeads   * _headDim;   // = EmbedDim
         int kvDim = _numKvHeads * _headDim;
@@ -135,19 +142,23 @@ public sealed class MultiHeadAttention
         {
             int off = h * _headDim;
             int g   = h / _kvGroup;               // which KV head this query head reads
-            if (_flash) AttendOnline(q, off, cache, g, n, ctxB, off);
-            else        AttendStandard(q, off, cache, g, n, ctxB, off);
+            if (_flash) AttendOnline(q, off, cache, g, n, ctxB, off, h);
+            else        AttendStandard(q, off, cache, g, n, ctxB, off, h);
         }
 
         return _o.Forward(ctx);
     }
 
     // Standard: materialise scores, softmax, weighted sum.
-    private void AttendStandard(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff)
+    private void AttendStandard(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff, int head)
     {
         var scores = new float[n];
         for (int p = 0; p < n; p++)
-            scores[p] = LlmMath.Dot(q, qoff, cache.Key(g, p), 0, _headDim) * _scale;
+        {
+            float s = LlmMath.Dot(q, qoff, cache.Key(g, p), 0, _headDim) * _scale;
+            if (_alibi) s -= _slopes[head] * (n - 1 - p);     // linear distance bias
+            scores[p] = s;
+        }
         LlmMath.SoftmaxInPlace(scores, n);
         for (int p = 0; p < n; p++)
         {
@@ -158,7 +169,7 @@ public sealed class MultiHeadAttention
     }
 
     // Flash-style: online softmax in a single pass (running max / sum / accumulator).
-    private void AttendOnline(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff)
+    private void AttendOnline(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff, int head)
     {
         float m = float.NegativeInfinity, l = 0f;
         Span<float> acc = stackalloc float[_headDim];
@@ -167,6 +178,7 @@ public sealed class MultiHeadAttention
         for (int p = 0; p < n; p++)
         {
             float s     = LlmMath.Dot(q, qoff, cache.Key(g, p), 0, _headDim) * _scale;
+            if (_alibi) s -= _slopes[head] * (n - 1 - p);
             float mNew  = MathF.Max(m, s);
             float scale = MathF.Exp(m - mNew);   // 0 on the first step (exp(-inf)) → fine
             float pExp  = MathF.Exp(s - mNew);

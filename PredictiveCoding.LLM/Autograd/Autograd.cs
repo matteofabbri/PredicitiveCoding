@@ -164,6 +164,31 @@ public static class Ag
         return o;
     }
 
+    /// <summary>
+    /// Inverted dropout: in training, zeroes each element with probability p and
+    /// scales survivors by 1/(1−p); in inference it is the identity.
+    /// </summary>
+    public static Tensor Dropout(Tensor x, float p, bool training, Random rng)
+    {
+        var o = new Tensor(x.Rows, x.Cols) { Parents = [x] };
+        if (!training || p <= 0f)
+        {
+            Array.Copy(x.Data, o.Data, x.Data.Length);
+            o.BackwardFn = () => { for (int i = 0; i < x.Data.Length; i++) x.Grad[i] += o.Grad[i]; };
+            return o;
+        }
+
+        float scale = 1f / (1f - p);
+        var   mask  = new float[x.Data.Length];
+        for (int i = 0; i < x.Data.Length; i++)
+        {
+            mask[i]   = rng.NextDouble() < p ? 0f : scale;
+            o.Data[i] = x.Data[i] * mask[i];
+        }
+        o.BackwardFn = () => { for (int i = 0; i < x.Data.Length; i++) x.Grad[i] += mask[i] * o.Grad[i]; };
+        return o;
+    }
+
     /// <summary>Row-wise softmax with a causal mask: row i attends to columns ≤ i.</summary>
     public static Tensor SoftmaxRowsCausal(Tensor x)
     {

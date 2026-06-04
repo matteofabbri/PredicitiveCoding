@@ -10,11 +10,16 @@ This document tracks the functions/components required to build a Large Language
 > generation), including the advanced attention variants (RoPE, RMSNorm, grouped-query,
 > flash-style online softmax), BPE training, a streaming dataset, beam search, sampling
 > penalties and batched decoding. A **reverse-mode autodiff engine** (`Autograd`) provides
-> gradient-checked backpropagation through a transformer (`TinyTransformerLM`) with a plain
-> SGD step. The infrastructure primitives (mixed precision, batched SIMD GEMM, tensor
-> parallelism, int8/int4 quantization) are implemented on CPU with a pluggable GEMM backend
-> for a future GPU provider. The main remaining gap is the **production training stack** —
-> a real optimizer (Adam/AdamW), LR schedules, dropout, gradient clipping and checkpointing.
+> gradient-checked backpropagation through a transformer (`TinyTransformerLM`). The full
+> **training stack** is implemented (Adam/AdamW, gradient clipping, warmup+cosine LR schedule,
+> dropout, gradient accumulation, checkpointing), as are the **infrastructure primitives**
+> (mixed precision, batched SIMD GEMM, tensor parallelism, int8/int4 quantization) on CPU.
+>
+> The only remaining `false` items are those that **fundamentally require GPU hardware** —
+> a fused flash-attention kernel, a CUDA/Metal GEMM backend (implements `IGemmProvider`),
+> and real multi-GPU collectives (implements `IComputeDevice`) — plus a SentencePiece
+> tokenizer and an HTTP serving layer. Everything implementable in a managed CPU library is
+> done.
 
 ## Tensor & predictive-coding building blocks (from the core library)
 
@@ -37,7 +42,8 @@ This document tracks the functions/components required to build a Large Language
 | true  | Text corpus dataset + shifted next-token windows (`TextDataset`) |
 | true  | Trainable subword tokenizer — byte-level BPE (`BpeTokenizer`) |
 | true  | Streaming loader for large corpora — bounded memory (`StreamingTextDataset`) |
-| false | WordPiece / SentencePiece tokenizers |
+| true  | WordPiece subword tokenizer — greedy longest-match (`WordPieceTokenizer`) |
+| false | SentencePiece (unigram LM) tokenizer |
 
 ## Model (transformer)
 
@@ -58,8 +64,8 @@ This document tracks the functions/components required to build a Large Language
 | true  | Transformer block — pre-norm + residual (`TransformerBlock`) |
 | true  | Stacked decoder + final norm + LM head (`GptModel`) |
 | true  | Weight tying — embedding ↔ LM head (`TransformerConfig.TieEmbeddings`) |
-| false | ALiBi positional bias |
-| false | Flash-attention fused GPU kernel |
+| true  | ALiBi positional bias (`PositionalKind.Alibi`) |
+| false | Flash-attention fused GPU kernel (needs a GPU) |
 
 ## Generation / decoding
 
@@ -74,7 +80,8 @@ This document tracks the functions/components required to build a Large Language
 | true  | Batched decoding (`BatchedGenerator`) |
 | true  | Context-window enforcement (`MaxSeqLen`) |
 | true  | Prompt / chat template formatting (`ChatTemplate`) |
-| false | Serving layer — continuous batching / streaming server |
+| true  | Continuous-batching scheduler (`ContinuousBatcher`) |
+| false | HTTP streaming server / API layer |
 
 ## Training
 
@@ -84,12 +91,12 @@ This document tracks the functions/components required to build a Large Language
 | true  | Perplexity / loss evaluation (`CrossEntropy.Evaluate`) |
 | true  | Reverse-mode autodiff / backprop through the transformer (`Autograd`, `TinyTransformerLM`) |
 | true  | SGD parameter update (`Sgd`) |
-| false | Optimizer — Adam / AdamW |
-| false | Gradient clipping |
-| false | Learning-rate schedule — warmup + cosine decay |
-| false | Dropout |
-| false | Gradient accumulation / mini-batching |
-| false | Checkpoint save & resume of trained weights |
+| true  | Optimizer — Adam / AdamW (`Adam`) |
+| true  | Gradient clipping — global norm (`GradientClipping`) |
+| true  | Learning-rate schedule — warmup + cosine decay (`LrSchedule`) |
+| true  | Dropout (`Ag.Dropout`) |
+| true  | Gradient accumulation / mini-batching (`Trainer`) |
+| true  | Checkpoint save & resume of trained weights (`Checkpoint`) |
 
 ## Infrastructure
 

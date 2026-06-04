@@ -24,11 +24,16 @@ public sealed class TinyTransformerLM
     public Tensor W2, B2;                              // [ff, dim], [1, dim]
     public Tensor Wout;                                // [dim, vocab]
 
-    public TinyTransformerLM(int vocab, int dim, int ff, Random rng, float eps = 1e-5f)
+    private readonly float  _dropout;
+    private readonly Random _rng;
+
+    public TinyTransformerLM(int vocab, int dim, int ff, Random rng, float eps = 1e-5f, float dropout = 0f)
     {
         _vocab = vocab;
         _dim   = dim;
         _eps   = eps;
+        _dropout = dropout;
+        _rng     = rng;
         _attnScale = 1f / MathF.Sqrt(dim);
 
         Wemb = Randn(vocab, dim, rng);
@@ -44,8 +49,8 @@ public sealed class TinyTransformerLM
     public Tensor[] Parameters() =>
         [Wemb, Wq, Wk, Wv, Wo, Ln1G, Ln1B, Ln2G, Ln2B, W1, B1, W2, B2, Wout];
 
-    /// <summary>Forward pass: tokens → logits [seq, vocab].</summary>
-    public Tensor Forward(int[] tokens)
+    /// <summary>Forward pass: tokens → logits [seq, vocab]. Dropout is active only when training.</summary>
+    public Tensor Forward(int[] tokens, bool training = false)
     {
         int seq = tokens.Length;
 
@@ -61,19 +66,20 @@ public sealed class TinyTransformerLM
         var v      = Ag.MatMul(h1, Wv);
         var scores = Ag.Scale(Ag.MatMul(q, Ag.Transpose(k)), _attnScale);   // [seq, seq]
         var attn   = Ag.MatMul(Ag.SoftmaxRowsCausal(scores), v);            // [seq, dim]
-        x = Ag.Add(x, Ag.MatMul(attn, Wo));
+        x = Ag.Add(x, Ag.Dropout(Ag.MatMul(attn, Wo), _dropout, training, _rng));
 
         // Feed-forward sub-layer (pre-norm + residual).
         var h2  = Ag.LayerNorm(x, Ln2G, Ln2B, _eps);
         var ff1 = Ag.Gelu(Ag.AddBias(Ag.MatMul(h2, W1), B1));
-        var ff2 = Ag.AddBias(Ag.MatMul(ff1, W2), B2);
+        var ff2 = Ag.Dropout(Ag.AddBias(Ag.MatMul(ff1, W2), B2), _dropout, training, _rng);
         x = Ag.Add(x, ff2);
 
         return Ag.MatMul(x, Wout);                                   // [seq, vocab]
     }
 
     /// <summary>Cross-entropy next-token loss for (tokens, targets).</summary>
-    public Tensor Loss(int[] tokens, int[] targets) => Ag.CrossEntropy(Forward(tokens), targets);
+    public Tensor Loss(int[] tokens, int[] targets, bool training = false)
+        => Ag.CrossEntropy(Forward(tokens, training), targets);
 
     // ── parameter init ───────────────────────────────────────────────────────
 

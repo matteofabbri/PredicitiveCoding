@@ -7,6 +7,8 @@ public enum PositionalKind
     Sinusoidal,
     /// <summary>Rotary position embedding (RoPE) applied to Q/K inside attention.</summary>
     Rotary,
+    /// <summary>ALiBi: a per-head linear distance bias added to the attention scores.</summary>
+    Alibi,
 }
 
 /// <summary>Normalization layer kind.</summary>
