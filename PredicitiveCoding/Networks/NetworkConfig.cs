@@ -40,10 +40,13 @@ public sealed record NetworkConfig
     public bool UseDiagonalPrecision { get; init; } = false;
 
     /// <summary>
-    /// When true, LayerStore defers FasterKV persistence until an explicit
-    /// Flush().  All reads are always served from the in-memory cache.
-    /// Dramatically improves throughput for large weight matrices (e.g.
-    /// CIFAR-10) where per-sample disk writes would saturate I/O.
+    /// When true, LayerStore keeps live Layer objects resident in memory and
+    /// defers serialization + FasterKV persistence until an explicit Flush().
+    /// Reads are served from the resident objects, avoiding per-sample
+    /// serialization. Dramatically improves throughput for large weight
+    /// matrices (e.g. CIFAR-10) where per-sample disk writes would saturate I/O.
+    /// In eager mode (false), every write is serialized to FasterKV immediately
+    /// and reads go straight through FasterKV.
     /// </summary>
     public bool LazyPersistence { get; init; } = false;
 

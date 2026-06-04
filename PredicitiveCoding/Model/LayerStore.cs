@@ -1,7 +1,8 @@
-using FASTER.core;
-using PredictiveCoding.Networks;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using FASTER.core;
+using PredictiveCoding.Networks;
 
 namespace PredictiveCoding.Model;
 
@@ -11,64 +12,83 @@ namespace PredictiveCoding.Model;
 // FASTER KV store that maps layer index (int) → serialized layer state (SpanByte).
 //
 // Key   : Layer.Index  (int)
-// Value : flat binary blob produced by LayerSerializer  (SpanByte)
+// Value : flat binary blob produced by LayerSerializer, stored as a SpanByte
+//         whose 4-byte length header precedes the payload.
+//
+// Reads go through FasterKV. Because the key is a plain int (not a SpanByte),
+// the stock SpanByteFunctions<Key,Output,Context> cannot be specialized to a
+// SpanByte value and therefore ships NO read callback — its inherited
+// SingleReader/ConcurrentReader return without populating the output. We supply
+// LayerStoreFunctions, which overrides both to copy the stored value into the
+// SpanByteAndMemory output (exactly what the built-in SpanByteFunctions<Context>
+// does for SpanByte keys). FasterKV is the single source of truth for reads.
+//
+// Lazy persistence (opt-in): live Layer objects are kept in _resident so hot
+// ReadLayer/Write calls avoid per-sample serialization (~6 MB arrays for large
+// weight matrices, e.g. CIFAR-10); serialization + FasterKV writes are deferred
+// to Flush(). This is a performance cache, not a correctness crutch — eager
+// mode reads straight from FasterKV.
+//
+// Persistence/recovery: a full checkpoint is taken on Dispose. A store opened on
+// a path that already holds a checkpoint is recovered instead of reinitialized.
+//
+// Thread safety: _resident and _dirtyKeys are guarded by Network's
+// ReaderWriterLockSlim (all callers hold it before entering LayerStore);
+// FasterKV sessions are per-thread (ThreadLocal).
 //
 // Usage:
-//   using var store = new LayerStore();      // in-memory (ephemeral)
-//   using var store = new LayerStore(path);  // log-backed (persistent)
-//
+//   using var store = new LayerStore(config, rng);
 //   store.Write(index, layer);               // checkpoint a single layer
 //   var layer = store.ReadLayer(index);      // restore a single layer
 // ─────────────────────────────────────────────────────────────────────────────
 
 internal sealed class LayerStore : IDisposable
 {
+    // FasterKV functions for an int key + SpanByte value. The base
+    // SpanByteFunctions<Key,Output,Context> only implements the write/RMW
+    // callbacks; we add the read callbacks so SpanByteAndMemory is populated.
+    private sealed class LayerStoreFunctions : SpanByteFunctions<int, SpanByteAndMemory, Empty>
+    {
+        public override bool SingleReader(ref int key, ref SpanByte input, ref SpanByte value,
+            ref SpanByteAndMemory dst, ref ReadInfo readInfo)
+        {
+            value.CopyTo(ref dst, MemoryPool<byte>.Shared);
+            return true;
+        }
+
+        public override bool ConcurrentReader(ref int key, ref SpanByte input, ref SpanByte value,
+            ref SpanByteAndMemory dst, ref ReadInfo readInfo)
+        {
+            value.CopyTo(ref dst, MemoryPool<byte>.Shared);
+            return true;
+        }
+    }
+
     private readonly FasterKV<int, SpanByte> _store;
     private readonly IDevice _device;
     private readonly NetworkConfig Configuration;
     private readonly Random Random;
+    private readonly string _checkpointDir;
 
     // FasterKV is thread-safe at the store level; sessions are NOT.
     // Each thread gets its own session created on first use via ThreadLocal.
-    // The store itself is shared and lock-free internally.
     private readonly ThreadLocal<ClientSession<
-        int, SpanByte,
-        SpanByte, SpanByteAndMemory,
-        Empty, SpanByteFunctions<int, SpanByteAndMemory, Empty>>> _sessions;
+        int, SpanByte, SpanByte, SpanByteAndMemory, Empty, LayerStoreFunctions>> _sessions;
 
-    private ClientSession<int, SpanByte, SpanByte, SpanByteAndMemory, Empty,
-        SpanByteFunctions<int, SpanByteAndMemory, Empty>> Session => _sessions.Value!;
+    private ClientSession<int, SpanByte, SpanByte, SpanByteAndMemory, Empty, LayerStoreFunctions>
+        Session => _sessions.Value!;
 
-    // Write-through cache: FasterKV v2.6.5 does not reliably populate
-    // SpanByteAndMemory for large records (>~256 bytes) via its synchronous
-    // Read path, regardless of whether the record is in the mutable or
-    // read-only region.  We keep a serialized copy of every layer in a
-    // plain dictionary so that ReadLayer always gets correct data.
-    // FasterKV is still written on every mutation for on-disk persistence
-    // when _lazyPersistence is false.  When true, FasterKV writes are
-    // deferred until Flush() — useful for large networks where per-sample
-    // persistence would saturate I/O (e.g. CIFAR-10 with 6 MB weight matrices).
-    //
-    // Thread safety: _cache, _resident and _dirtyKeys are protected by
-    // Network's ReaderWriterLockSlim (all callers hold it before entering
-    // LayerStore).  No additional lock is needed here.
-    private readonly Dictionary<int, byte[]> _cache = [];
     private readonly bool _lazyPersistence;
     private readonly HashSet<int> _dirtyKeys = [];
-    private int _disposed = 0;
 
     // In lazy mode, Layer objects are kept in memory so that ReadLayer can
     // return a clone without byte[] serialization/deserialization overhead.
-    // This eliminates ~6 MB of GC-allocated arrays per training sample when
-    // working with large weight matrices (e.g. CIFAR-10, 3072×512 weights).
     private readonly Dictionary<int, Layer>? _resident;
+
+    private int _disposed;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
-    /// <param name="storagePath">
-    /// Directory for the log device.  When null the store uses an ephemeral
-    /// temp file that is deleted on disposal.
-    /// </param>
     public LayerStore(NetworkConfig config, Random random, bool lazyPersistence = false)
     {
         Configuration    = config;
@@ -77,6 +97,7 @@ internal sealed class LayerStore : IDisposable
         if (_lazyPersistence) _resident = [];
 
         Directory.CreateDirectory(config.Path);
+        _checkpointDir = Path.Combine(config.Path, "checkpoints");
 
         _device = Devices.CreateLogDevice(
             Path.Combine(config.Path, "layers.log"),
@@ -93,73 +114,47 @@ internal sealed class LayerStore : IDisposable
                 LogDevice      = _device,
                 PageSizeBits   = pageSizeBits,
                 MemorySizeBits = memorySizeBits,
-            });
+            },
+            checkpointSettings: new CheckpointSettings { CheckpointDir = _checkpointDir });
 
         _sessions = new ThreadLocal<ClientSession<
-                int, SpanByte, SpanByte, SpanByteAndMemory, Empty,
-                SpanByteFunctions<int, SpanByteAndMemory, Empty>>>(
+                int, SpanByte, SpanByte, SpanByteAndMemory, Empty, LayerStoreFunctions>>(
             () => _store
-                .For(new SpanByteFunctions<int, SpanByteAndMemory, Empty>())
-                .NewSession<SpanByteFunctions<int, SpanByteAndMemory, Empty>>(),
+                .For(new LayerStoreFunctions())
+                .NewSession<LayerStoreFunctions>(),
             trackAllValues: true);
 
-        if (Directory.GetFiles(config.Path, "*.*", SearchOption.AllDirectories).Any())
+        if (HasCheckpoint(_checkpointDir))
         {
             _store.Recover();
-            PopulateCacheFromStore();
+            if (_lazyPersistence) PopulateResidentFromStore();
             return;
         }
 
-        // Storage is empty — initialize and immediately cache every layer.
+        // Fresh storage — initialize and persist every layer.
         for (int index = 0; index < Configuration.LayerSizes.Length; index++)
         {
-            var layer = Initialize(index);
-            CacheAndPersist(index, layer);
+            Layer layer = SeedLayer(index);
+            if (_lazyPersistence) _resident![index] = layer;
         }
     }
 
-    // Reads all layer records from FasterKV into the in-memory cache.
-    // Called once after Recover() so that subsequent ReadLayer calls are
-    // served from the cache without touching FasterKV's read path.
-    private void PopulateCacheFromStore()
+    // True when CheckpointDir already holds at least one completed checkpoint.
+    private static bool HasCheckpoint(string checkpointDir)
+    {
+        string cpr = Path.Combine(checkpointDir, "cpr-checkpoints");
+        return Directory.Exists(cpr) && Directory.EnumerateDirectories(cpr).Any();
+    }
+
+    // After Recover(), rebuild the resident cache (lazy mode only) from the store.
+    private void PopulateResidentFromStore()
     {
         for (int index = 0; index < Configuration.LayerSizes.Length; index++)
         {
-            SpanByteAndMemory output = default;
-            Status status = Session.Read(ref index, ref output);
-
-            if (status.IsPending)
-            {
-                Session.CompletePendingWithOutputs(out var iter, wait: true);
-                using (iter)
-                {
-                    if (iter.Next())
-                    {
-                        status = iter.Current.Status;
-                        output = iter.Current.Output;
-                    }
-                }
-            }
-
-            if (!status.Found)
-                continue; // layer absent; ReadLayer will initialize it on first access
-
-            try
-            {
-                ReadOnlySpan<byte> bytes = output.IsSpanByte
-                    ? output.SpanByte.AsReadOnlySpan()
-                    : output.Memory!.Memory.Span[..output.Length];
-
-                byte[] arr = bytes.ToArray();
-                _cache[index] = arr;
-                if (_lazyPersistence)
-                    _resident![index] = LayerSerializer.AllocateAndDeserialize(
-                        arr, index, Configuration.Activation);
-            }
-            finally
-            {
-                if (!output.IsSpanByte) output.Memory?.Dispose();
-            }
+            byte[]? payload = ReadFromStore(index);
+            if (payload is not null)
+                _resident![index] = LayerSerializer.AllocateAndDeserialize(
+                    payload, index, Configuration.Activation);
         }
     }
 
@@ -181,13 +176,12 @@ internal sealed class LayerStore : IDisposable
         return layer;
     }
 
-    private void CacheAndPersist(int index, Layer layer)
+    // Creates a fresh layer, persists it to the store and returns it.
+    private Layer SeedLayer(int index)
     {
-        byte[] payload = LayerSerializer.Serialize(layer);
-        _cache[index] = payload;
-        PersistToStore(index, payload);   // always write at init time
-        if (_lazyPersistence)
-            _resident![index] = layer;    // keep live object for fast reads
+        Layer layer = Initialize(index);
+        PersistToStore(index, LayerSerializer.Serialize(layer));
+        return layer;
     }
 
     private void PersistToStore(int index, byte[] payload)
@@ -208,33 +202,75 @@ internal sealed class LayerStore : IDisposable
         }
     }
 
+    // Reads the serialized payload for a layer from FasterKV, or null if absent.
+    private byte[]? ReadFromStore(int index)
+    {
+        SpanByteAndMemory output = default;
+        Status status = Session.Read(ref index, ref output);
+
+        if (status.IsPending)
+        {
+            Session.CompletePendingWithOutputs(out var iter, wait: true);
+            using (iter)
+            {
+                if (iter.Next())
+                {
+                    status = iter.Current.Status;
+                    output = iter.Current.Output;
+                }
+            }
+        }
+
+        if (!status.Found)
+            return null;
+
+        try
+        {
+            ReadOnlySpan<byte> bytes = output.IsSpanByte
+                ? output.SpanByte.AsReadOnlySpan()
+                : output.Memory!.Memory.Span[..output.Length];
+            return bytes.ToArray();
+        }
+        finally
+        {
+            if (!output.IsSpanByte) output.Memory?.Dispose();
+        }
+    }
+
     // ── Factory read ─────────────────────────────────────────────────────────
 
     /// <summary>
     /// Returns a fresh <see cref="Layer"/> for <paramref name="index"/>.
     /// In lazy mode: clones the resident Layer object (no byte[] round-trip).
-    /// In eager mode: deserializes from the byte[] cache (original behaviour).
+    /// In eager mode: deserializes from FasterKV.
     /// </summary>
     public Layer ReadLayer(int index)
     {
-        if (_lazyPersistence && _resident!.TryGetValue(index, out Layer? resident))
+        if (_lazyPersistence)
+        {
+            if (!_resident!.TryGetValue(index, out Layer? resident))
+            {
+                byte[]? payload = ReadFromStore(index);
+                resident = payload is not null
+                    ? LayerSerializer.AllocateAndDeserialize(payload, index, Configuration.Activation)
+                    : SeedLayer(index);
+                _resident[index] = resident;
+            }
             return resident.Clone();
+        }
 
-        if (_cache.TryGetValue(index, out byte[]? cached))
-            return LayerSerializer.AllocateAndDeserialize(cached, index, Configuration.Activation);
-
-        // Cache miss — initialize and persist.
-        var newLayer = Initialize(index);
-        CacheAndPersist(index, newLayer);
-        return newLayer;
+        byte[]? blob = ReadFromStore(index);
+        return blob is not null
+            ? LayerSerializer.AllocateAndDeserialize(blob, index, Configuration.Activation)
+            : SeedLayer(index);
     }
 
     // ── Write ───────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Persists <paramref name="layer"/> to the store.
-    /// Lazy mode: stores the live Layer object in the resident cache and defers
-    ///            serialization + FasterKV write until <see cref="Flush"/>.
+    /// Lazy mode: keeps the live Layer object and defers serialization +
+    ///            FasterKV write until <see cref="Flush"/>.
     /// Eager mode: serializes immediately and upserts to FasterKV.
     /// </summary>
     public void Write(int index, Layer layer)
@@ -246,30 +282,31 @@ internal sealed class LayerStore : IDisposable
         }
         else
         {
-            byte[] payload = LayerSerializer.Serialize(layer);
-            _cache[index] = payload;
-            PersistToStore(index, payload);
+            PersistToStore(index, LayerSerializer.Serialize(layer));
         }
     }
 
     /// <summary>
-    /// Flushes dirty resident layers to the byte[] cache and FasterKV
-    /// (no-op in eager mode), then forces the device log.
-    /// Call once per epoch when <see cref="NetworkConfig.LazyPersistence"/> is true.
+    /// Flushes dirty resident layers to FasterKV (no-op in eager mode), then
+    /// forces the device log. Call once per epoch when
+    /// <see cref="NetworkConfig.LazyPersistence"/> is true.
     /// </summary>
     public void Flush()
     {
         if (_lazyPersistence)
         {
             foreach (int idx in _dirtyKeys)
-            {
-                byte[] payload = LayerSerializer.Serialize(_resident![idx]);
-                _cache[idx] = payload;
-                PersistToStore(idx, payload);
-            }
+                PersistToStore(idx, LayerSerializer.Serialize(_resident![idx]));
             _dirtyKeys.Clear();
         }
         _store.Log.FlushAndEvict(wait: true);
+    }
+
+    // Takes a full (index + hybrid-log) checkpoint and waits for completion.
+    private void Checkpoint()
+    {
+        _ = _store.TakeFullCheckpointAsync(CheckpointType.FoldOver)
+                  .AsTask().GetAwaiter().GetResult();
     }
 
     public void Dispose()
@@ -277,6 +314,7 @@ internal sealed class LayerStore : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
         Flush();
+        Checkpoint();
 
         // Dispose every per-thread session created via ThreadLocal.
         foreach (var session in _sessions.Values)
