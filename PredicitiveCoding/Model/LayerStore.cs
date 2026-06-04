@@ -17,8 +17,8 @@ namespace PredictiveCoding.Model;
 //   using var store = new LayerStore();      // in-memory (ephemeral)
 //   using var store = new LayerStore(path);  // log-backed (persistent)
 //
-//   store.WriteAll(network.Layers);          // checkpoint
-//   store.ReadAll(network.Layers);           // restore
+//   store.Write(index, layer);               // checkpoint a single layer
+//   var layer = store.ReadLayer(index);      // restore a single layer
 // ─────────────────────────────────────────────────────────────────────────────
 
 internal sealed class LayerStore : IDisposable
@@ -229,21 +229,6 @@ internal sealed class LayerStore : IDisposable
         return newLayer;
     }
 
-    /// <summary>
-    /// Loads all <c>config.LayerSizes.Length</c> layers from the store and
-    /// returns them as a freshly allocated array.
-    /// Throws <see cref="InvalidOperationException"/> if any layer is missing.
-    /// </summary>
-    public Layer[] ReadAll()
-    {
-        var layers = new Layer[Configuration.LayerSizes.Length];
-        for (int l = 0; l < layers.Length; l++)
-            layers[l] = ReadLayer(l)
-                ?? throw new InvalidOperationException(
-                    $"Layer {l} not found in store — call WriteAll before ReadAll.");
-        return layers;
-    }
-
     // ── Write ───────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -264,16 +249,6 @@ internal sealed class LayerStore : IDisposable
             byte[] payload = LayerSerializer.Serialize(layer);
             _cache[index] = payload;
             PersistToStore(index, payload);
-        }
-    }
-
-    /// <summary>Checkpoints every layer in <paramref name="layers"/>.</summary>
-    public void WriteAll(IReadOnlyList<Layer> layers)
-    {
-        for (int index = 0; index < layers.Count; index++)
-        {
-            var layer = layers[index];
-            Write(index, layer);
         }
     }
 
