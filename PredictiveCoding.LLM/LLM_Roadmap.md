@@ -110,8 +110,9 @@ This document tracks the functions/components required to build a Large Language
 | true  | Batched / SIMD-parallel GEMM with pluggable backend (`Gemm`, `IGemmProvider`) |
 | true  | Multi-device / tensor parallelism — column/row-parallel linear + all-reduce (`ShardedLinear`, `DeviceMesh`) |
 | true  | Quantization — int8 and packed int4 weight matrices (`Int8Matrix`, `Int4Matrix`) |
-| true  | CUDA GEMM backend implementing `IGemmProvider` — cuBLASLt (`CudaGemmProvider`, project `PredictiveCoding.Device`) |
-| true  | Multi-GPU collectives (NCCL-style) — AllReduce/Broadcast/ReduceScatter/AllGather (`NcclProvider`) |
+| true  | CUDA GEMM backend implementing `IGemmProvider` — direct cuBLAS P/Invoke (`CudaGemmProvider`, project `PredictiveCoding.Device`) |
+| true  | Metal (Apple GPU) GEMM backend — TorchSharp/MPS (`TorchGemmProvider`, project `PredictiveCoding.Device.Torch`) |
+| true  | Multi-GPU collectives (NCCL-style) — AllReduce/Broadcast/ReduceScatter/AllGather (`NcclProvider`, CPU impl.) |
 | true  | Device management — `DeviceTensor<T>`, allocator/pooling, streams, async copies (`PredictiveCoding.Device`) |
 | false | Fused flash-attention GPU kernel |
-| false | Metal / ROCm backends (architecture in place via `IGemmProvider` / `IComputeDevice`) |
+| false | ROCm switch (works via TorchSharp on a HIP/CUDA device; not wired) |
