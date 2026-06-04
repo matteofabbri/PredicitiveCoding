@@ -16,7 +16,7 @@ namespace PredictiveCoding.Device;
 
 public static class TensorOps
 {
-    private static readonly CudaGemmProvider Cuda = new();
+    private static readonly CudaGemmProvider Gpu = new();
 
     // ── MatMul ──────────────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ public static class TensorOps
         if (a.IsOnDevice && b.IsOnDevice && DeviceRuntime.CudaAvailable)
         {
             var c = NewDeviceResult(m, n, a.DeviceId, a.Stream);
-            Cuda.MatMulDevice(a.DevicePtr, b.DevicePtr, c.DevicePtr, m, k, n, a.Stream);
+            Gpu.MatMulDevice(a.DevicePtr, b.DevicePtr, c.DevicePtr, m, k, n, a.Stream);
             CudaStreamManager.Shared.Synchronize(a.Stream);
             return c;
         }
@@ -45,7 +45,7 @@ public static class TensorOps
         if (a.IsOnDevice && b.IsOnDevice && DeviceRuntime.CudaAvailable)
         {
             var c = NewDeviceResult(m, n, a.DeviceId, stream);
-            Cuda.MatMulDevice(a.DevicePtr, b.DevicePtr, c.DevicePtr, m, k, n, stream);   // queued on stream
+            Gpu.MatMulDevice(a.DevicePtr, b.DevicePtr, c.DevicePtr, m, k, n, stream);   // queued on stream
             return c;
         }
 
@@ -62,7 +62,7 @@ public static class TensorOps
 
         if (src.IsOnDevice && dst.IsOnDevice)
         {
-            NativeCheck.Ok(NativeMethods.pcd_memcpy_d2d(dst.DevicePtr, src.DevicePtr, (nuint)src.SizeInBytes), "d2d");
+            NativeCheck.Ok(Cuda.cudaMemcpy(dst.DevicePtr, src.DevicePtr, (nuint)src.SizeInBytes, (int)MemcpyKind.DeviceToDevice), "d2d");
             return;
         }
         Array.Copy(src.ToHost().Buffer, dst.ToHost().Buffer, src.ElementCount);
@@ -75,8 +75,8 @@ public static class TensorOps
 
         if (src.IsOnDevice && dst.IsOnDevice)
         {
-            NativeCheck.Ok(NativeMethods.pcd_memcpy_async(dst.DevicePtr, src.DevicePtr, (nuint)src.SizeInBytes,
-                                                          (int)MemcpyKind.DeviceToDevice, stream.Handle), "d2d_async");
+            NativeCheck.Ok(Cuda.cudaMemcpyAsync(dst.DevicePtr, src.DevicePtr, (nuint)src.SizeInBytes,
+                                                (int)MemcpyKind.DeviceToDevice, stream.Handle), "d2d_async");
             return;
         }
         Array.Copy(src.ToHost().Buffer, dst.ToHost().Buffer, src.ElementCount);

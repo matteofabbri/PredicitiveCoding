@@ -19,9 +19,3 @@ public readonly record struct CudaEventHandle(IntPtr Handle)
 {
     public bool IsNull => Handle == IntPtr.Zero;
 }
-
-/// <summary>Opaque handle to a native NCCL communicator (ncclComm_t).</summary>
-public readonly record struct NcclCommHandle(IntPtr Handle)
-{
-    public bool IsNull => Handle == IntPtr.Zero;
-}

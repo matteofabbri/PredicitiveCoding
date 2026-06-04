@@ -98,9 +98,9 @@ public sealed class DeviceTensor<T> : IDisposable where T : unmanaged, System.Nu
         {
             IntPtr src = handle.AddrOfPinnedObject();
             if (async)
-                NativeCheck.Ok(NativeMethods.pcd_memcpy_async(DevicePtr, src, (nuint)SizeInBytes, (int)MemcpyKind.HostToDevice, stream.Handle), "h2d_async");
+                NativeCheck.Ok(Cuda.cudaMemcpyAsync(DevicePtr, src, (nuint)SizeInBytes, (int)MemcpyKind.HostToDevice, stream.Handle), "h2d_async");
             else
-                NativeCheck.Ok(NativeMethods.pcd_memcpy_h2d(DevicePtr, src, (nuint)SizeInBytes), "h2d");
+                NativeCheck.Ok(Cuda.cudaMemcpy(DevicePtr, src, (nuint)SizeInBytes, (int)MemcpyKind.HostToDevice), "h2d");
         }
         finally { handle.Free(); }
     }
@@ -112,9 +112,9 @@ public sealed class DeviceTensor<T> : IDisposable where T : unmanaged, System.Nu
         {
             IntPtr dst = handle.AddrOfPinnedObject();
             if (async)
-                NativeCheck.Ok(NativeMethods.pcd_memcpy_async(dst, DevicePtr, (nuint)SizeInBytes, (int)MemcpyKind.DeviceToHost, stream.Handle), "d2h_async");
+                NativeCheck.Ok(Cuda.cudaMemcpyAsync(dst, DevicePtr, (nuint)SizeInBytes, (int)MemcpyKind.DeviceToHost, stream.Handle), "d2h_async");
             else
-                NativeCheck.Ok(NativeMethods.pcd_memcpy_d2h(dst, DevicePtr, (nuint)SizeInBytes), "d2h");
+                NativeCheck.Ok(Cuda.cudaMemcpy(dst, DevicePtr, (nuint)SizeInBytes, (int)MemcpyKind.DeviceToHost), "d2h");
         }
         finally { handle.Free(); }
     }

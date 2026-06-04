@@ -1,18 +1,18 @@
-using System.Runtime.InteropServices;
-using PredictiveCoding.Device.Allocators;
-using PredictiveCoding.Device.Interop;
-using PredictiveCoding.Device.Streams;
-
 namespace PredictiveCoding.Device.Nccl;
+
+/// <summary>Reduction op for collectives.</summary>
+public enum ReduceOp { Sum = 0, Prod = 1, Max = 2, Min = 3 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NcclProvider  —  NCCL-style collectives across a set of devices.
 //
-//   AllReduce / Broadcast / ReduceScatter / AllGather, plus communicator
-//   management. When ≥2 CUDA devices are present a real NCCL communicator per
-//   device is created and AllReduce/Broadcast are issued through it; otherwise an
-//   equivalent CPU implementation (the "mock NCCL") runs so the API works on any
-//   machine. Buffers are per-rank host arrays (one float[] per device).
+//   AllReduce / Broadcast / ReduceScatter / AllGather over per-rank buffers
+//   (one float[] per device). The algorithms run on the host (the "mock NCCL"),
+//   which keeps the API working on any machine.
+//
+//   Real GPU NCCL is NOT part of cudart/cublas, so it is intentionally not wired
+//   here (it would need its own libnccl binding) — a clean extension point that
+//   doesn't reintroduce a custom native build.
 // ─────────────────────────────────────────────────────────────────────────────
 
 public interface INcclProvider : IDisposable
@@ -26,26 +26,14 @@ public interface INcclProvider : IDisposable
 
 public sealed class NcclProvider : INcclProvider
 {
-    private readonly int[]             _devices;
-    private readonly NcclCommHandle[]  _comms;
-    private readonly bool              _useNccl;
+    private readonly int[] _devices;
 
     public int RankCount => _devices.Length;
-    public bool UsesNccl => _useNccl;
 
     public NcclProvider(int[] devices)
     {
         if (devices.Length < 1) throw new ArgumentException("At least one device is required.", nameof(devices));
         _devices = (int[])devices.Clone();
-        _useNccl = DeviceRuntime.MultiGpuAvailable && devices.Length > 1;
-
-        if (_useNccl)
-        {
-            var raw = new IntPtr[devices.Length];
-            NativeCheck.Ok(NativeMethods.pcd_nccl_comm_init(devices.Length, _devices, raw), "nccl_comm_init");
-            _comms = raw.Select(p => new NcclCommHandle(p)).ToArray();
-        }
-        else _comms = [];
     }
 
     /// <summary>Creates a provider over all available CUDA devices (or a single CPU rank).</summary>
@@ -55,13 +43,9 @@ public sealed class NcclProvider : INcclProvider
         return new NcclProvider(Enumerable.Range(0, n).ToArray());
     }
 
-    // ── Collectives ────────────────────────────────────────────────────────────
-
     public void AllReduce(float[][] buffers, ReduceOp op = ReduceOp.Sum)
     {
         ValidateUniform(buffers);
-        if (_useNccl) { GpuAllReduce(buffers, op); return; }
-
         var reduced = (float[])buffers[0].Clone();
         for (int r = 1; r < RankCount; r++) Combine(reduced, buffers[r], op);
         foreach (var buf in buffers) Array.Copy(reduced, buf, reduced.Length);
@@ -71,8 +55,6 @@ public sealed class NcclProvider : INcclProvider
     {
         ValidateUniform(buffers);
         if (root < 0 || root >= RankCount) throw new ArgumentOutOfRangeException(nameof(root));
-        if (_useNccl) { GpuBroadcast(buffers, root); return; }
-
         foreach (var buf in buffers) Array.Copy(buffers[root], buf, buf.Length);
     }
 
@@ -103,50 +85,6 @@ public sealed class NcclProvider : INcclProvider
         }
     }
 
-    // ── GPU (NCCL) paths ─────────────────────────────────────────────────────
-
-    private void GpuAllReduce(float[][] buffers, ReduceOp op)
-    {
-        int count = buffers[0].Length;
-        nuint bytes = (nuint)(sizeof(float) * count);
-        for (int r = 0; r < RankCount; r++)
-        {
-            int dev = _devices[r];
-            var stream = CudaStreamManager.Shared.ThreadStream(dev);
-            IntPtr buf = CudaAllocator.Shared.Allocate(dev, bytes, stream);
-            try
-            {
-                Upload(buffers[r], buf, bytes);
-                NativeCheck.Ok(NativeMethods.pcd_nccl_all_reduce(_comms[r].Handle, buf, buf, (nuint)count, (int)op, stream.Handle), "nccl_all_reduce");
-                CudaStreamManager.Shared.Synchronize(stream);
-                Download(buf, buffers[r], bytes);
-            }
-            finally { CudaAllocator.Shared.Free(dev, buf, bytes, stream); }
-        }
-    }
-
-    private void GpuBroadcast(float[][] buffers, int root)
-    {
-        int count = buffers[0].Length;
-        nuint bytes = (nuint)(sizeof(float) * count);
-        for (int r = 0; r < RankCount; r++)
-        {
-            int dev = _devices[r];
-            var stream = CudaStreamManager.Shared.ThreadStream(dev);
-            IntPtr buf = CudaAllocator.Shared.Allocate(dev, bytes, stream);
-            try
-            {
-                Upload(buffers[r], buf, bytes);
-                NativeCheck.Ok(NativeMethods.pcd_nccl_broadcast(_comms[r].Handle, buf, (nuint)count, root, stream.Handle), "nccl_broadcast");
-                CudaStreamManager.Shared.Synchronize(stream);
-                Download(buf, buffers[r], bytes);
-            }
-            finally { CudaAllocator.Shared.Free(dev, buf, bytes, stream); }
-        }
-    }
-
-    // ── helpers ────────────────────────────────────────────────────────────────
-
     private void ValidateUniform(float[][] buffers)
     {
         if (buffers.Length != RankCount) throw new ArgumentException($"Expected {RankCount} per-rank buffers.");
@@ -167,22 +105,5 @@ public sealed class NcclProvider : INcclProvider
             };
     }
 
-    private static void Upload(float[] host, IntPtr dst, nuint bytes)
-    {
-        var h = GCHandle.Alloc(host, GCHandleType.Pinned);
-        try { NativeCheck.Ok(NativeMethods.pcd_memcpy_h2d(dst, h.AddrOfPinnedObject(), bytes), "h2d"); }
-        finally { h.Free(); }
-    }
-
-    private static void Download(IntPtr src, float[] host, nuint bytes)
-    {
-        var h = GCHandle.Alloc(host, GCHandleType.Pinned);
-        try { NativeCheck.Ok(NativeMethods.pcd_memcpy_d2h(h.AddrOfPinnedObject(), src, bytes), "d2h"); }
-        finally { h.Free(); }
-    }
-
-    public void Dispose()
-    {
-        foreach (var c in _comms) if (!c.IsNull) NativeMethods.pcd_nccl_comm_destroy(c.Handle);
-    }
+    public void Dispose() { }
 }

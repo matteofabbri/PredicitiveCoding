@@ -1,20 +1,35 @@
 # PredictiveCoding.Device
 
 Device management for tensors: CPU / CUDA / multi-GPU, layered **on top of**
-`System.Numerics.Tensors` (never modifying it). Everything degrades gracefully —
-with no native library or GPU the whole API runs on the CPU.
+`System.Numerics.Tensors` (never modifying it).
+
+**No custom native library.** GPU work P/Invokes the standard CUDA Toolkit
+libraries directly (`cudart`, `cublas`) — there is nothing to compile or ship.
+Install the CUDA Toolkit for acceleration; with no toolkit or GPU the whole API
+runs on the CPU automatically.
 
 - `Device` — `Cpu`, `Cuda(id)`, `CudaMulti`, `Metal`, `Rocm`.
 - `DeviceTensor<T>` — host (`DenseTensor<T>`) + device buffer, `DevicePtr`, stream.
 - `CudaAllocator` — pooling, pinned host memory, `cudaMallocAsync`/`FreeAsync`.
 - `CudaStreamManager` — per-thread streams, events, synchronisation.
-- `CudaGemmProvider` — cuBLASLt GEMM, plugs into the LLM `IGemmProvider`.
-- `NcclProvider` — AllReduce / Broadcast / ReduceScatter / AllGather.
+- `CudaGemmProvider` — cuBLAS GEMM, plugs into the LLM `IGemmProvider`.
+- `NcclProvider` — AllReduce / Broadcast / ReduceScatter / AllGather (CPU impl.).
 - `TensorOps` — `MatMul`, `MatMulAsync`, `CopyTo`, `CopyToAsync`, `Synchronize`.
 - `DeviceRegistry` — install the CUDA backend into the LLM stack.
 
-Native build & NCCL setup: see [`native/BUILD.md`](native/BUILD.md) and
-[`native/NCCL.md`](native/NCCL.md). Runnable samples: [`DeviceExamples.cs`](DeviceExamples.cs).
+The native bindings live in `Interop/` (`Cuda.cs`, `Cublas.cs`,
+`NativeResolver.cs`); the resolver maps `cudart`/`cublas` to their version-suffixed
+files (`cudart64_12.dll` / `libcudart.so.12`, …).
+
+## Requirements for GPU
+- NVIDIA driver + **CUDA Toolkit ≥ 12** on `PATH` / `LD_LIBRARY_PATH`
+  (provides `cudart` and `cublas`). Verify:
+  ```csharp
+  Console.WriteLine($"cuda devices: {DeviceRuntime.CudaDeviceCount}");
+  ```
+- Multi-GPU NCCL is **not** part of cudart/cublas, so `NcclProvider` uses a CPU
+  implementation. A real NCCL path is a clean extension (add a `libnccl` binding)
+  that does not reintroduce a custom native build.
 
 ## Examples
 
@@ -25,35 +40,25 @@ using PredictiveCoding.Device.Nccl;
 using PredictiveCoding.Device.Streams;
 using PredictiveCoding.Device.Interop;
 
-// 0. Pick and install the best backend (CUDA when available, else CPU).
-DeviceRegistry.AutoSelect();
+DeviceRegistry.AutoSelect();                                   // install CUDA backend if a GPU is present
 
-// 1. Create a tensor on the CPU.
-var host = new DenseTensor<float>(new float[] { 1, 2, 3, 4, 5, 6 }, 2, 3);
+var host = new DenseTensor<float>(new float[] { 1, 2, 3, 4, 5, 6 }, 2, 3);   // 1. CPU tensor
+DeviceTensor<float> g = host.ToDevice(Device.Cuda());          // 2. → GPU (CUDA→CPU fallback automatic)
 
-// 2. Move it onto the GPU (PyTorch-style; CUDA→CPU fallback is automatic).
-DeviceTensor<float> g = host.ToDevice(Device.Cuda());        // or Device.Cuda(deviceId)
-
-// 3. MatMul on the GPU (cuBLASLt).
 var b = new DenseTensor<float>(new float[] { 7, 8, 9, 10, 11, 12 }, 3, 2).ToDevice(Device.Cuda());
-using var c = TensorOps.MatMul(g, b);                        // [2,3]·[3,2] = [2,2]
+using var c = TensorOps.MatMul(g, b);                          // 3. cuBLAS GEMM [2,3]·[3,2]
 
-// 4. Multi-GPU all-reduce (NCCL, or CPU mock with the same API).
-using var nccl = NcclProvider.ForAllDevices();
-float[][] perRank = /* one buffer per device */ Enumerable.Range(0, nccl.RankCount)
-    .Select(_ => new[] { 1f, 2f, 3f }).ToArray();
+using var nccl = NcclProvider.ForAllDevices();                 // 4. multi-GPU all-reduce
+float[][] perRank = Enumerable.Range(0, nccl.RankCount).Select(_ => new[] { 1f, 2f, 3f }).ToArray();
 nccl.AllReduce(perRank, ReduceOp.Sum);
 
-// 5. Asynchronous matmul on a stream.
-CudaStreamHandle stream = CudaStreamManager.Shared.CreateStream(deviceId: 0);
-using var d = TensorOps.MatMulAsync(g, b, stream);
+CudaStreamHandle stream = CudaStreamManager.Shared.CreateStream(0);
+using var d = TensorOps.MatMulAsync(g, b, stream);             // 5. async on a stream
 TensorOps.Synchronize(stream);
 
-// 6. Back to the CPU.
-DenseTensor<float> result = c.ToHostTensor();
+DenseTensor<float> result = c.ToHostTensor();                  // 6. back to the CPU
 ```
 
 ## Extending to Metal / ROCm
-Implement `IGemmProvider` (compute) and `IComputeDevice` (collectives) for the
-new backend and register them — the model code is backend-agnostic, so nothing
-above the device layer changes.
+Implement `IGemmProvider` (compute) and `IComputeDevice` (collectives) for the new
+backend and register them — the model code is backend-agnostic.

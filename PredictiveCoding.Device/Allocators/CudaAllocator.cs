@@ -12,11 +12,12 @@ namespace PredictiveCoding.Device.Allocators;
 //     back to plain cudaMalloc.
 //   • Pinned host buffers (cudaHostAlloc) are pooled the same way for fast,
 //     overlappable H2D / D2H transfers.
+//
+// Calls go straight to the CUDA runtime (cudart) — no custom native library.
 // ─────────────────────────────────────────────────────────────────────────────
 
 public sealed class CudaAllocator : IDeviceAllocator
 {
-    /// <summary>Process-wide default allocator.</summary>
     public static CudaAllocator Shared { get; } = new();
 
     private const int MaxPooledPerBucket = 32;
@@ -37,11 +38,10 @@ public sealed class CudaAllocator : IDeviceAllocator
                 return pool.Pop();
         }
 
-        NativeCheck.Ok(NativeMethods.pcd_set_device(deviceId), "set_device");
+        NativeCheck.Ok(Cuda.cudaSetDevice(deviceId), "cudaSetDevice");
 
-        int status = NativeMethods.pcd_malloc_async(out IntPtr ptr, bucket, stream.Handle);
-        if (status != 0)
-            NativeCheck.Ok(NativeMethods.pcd_malloc(out ptr, bucket), "malloc(fallback)"); // sync fallback
+        if (Cuda.cudaMallocAsync(out IntPtr ptr, bucket, stream.Handle) != 0)
+            NativeCheck.Ok(Cuda.cudaMalloc(out ptr, bucket), "cudaMalloc(fallback)");
         return ptr;
     }
 
@@ -55,9 +55,7 @@ public sealed class CudaAllocator : IDeviceAllocator
             if (!_devicePool.TryGetValue(key, out var pool)) _devicePool[key] = pool = new Stack<IntPtr>();
             if (pool.Count < MaxPooledPerBucket) { pool.Push(ptr); return; }
         }
-        // Pool full → actually release.
-        if (NativeMethods.pcd_free_async(ptr, stream.Handle) != 0)
-            NativeMethods.pcd_free(ptr);
+        if (Cuda.cudaFreeAsync(ptr, stream.Handle) != 0) Cuda.cudaFree(ptr);
     }
 
     // ── Pinned host memory ────────────────────────────────────────────────────
@@ -69,7 +67,7 @@ public sealed class CudaAllocator : IDeviceAllocator
         {
             if (_pinnedPool.TryGetValue(bucket, out var pool) && pool.Count > 0) return pool.Pop();
         }
-        NativeCheck.Ok(NativeMethods.pcd_host_alloc(out IntPtr ptr, bucket), "host_alloc");
+        NativeCheck.Ok(Cuda.cudaHostAlloc(out IntPtr ptr, bucket), "cudaHostAlloc");
         return ptr;
     }
 
@@ -82,7 +80,7 @@ public sealed class CudaAllocator : IDeviceAllocator
             if (!_pinnedPool.TryGetValue(bucket, out var pool)) _pinnedPool[bucket] = pool = new Stack<IntPtr>();
             if (pool.Count < MaxPooledPerBucket) { pool.Push(ptr); return; }
         }
-        NativeMethods.pcd_host_free(ptr);
+        Cuda.cudaFreeHost(ptr);
     }
 
     /// <summary>Releases every pooled buffer back to the driver.</summary>
@@ -90,8 +88,8 @@ public sealed class CudaAllocator : IDeviceAllocator
     {
         lock (_gate)
         {
-            foreach (var pool in _devicePool.Values) while (pool.Count > 0) NativeMethods.pcd_free(pool.Pop());
-            foreach (var pool in _pinnedPool.Values) while (pool.Count > 0) NativeMethods.pcd_host_free(pool.Pop());
+            foreach (var pool in _devicePool.Values) while (pool.Count > 0) Cuda.cudaFree(pool.Pop());
+            foreach (var pool in _pinnedPool.Values) while (pool.Count > 0) Cuda.cudaFreeHost(pool.Pop());
             _devicePool.Clear();
             _pinnedPool.Clear();
         }

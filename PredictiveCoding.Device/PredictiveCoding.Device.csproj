@@ -14,9 +14,10 @@
     <ProjectReference Include="..\PredictiveCoding.LLM\PredictiveCoding.LLM.csproj" />
   </ItemGroup>
 
-  <!-- Native CUDA sources ship with the project but are built separately (see native/BUILD.md). -->
-  <ItemGroup>
-    <None Include="native\**\*" />
-  </ItemGroup>
+  <!--
+    No custom native library: GPU work P/Invokes the standard CUDA Toolkit
+    libraries (cudart, cublas) via Interop/NativeResolver. Install the CUDA
+    Toolkit for GPU acceleration; otherwise everything runs on the CPU.
+  -->
 
 </Project>
