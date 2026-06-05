@@ -140,17 +140,17 @@ public class LlmTrainingTests
         for (int it = 0; it < 10; it++) { lm.Loss(t, y).Backward(); opt.Step(lm.Parameters(), 0.05f); }
 
         float before = lm.Loss(t, y).Data[0];
-        string path = Path.Combine(Path.GetTempPath(), $"ckpt_{Guid.NewGuid():N}.bin");
+        string dir = Path.Combine(Path.GetTempPath(), $"ckpt_{Guid.NewGuid():N}");
         try
         {
-            Checkpoint.Save(path, lm.Parameters());
+            Checkpoint.Save(dir, lm.Parameters());
             foreach (var p in lm.Parameters()) for (int i = 0; i < p.Data.Length; i++) p.Data[i] += 1f;
             Assert.NotEqual(before, lm.Loss(t, y).Data[0], precision: 3);
 
-            Checkpoint.Load(path, lm.Parameters());
+            Checkpoint.Load(dir, lm.Parameters());
             Assert.Equal(before, lm.Loss(t, y).Data[0], precision: 4);
         }
-        finally { File.Delete(path); }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
     }
 
     // ── WordPiece ───────────────────────────────────────────────────────────────

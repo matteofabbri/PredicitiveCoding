@@ -22,7 +22,7 @@ public sealed class Translator
 {
     private const string ManifestName  = "manifest.json";
     private const string TokenizerName = "tokenizer.bpe";
-    private const string WeightsName   = "model.ckpt";
+    private const string WeightsDir    = "weights";   // FASTER-backed weight checkpoint (a folder)
 
     private readonly DecoderLM    _model;
     private readonly BpeTokenizer _tok;
@@ -105,7 +105,7 @@ public sealed class Translator
         File.WriteAllText(Path.Combine(dir, ManifestName),
             JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
         _tok.Save(Path.Combine(dir, TokenizerName));
-        Checkpoint.Save(Path.Combine(dir, WeightsName), _model.Parameters());
+        Checkpoint.Save(Path.Combine(dir, WeightsDir), _model.Parameters());
     }
 
     /// <summary>Loads a translator previously written with <see cref="Save"/>.</summary>
@@ -120,7 +120,7 @@ public sealed class Translator
 
         var tok   = BpeTokenizer.Load(Path.Combine(dir, TokenizerName));
         var model = new DecoderLM(cfg, new Random(0));           // params overwritten by the checkpoint
-        Checkpoint.Load(Path.Combine(dir, WeightsName), model.Parameters());
+        Checkpoint.Load(Path.Combine(dir, WeightsDir), model.Parameters());
         return new Translator(model, tok);
     }
 }

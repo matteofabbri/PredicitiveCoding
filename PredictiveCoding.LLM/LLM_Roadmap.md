@@ -103,7 +103,7 @@ This document tracks the functions/components required to build a Large Language
 | true  | Learning-rate schedule — warmup + cosine decay (`LrSchedule`) |
 | true  | Dropout (`Ag.Dropout`) |
 | true  | Gradient accumulation / mini-batching (`Trainer`) |
-| true  | Checkpoint save & resume of trained weights (`Checkpoint`) |
+| true  | Checkpoint save & resume of trained weights (`Checkpoint`, FasterKV-backed) |
 
 ## Infrastructure
 
