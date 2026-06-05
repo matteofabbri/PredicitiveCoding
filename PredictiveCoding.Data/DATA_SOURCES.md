@@ -22,7 +22,7 @@ the tokenizers in `PredictiveCoding.LLM`).
 | Audio spectrogram / MFCC (NWaves) | ✅ |
 | MIDI (Melanchall.DryWetMidi) | ✅ |
 | DICOM medical images (fo-dicom) | ✅ |
-| NIfTI volumes (parser) | ❌ |
+| NIfTI volumes (parser) | ✅ |
 | Plain-text corpus / directory | ✅ |
 | PDF text (UglyToad.PdfPig) | ✅ |
 | DOCX (DocumentFormat.OpenXml) | ✅ |
@@ -39,14 +39,14 @@ the tokenizers in `PredictiveCoding.LLM`).
 | DBpedia / generic SPARQL | ✅ |
 | OpenAlex / Crossref / Semantic Scholar | ✅ |
 | OpenStreetMap (Overpass API) | ✅ |
-| WordNet / ConceptNet | ❌ |
+| WordNet / ConceptNet | ✅ |
 | World Bank / Eurostat open data | ✅ |
 | Finance — OHLCV (Yahoo / Stooq) | ✅ |
 | Cryptocurrency (Binance / Coinbase) | ✅ |
 | Weather (Open-Meteo) | ✅ |
 | Parquet / Arrow (Parquet.Net) | ✅ |
 | Excel XLSX (ClosedXML) | ✅ |
-| Hugging Face Datasets (datasets-server) | ❌ |
+| Hugging Face Datasets (datasets-server) | ✅ |
 | SQL / SQLite (Microsoft.Data.Sqlite / Dapper) | ✅ |
-| Blob storage — S3 / Azure Blob | ❌ |
+| Blob storage — S3 / Azure Blob (by URL) | ✅ |
 | IMU / sensors (MQTT, MQTTnet) | ✅ |
