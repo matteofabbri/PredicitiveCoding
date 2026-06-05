@@ -31,22 +31,22 @@ the tokenizers in `PredictiveCoding.LLM`).
 | Wikipedia (MediaWiki API) | ✅ |
 | arXiv (Atom API) | ✅ |
 | PubMed / NCBI (E-utilities) | ❌ |
-| GitHub (Octokit) | ❌ |
+| GitHub (Octokit) | ✅ |
 | Hacker News (Firebase API) | ✅ |
 | Reddit (Reddit.NET) | ❌ |
-| Stack Exchange (API) | ❌ |
+| Stack Exchange (API) | ✅ |
 | Mastodon (Mastonet) | ❌ |
 | DBpedia / generic SPARQL | ❌ |
-| OpenAlex / Crossref / Semantic Scholar | ❌ |
-| OpenStreetMap (Overpass API) | ❌ |
+| OpenAlex / Crossref / Semantic Scholar | ✅ |
+| OpenStreetMap (Overpass API) | ✅ |
 | WordNet / ConceptNet | ❌ |
-| World Bank / Eurostat open data | ❌ |
-| Finance — OHLCV (Yahoo / Stooq) | ❌ |
-| Cryptocurrency (Binance / Coinbase) | ❌ |
-| Weather (Open-Meteo) | ❌ |
+| World Bank / Eurostat open data | ✅ |
+| Finance — OHLCV (Yahoo / Stooq) | ✅ |
+| Cryptocurrency (Binance / Coinbase) | ✅ |
+| Weather (Open-Meteo) | ✅ |
 | Parquet / Arrow (Parquet.Net) | ❌ |
-| Excel XLSX (ClosedXML) | ❌ |
+| Excel XLSX (ClosedXML) | ✅ |
 | Hugging Face Datasets (datasets-server) | ❌ |
-| SQL / SQLite (Microsoft.Data.Sqlite / Dapper) | ❌ |
+| SQL / SQLite (Microsoft.Data.Sqlite / Dapper) | ✅ |
 | Blob storage — S3 / Azure Blob | ❌ |
 | IMU / sensors (MQTT, MQTTnet) | ❌ |
