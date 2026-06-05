@@ -16,27 +16,27 @@ the tokenizers in `PredictiveCoding.LLM`).
 | MNIST / Fashion-MNIST (IDX parser) | ✅ |
 | Biosignals — EEG/EMG/ECG (EDF parser) | ✅ |
 | HTML / web pages (AngleSharp) | ✅ |
-| Webcam capture (OpenCvSharp) | ❌ |
-| Microphone capture (NAudio) | ❌ |
+| Webcam capture (OpenCvSharp) | ✅ |
+| Microphone capture (NAudio) | ✅ |
 | Animated GIF / APNG (ImageSharp) | ✅ |
 | Audio spectrogram / MFCC (NWaves) | ✅ |
 | MIDI (Melanchall.DryWetMidi) | ✅ |
-| DICOM medical images (fo-dicom) | ❌ |
+| DICOM medical images (fo-dicom) | ✅ |
 | NIfTI volumes (parser) | ❌ |
 | Plain-text corpus / directory | ✅ |
 | PDF text (UglyToad.PdfPig) | ✅ |
 | DOCX (DocumentFormat.OpenXml) | ✅ |
 | EPUB ebooks (VersOne.Epub) | ✅ |
-| Email — IMAP / .eml (MailKit / MimeKit) | ❌ |
+| Email — IMAP / .eml (MailKit / MimeKit) | ✅ |
 | Wikipedia (MediaWiki API) | ✅ |
 | arXiv (Atom API) | ✅ |
-| PubMed / NCBI (E-utilities) | ❌ |
+| PubMed / NCBI (E-utilities) | ✅ |
 | GitHub (Octokit) | ✅ |
 | Hacker News (Firebase API) | ✅ |
-| Reddit (Reddit.NET) | ❌ |
+| Reddit (public JSON API) | ✅ |
 | Stack Exchange (API) | ✅ |
-| Mastodon (Mastonet) | ❌ |
-| DBpedia / generic SPARQL | ❌ |
+| Mastodon (public REST API) | ✅ |
+| DBpedia / generic SPARQL | ✅ |
 | OpenAlex / Crossref / Semantic Scholar | ✅ |
 | OpenStreetMap (Overpass API) | ✅ |
 | WordNet / ConceptNet | ❌ |
@@ -44,9 +44,9 @@ the tokenizers in `PredictiveCoding.LLM`).
 | Finance — OHLCV (Yahoo / Stooq) | ✅ |
 | Cryptocurrency (Binance / Coinbase) | ✅ |
 | Weather (Open-Meteo) | ✅ |
-| Parquet / Arrow (Parquet.Net) | ❌ |
+| Parquet / Arrow (Parquet.Net) | ✅ |
 | Excel XLSX (ClosedXML) | ✅ |
 | Hugging Face Datasets (datasets-server) | ❌ |
 | SQL / SQLite (Microsoft.Data.Sqlite / Dapper) | ✅ |
 | Blob storage — S3 / Azure Blob | ❌ |
-| IMU / sensors (MQTT, MQTTnet) | ❌ |
+| IMU / sensors (MQTT, MQTTnet) | ✅ |

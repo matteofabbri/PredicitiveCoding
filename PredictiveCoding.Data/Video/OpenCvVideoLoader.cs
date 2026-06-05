@@ -69,7 +69,7 @@ public sealed class OpenCvVideoLoader : IVideoLoader
     public DenseTensor<float> LoadFrames(string path, VideoLoadOptions? options = null)
         => Load(path, options).Frames;
 
-    private static void ValidateOptions(VideoLoadOptions options)
+    internal static void ValidateOptions(VideoLoadOptions options)
     {
         bool hasWidth = options.TargetWidth is not null;
         bool hasHeight = options.TargetHeight is not null;
@@ -82,7 +82,7 @@ public sealed class OpenCvVideoLoader : IVideoLoader
     }
 
     // Converts a decoded BGR frame to the requested colour space and size.
-    private static Mat ProcessFrame(Mat source, VideoLoadOptions options)
+    internal static Mat ProcessFrame(Mat source, VideoLoadOptions options)
     {
         var result = new Mat();
         // OpenCV decodes to BGR; emit grayscale or RGB.
@@ -101,7 +101,7 @@ public sealed class OpenCvVideoLoader : IVideoLoader
     }
 
     // Copies a continuous 8-bit Mat into a flat byte buffer (row-major, interleaved).
-    private static byte[] MatToBytes(Mat mat)
+    internal static byte[] MatToBytes(Mat mat)
     {
         Mat continuous = mat.IsContinuous() ? mat : mat.Clone();
         try
@@ -118,7 +118,7 @@ public sealed class OpenCvVideoLoader : IVideoLoader
         }
     }
 
-    private static DenseTensor<float> AssembleTensor(
+    internal static DenseTensor<float> AssembleTensor(
         List<byte[]> frames, int height, int width, int channels, bool normalize)
     {
         int frameCount = frames.Count;
