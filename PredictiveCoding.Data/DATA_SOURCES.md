@@ -18,21 +18,21 @@ the tokenizers in `PredictiveCoding.LLM`).
 | HTML / web pages (AngleSharp) | ✅ |
 | Webcam capture (OpenCvSharp) | ❌ |
 | Microphone capture (NAudio) | ❌ |
-| Animated GIF / APNG (ImageSharp) | ❌ |
-| Audio spectrogram / MFCC (NWaves) | ❌ |
-| MIDI (Melanchall.DryWetMidi) | ❌ |
+| Animated GIF / APNG (ImageSharp) | ✅ |
+| Audio spectrogram / MFCC (NWaves) | ✅ |
+| MIDI (Melanchall.DryWetMidi) | ✅ |
 | DICOM medical images (fo-dicom) | ❌ |
 | NIfTI volumes (parser) | ❌ |
-| Plain-text corpus / directory | ❌ |
-| PDF text (UglyToad.PdfPig) | ❌ |
-| DOCX (DocumentFormat.OpenXml) | ❌ |
-| EPUB ebooks (VersOne.Epub) | ❌ |
+| Plain-text corpus / directory | ✅ |
+| PDF text (UglyToad.PdfPig) | ✅ |
+| DOCX (DocumentFormat.OpenXml) | ✅ |
+| EPUB ebooks (VersOne.Epub) | ✅ |
 | Email — IMAP / .eml (MailKit / MimeKit) | ❌ |
-| Wikipedia (MediaWiki API) | ❌ |
-| arXiv (Atom API) | ❌ |
+| Wikipedia (MediaWiki API) | ✅ |
+| arXiv (Atom API) | ✅ |
 | PubMed / NCBI (E-utilities) | ❌ |
 | GitHub (Octokit) | ❌ |
-| Hacker News (Firebase API) | ❌ |
+| Hacker News (Firebase API) | ✅ |
 | Reddit (Reddit.NET) | ❌ |
 | Stack Exchange (API) | ❌ |
 | Mastodon (Mastonet) | ❌ |

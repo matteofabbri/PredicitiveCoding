@@ -57,6 +57,68 @@ public sealed class ImageSharpLoader : IImageLoader
     public DenseTensor<float> LoadPixels(string path, ImageLoadOptions? options = null)
         => Load(path, options).Pixels;
 
+    /// <summary>Decodes every frame of an animated image (GIF/APNG/WebP) into a tensor.</summary>
+    public AnimatedImage LoadAnimation(string path, ImageLoadOptions? options = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        if (!File.Exists(path))
+            throw new FileNotFoundException("Image file not found.", path);
+
+        options ??= ImageLoadOptions.Default;
+        ValidateOptions(options);
+
+        using Image<Rgb24> image = Image.Load<Rgb24>(path);
+        int frameCount = image.Frames.Count;
+        int channels = options.Grayscale ? 1 : 3;
+        int width = 0, height = 0;
+        var frames = new List<byte[]>(frameCount);
+
+        for (int i = 0; i < frameCount; i++)
+        {
+            using Image<Rgb24> frame = image.Frames.CloneFrame(i);
+            if (options.TargetWidth is int tw && options.TargetHeight is int th &&
+                (frame.Width != tw || frame.Height != th))
+            {
+                frame.Mutate(c => c.Resize(tw, th));
+            }
+
+            if (width == 0)
+            {
+                width = frame.Width;
+                height = frame.Height;
+            }
+
+            if (options.Grayscale)
+            {
+                using Image<L8> gray = frame.CloneAs<L8>();
+                var bytes = new byte[width * height];
+                gray.CopyPixelDataTo(bytes);
+                frames.Add(bytes);
+            }
+            else
+            {
+                var bytes = new byte[width * height * 3];
+                frame.CopyPixelDataTo(bytes);
+                frames.Add(bytes);
+            }
+        }
+
+        long perFrame = (long)height * width * channels;
+        var data = new float[checked((int)(perFrame * frameCount))];
+        float scale = options.Normalize ? 1f / 255f : 1f;
+        int offset = 0;
+        foreach (byte[] frame in frames)
+        {
+            for (int i = 0; i < frame.Length; i++)
+                data[offset + i] = frame[i] * scale;
+            offset += frame.Length;
+        }
+
+        int[] dimensions = channels == 1 ? [frameCount, height, width] : [frameCount, height, width, channels];
+        var tensor = new DenseTensor<float>(data, dimensions);
+        return new AnimatedImage(tensor, frameCount, height, width, channels);
+    }
+
     private static void ValidateOptions(ImageLoadOptions options)
     {
         bool hasWidth = options.TargetWidth is not null;

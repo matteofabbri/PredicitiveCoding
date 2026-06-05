@@ -15,4 +15,8 @@ public static class ImageFiles
     /// <summary>Decodes an image and returns just the pixel tensor.</summary>
     public static DenseTensor<float> LoadPixels(string path, ImageLoadOptions? options = null)
         => ImageSharpLoader.Instance.LoadPixels(path, options);
+
+    /// <summary>Decodes every frame of an animated image into a tensor.</summary>
+    public static AnimatedImage LoadAnimation(string path, ImageLoadOptions? options = null)
+        => ImageSharpLoader.Instance.LoadAnimation(path, options);
 }
