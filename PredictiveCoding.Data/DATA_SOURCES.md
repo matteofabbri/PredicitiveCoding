@@ -50,3 +50,10 @@ the tokenizers in `PredictiveCoding.LLM`).
 | SQL / SQLite (Microsoft.Data.Sqlite / Dapper) | ✅ |
 | Blob storage — S3 / Azure Blob (by URL) | ✅ |
 | IMU / sensors (MQTT, MQTTnet) | ✅ |
+| ScienceDirect / Elsevier (official Content API) | ✅ |
+| Unpaywall (legal open-access full text by DOI) | ✅ |
+
+> Sci-Hub was requested but intentionally **not** added: it distributes
+> copyrighted papers by bypassing publisher access controls. Unpaywall covers
+> the same need (free full-text PDFs by DOI) using only legally deposited
+> open-access copies.
