@@ -16,9 +16,10 @@ return (args.Length > 0 ? args[0].ToLowerInvariant() : "help") switch
 {
     "gradcheck" => Commands.GradCheck(),
     "smoke"     => Commands.Smoke(),
-    "train"     => Commands.Train(args[1..]),
-    "translate" => Commands.Translate(args[1..]),
-    _           => Commands.Help(),
+    "train"         => Commands.Train(args[1..]),
+    "train-tatoeba" => Commands.TrainTatoeba(args[1..]),
+    "translate"     => Commands.Translate(args[1..]),
+    _               => Commands.Help(),
 };
 
 internal static class Commands
@@ -140,9 +141,29 @@ internal static class Commands
 
     // ── train ────────────────────────────────────────────────────────────────────
 
-    public static int Train(string[] args)
+    public static int Train(string[] args) => RunTraining(ArgMap(args));
+
+    /// <summary>Downloads real OPUS-Tatoeba data for the requested languages, then trains on it.</summary>
+    public static int TrainTatoeba(string[] args)
     {
         var a = ArgMap(args);
+        string cacheDir = Get(a, "cache") ?? "tatoeba-cache";
+        var langs = (Get(a, "langs") ?? "it,fr,es,de")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        int maxPairs = IntArg(a, "max-pairs", 40000);
+        int maxLen   = IntArg(a, "maxlen", 80);
+
+        Console.WriteLine($"[tatoeba] languages: {string.Join(", ", langs)}  (+ English, both directions)");
+        string tsv = TatoebaCorpus.PrepareAsync(cacheDir, langs, maxPairs, maxLen, Console.WriteLine)
+                                  .GetAwaiter().GetResult();
+
+        a["corpus"] = tsv;
+        a.TryAdd("out", "tatoeba-translator");
+        return RunTraining(a);
+    }
+
+    public static int RunTraining(Dictionary<string, string> a)
+    {
         string? corpus = Get(a, "corpus");
         if (corpus is null) { Console.Error.WriteLine("error: --corpus <path.tsv> is required"); return 2; }
         string outDir = Get(a, "out") ?? "translator-out";
