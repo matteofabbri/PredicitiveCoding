@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PredictiveCoding.FaceRecognition</RootNamespace>
+    <AssemblyName>PredictiveCoding.FaceRecognition</AssemblyName>
+    <!-- NU1902: moderate ImageSharp advisory without a 2.1.x fix; we only decode trusted dataset images. -->
+    <NoWarn>$(NoWarn);NU1902</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Expanded\PredictiveCoding.Expanded.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.26.0" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="2.1.10" />
+  </ItemGroup>
+
+</Project>

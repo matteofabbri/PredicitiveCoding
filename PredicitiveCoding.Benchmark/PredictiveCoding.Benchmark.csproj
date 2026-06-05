@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PredictiveCoding.Benchmark</RootNamespace>
+    <AssemblyName>PredictiveCoding.Benchmark</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PredictiveCoding.FaceRecognition\PredictiveCoding.FaceRecognition.csproj" />
+    <ProjectReference Include="D:\REPOSITORY\THEQULT.INDEXES\src\THEQULT.Indexes\THEQULT.Indexes.csproj" />
+  </ItemGroup>
+
+</Project>

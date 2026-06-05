@@ -9,4 +9,7 @@
   <Project Path="PredictiveCoding.Data/PredictiveCoding.Data.csproj" />
   <Project Path="PredictiveCoding.CortexApp/PredictiveCoding.CortexApp.csproj" />
   <Project Path="PredictiveCoding.Main/PredictiveCoding.Main.csproj" Id="e8a35ce4-78ad-497a-a9a5-6099d702940c" />
+  <Project Path="PredictiveCoding.FaceRecognition/PredictiveCoding.FaceRecognition.csproj" />
+  <Project Path="PredicitiveCoding.Benchmark/PredictiveCoding.Benchmark.csproj" />
+  <Project Path="PredictiveCoding.Benchmark.Tests/PredictiveCoding.Benchmark.Tests.csproj" />
 </Solution>
