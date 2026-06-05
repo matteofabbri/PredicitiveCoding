@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace PredictiveCoding.LLM.Autograd;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,32 +65,82 @@ public static class Ag
     {
         int m = a.Rows, k = a.Cols, n = b.Cols;
         var o = new Tensor(m, n) { Parents = [a, b] };
-        for (int i = 0; i < m; i++)
-            for (int j = 0; j < n; j++)
+        float[] A = a.Data, B = b.Data, C = o.Data;
+
+        // Forward C = A·B in i-k-j order: the inner axpy over j is contiguous and
+        // SIMD-vectorised, and rows of C are independent so they parallelise cleanly.
+        RunRows(m, i =>
+        {
+            var crow = C.AsSpan(i * n, n);
+            crow.Clear();
+            int abase = i * k;
+            for (int l = 0; l < k; l++)
             {
-                float s = 0f;
-                for (int l = 0; l < k; l++) s += a.Data[i * k + l] * b.Data[l * n + j];
-                o.Data[i * n + j] = s;
+                float av = A[abase + l];
+                if (av != 0f) AddScaled(crow, B.AsSpan(l * n, n), av);          // crow += av · B[l,:]
             }
+        });
 
         o.BackwardFn = () =>
         {
-            for (int i = 0; i < m; i++)
+            float[] dC = o.Grad, dA = a.Grad, dB = b.Grad;
+
+            // dA = dC·Bᵀ : dA[i,l] += dot(dC[i,:], B[l,:]).  Parallel over i (distinct rows of dA).
+            RunRows(m, i =>
+            {
+                var dcrow = dC.AsSpan(i * n, n);
+                int abase = i * k;
                 for (int l = 0; l < k; l++)
+                    dA[abase + l] += Dot(dcrow, B.AsSpan(l * n, n));
+            });
+
+            // dB = Aᵀ·dC : dB[l,:] += A[i,l]·dC[i,:].  Parallel over l (distinct rows of dB) → race-free.
+            RunRows(k, l =>
+            {
+                var dbrow = dB.AsSpan(l * n, n);
+                for (int i = 0; i < m; i++)
                 {
-                    float ga = 0f;
-                    for (int j = 0; j < n; j++) ga += o.Grad[i * n + j] * b.Data[l * n + j];
-                    a.Grad[i * k + l] += ga;
+                    float av = A[i * k + l];
+                    if (av != 0f) AddScaled(dbrow, dC.AsSpan(i * n, n), av);     // dbrow += av · dC[i,:]
                 }
-            for (int l = 0; l < k; l++)
-                for (int j = 0; j < n; j++)
-                {
-                    float gb = 0f;
-                    for (int i = 0; i < m; i++) gb += a.Data[i * k + l] * o.Grad[i * n + j];
-                    b.Grad[l * n + j] += gb;
-                }
+            });
         };
         return o;
+    }
+
+    // ── SIMD / parallel helpers for MatMul ───────────────────────────────────────
+
+    /// <summary>Runs <paramref name="body"/> over rows, parallel when the work amortises the overhead.</summary>
+    private static void RunRows(int rows, Action<int> body)
+    {
+        const int ParallelThreshold = 64;       // small matmuls (e.g. gradient-checks) stay serial + deterministic
+        if (rows >= ParallelThreshold) Parallel.For(0, rows, body);
+        else for (int i = 0; i < rows; i++) body(i);
+    }
+
+    /// <summary>acc += scale · x, SIMD-vectorised.</summary>
+    private static void AddScaled(Span<float> acc, ReadOnlySpan<float> x, float scale)
+    {
+        int n = acc.Length, i = 0, w = Vector<float>.Count;
+        var vs = new Vector<float>(scale);
+        for (; i <= n - w; i += w)
+        {
+            var r = new Vector<float>(acc.Slice(i, w)) + vs * new Vector<float>(x.Slice(i, w));
+            r.CopyTo(acc.Slice(i, w));
+        }
+        for (; i < n; i++) acc[i] += scale * x[i];
+    }
+
+    /// <summary>Dot product of two equal-length spans, SIMD-vectorised.</summary>
+    private static float Dot(ReadOnlySpan<float> x, ReadOnlySpan<float> y)
+    {
+        int n = x.Length, i = 0, w = Vector<float>.Count;
+        var acc = Vector<float>.Zero;
+        for (; i <= n - w; i += w)
+            acc += new Vector<float>(x.Slice(i, w)) * new Vector<float>(y.Slice(i, w));
+        float s = Vector.Dot(acc, Vector<float>.One);
+        for (; i < n; i++) s += x[i] * y[i];
+        return s;
     }
 
     public static Tensor Transpose(Tensor x)
@@ -295,6 +347,52 @@ public static class Ag
                     float g = probs[i * vocab + j] - (j == targets[i] ? 1f : 0f);
                     logits.Grad[i * vocab + j] += scale * g;
                 }
+        };
+        return o;
+    }
+
+    /// <summary>
+    /// Masked next-token cross-entropy: like <see cref="CrossEntropy(Tensor,int[])"/>
+    /// but every row whose target equals <paramref name="ignoreIndex"/> is skipped
+    /// (no loss, no gradient), and the mean is taken over the counted rows only.
+    /// This is what sequence-to-sequence translation training needs: the loss must
+    /// fall on the target-side tokens, not on the source/prompt that only conditions.
+    /// </summary>
+    public static Tensor CrossEntropy(Tensor logits, int[] targets, int ignoreIndex)
+    {
+        int m = logits.Rows, vocab = logits.Cols;
+        var o       = new Tensor(1, 1) { Parents = [logits] };
+        var probs   = new float[m * vocab];
+        double loss = 0d;
+        int    counted = 0;
+
+        for (int i = 0; i < m; i++)
+        {
+            if (targets[i] == ignoreIndex) continue;             // masked position: no loss
+            float max = float.NegativeInfinity;
+            for (int j = 0; j < vocab; j++) max = MathF.Max(max, logits.Data[i * vocab + j]);
+            float sum = 0f;
+            for (int j = 0; j < vocab; j++) { float e = MathF.Exp(logits.Data[i * vocab + j] - max); probs[i * vocab + j] = e; sum += e; }
+            float inv = 1f / sum;
+            for (int j = 0; j < vocab; j++) probs[i * vocab + j] *= inv;
+            loss += -MathF.Log(probs[i * vocab + targets[i]] + 1e-12f);
+            counted++;
+        }
+        o.Data[0] = counted > 0 ? (float)(loss / counted) : 0f;
+
+        o.BackwardFn = () =>
+        {
+            if (counted == 0) return;
+            float scale = o.Grad[0] / counted;
+            for (int i = 0; i < m; i++)
+            {
+                if (targets[i] == ignoreIndex) continue;         // masked rows contribute no gradient
+                for (int j = 0; j < vocab; j++)
+                {
+                    float g = probs[i * vocab + j] - (j == targets[i] ? 1f : 0f);
+                    logits.Grad[i * vocab + j] += scale * g;
+                }
+            }
         };
         return o;
     }

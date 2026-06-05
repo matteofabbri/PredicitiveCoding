@@ -1,0 +1,35 @@
+# tiny many-to-target sample: <target-tag>\t<source (English)>\t<target>
+# the same 8 English sources map to 4 target languages, so reproducing them all
+# proves the >>tag<< target-language conditioning works.
+ita	hello	ciao
+ita	cat	gatto
+ita	dog	cane
+ita	house	casa
+ita	water	acqua
+ita	sun	sole
+ita	book	libro
+ita	red	rosso
+fra	hello	bonjour
+fra	cat	chat
+fra	dog	chien
+fra	house	maison
+fra	water	eau
+fra	sun	soleil
+fra	book	livre
+fra	red	rouge
+spa	hello	hola
+spa	cat	gato
+spa	dog	perro
+spa	house	casa
+spa	water	agua
+spa	sun	sol
+spa	book	libro
+spa	red	rojo
+deu	hello	hallo
+deu	cat	katze
+deu	dog	hund
+deu	house	haus
+deu	water	wasser
+deu	sun	sonne
+deu	book	buch
+deu	red	rot

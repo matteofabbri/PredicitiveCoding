@@ -4,8 +4,8 @@
   <Project Path="PredictiveCoding.Expanded/PredictiveCoding.Expanded.csproj" />
   <Project Path="PredictiveCoding.Cortex/PredictiveCoding.Cortex.csproj" />
   <Project Path="PredictiveCoding.LLM/PredictiveCoding.LLM.csproj" />
+  <Project Path="PredictiveCoding.Translate.Cli/PredictiveCoding.Translate.Cli.csproj" />
   <Project Path="PredictiveCoding.Device/PredictiveCoding.Device.csproj" />
-  <Project Path="PredictiveCoding.Device.Torch/PredictiveCoding.Device.Torch.csproj" />
   <Project Path="PredictiveCoding.Data/PredictiveCoding.Data.csproj" />
   <Project Path="PredictiveCoding.CortexApp/PredictiveCoding.CortexApp.csproj" />
   <Project Path="PredictiveCoding.Main/PredictiveCoding.Main.csproj" Id="e8a35ce4-78ad-497a-a9a5-6099d702940c" />

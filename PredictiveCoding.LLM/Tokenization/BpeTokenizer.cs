@@ -120,4 +120,51 @@ public sealed class BpeTokenizer : ITokenizer
         }
         return Encoding.UTF8.GetString(bytes.ToArray());
     }
+
+    // ── Persistence ──────────────────────────────────────────────────────────────
+
+    private const int FileMagic = 0x42504531;   // "BPE1"
+
+    /// <summary>
+    /// Saves the learned merges (in rank order) to a binary file. The 256 byte tokens
+    /// and the 4 specials are implicit, so only the merge table needs persisting; the
+    /// byte expansions are rebuilt deterministically on load.
+    /// </summary>
+    public void Save(string path)
+    {
+        using var w = new BinaryWriter(File.Create(path));
+        w.Write(FileMagic);
+        w.Write(_vocabSize);
+
+        var merges = _rank.OrderBy(kv => kv.Value).ToList();   // rank 0,1,2,… = merge priority
+        w.Write(merges.Count);
+        foreach (var kv in merges)
+        {
+            w.Write(kv.Key.Item1);
+            w.Write(kv.Key.Item2);
+            w.Write(_merged[kv.Key]);
+        }
+    }
+
+    /// <summary>Reloads a tokenizer saved with <see cref="Save"/>.</summary>
+    public static BpeTokenizer Load(string path)
+    {
+        using var r = new BinaryReader(File.OpenRead(path));
+        if (r.ReadInt32() != FileMagic)
+            throw new InvalidDataException("Not a valid BPE tokenizer file.");
+
+        int vocabSize = r.ReadInt32();
+        int count     = r.ReadInt32();
+
+        var tok = new BpeTokenizer();
+        for (int m = 0; m < count; m++)
+        {
+            int a = r.ReadInt32(), b = r.ReadInt32(), id = r.ReadInt32();
+            tok._rank[(a, b)]   = m;
+            tok._merged[(a, b)] = id;
+            tok._bytes[id]      = [.. tok._bytes[a], .. tok._bytes[b]];   // a,b already known (rank order)
+        }
+        tok._vocabSize = vocabSize;
+        return tok;
+    }
 }

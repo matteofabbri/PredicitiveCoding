@@ -16,7 +16,7 @@ This document tracks the functions/components required to build a Large Language
 > (mixed precision, batched SIMD GEMM, tensor parallelism, int8/int4 quantization) on CPU.
 >
 > The only remaining `false` items are those that **fundamentally require GPU hardware** —
-> a fused flash-attention kernel, a CUDA/Metal GEMM backend (implements `IGemmProvider`),
+> a fused flash-attention kernel, a CUDA GEMM backend (implements `IGemmProvider`),
 > and real multi-GPU collectives (implements `IComputeDevice`) — plus a SentencePiece
 > tokenizer and an HTTP serving layer. Everything implementable in a managed CPU library is
 > done.
@@ -118,8 +118,7 @@ This document tracks the functions/components required to build a Large Language
 | true  | Multi-device / tensor parallelism — column/row-parallel linear + all-reduce (`ShardedLinear`, `DeviceMesh`) |
 | true  | Quantization — int8 and packed int4 weight matrices (`Int8Matrix`, `Int4Matrix`) |
 | true  | CUDA GEMM backend implementing `IGemmProvider` — direct cuBLAS P/Invoke (`CudaGemmProvider`, project `PredictiveCoding.Device`) |
-| true  | Metal (Apple GPU) GEMM backend — TorchSharp/MPS (`TorchGemmProvider`, project `PredictiveCoding.Device.Torch`) |
 | true  | Multi-GPU collectives (NCCL-style) — AllReduce/Broadcast/ReduceScatter/AllGather (`NcclProvider`, CPU impl.) |
 | true  | Device management — `DeviceTensor<T>`, allocator/pooling, streams, async copies (`PredictiveCoding.Device`) |
 | false | Fused flash-attention GPU kernel |
-| false | ROCm switch (works via TorchSharp on a HIP/CUDA device; not wired) |
+| false | ROCm switch (needs a HIP `IGemmProvider`; not wired) |

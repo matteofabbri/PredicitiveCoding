@@ -28,8 +28,8 @@ the Transformer training path).
               ▼                                                 ▼
    ┌──────────────────────┐                        ┌────────────────────────┐
    │ PredictiveCoding.     │                        │ PredictiveCoding.Device │ CUDA (cuBLAS)
-   │ Cortex                │                        │  └ Device.Torch         │ Metal (TorchSharp)
-   │ (visual cortex + 14   │                        └────────────────────────┘
+   │ Cortex                │                        └────────────────────────┘
+   │ (visual cortex + 14   │
    │  cortical areas)      │
    └──────────┬───────────┘
               ▼
@@ -38,14 +38,13 @@ the Transformer training path).
    │ CortexApp             │
    └──────────────────────┘
 
-   PredicitiveCoding.UnitTests references core, Expanded, Cortex, LLM, Device(.Torch)
+   PredicitiveCoding.UnitTests references core, Expanded, Cortex, LLM, Device
 ```
 
 ### Dependency rules
 - **Core depends on nothing** in the solution (only NuGet: FASTER KV, System.Numerics.Tensors).
 - **Expanded → core.** Cortex → Expanded → core. CortexApp → Cortex.
 - **LLM → core.** Device → LLM + core (to register its CUDA `IGemmProvider`).
-  Device.Torch → Device.
 - No cycles; accelerators plug in through interfaces (`IGemmProvider`,
   `IComputeDevice`) so models never reference a specific backend.
 
@@ -58,12 +57,12 @@ the Transformer training path).
 | **Cortex** | A predictive-coding **visual cortex** (V1→V2→V4→IT) and 14 models of other brain regions (auditory, somatosensory, dorsal stream, retina, hippocampus, entorhinal grid cells, piriform, PFC, motor, cerebellum, association, thalamus, basal ganglia, default-mode). |
 | **CortexApp** | A WinUI 3 desktop app that trains and visualises several of these models. |
 | **LLM** | A complete decoder-only Transformer (tokenizers, attention, KV cache, sampling, beam search, batching), a reverse-mode **autodiff** trainer (Adam, dropout, schedules, checkpoints), modern techniques (MLA, SwiGLU, QK-Norm, soft-capping), and infrastructure (mixed precision, GEMM, tensor parallelism, quantization). |
-| **Device / Device.Torch** | `DeviceTensor<T>`, allocator, streams, and pluggable GPU backends: **CUDA** via direct cuBLAS P/Invoke, **Metal** via TorchSharp/MPS. |
+| **Device** | `DeviceTensor<T>`, allocator, streams, and a pluggable GPU backend: **CUDA** via direct cuBLAS P/Invoke. |
 
 ## Design principles
 - **Locality** — core learning is Hebbian; no backprop through the PC graph.
 - **Composition** — higher modules wrap lower ones (e.g. `VisualCortex` = shared V1
   column + `HierarchicalNetwork`); the cortical areas mostly compose Expanded nets.
-- **Pluggable acceleration** — `IGemmProvider` / `IComputeDevice` let a CPU, CUDA or
-  Metal backend slot in without touching model code; everything falls back to CPU.
+- **Pluggable acceleration** — `IGemmProvider` / `IComputeDevice` let a CPU or CUDA
+  backend slot in without touching model code; everything falls back to CPU.
 - **SIMD everywhere** — tensor ops use `System.Numerics.Tensors` / `Vector<float>`.

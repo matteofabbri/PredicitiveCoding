@@ -1,8 +1,12 @@
-# 7. Device & GPU — `PredictiveCoding.Device` (+ `.Torch`)
+# 7. Device & GPU — `PredictiveCoding.Device`
 
-Device management for tensors with pluggable CPU / **CUDA** / **Metal** backends,
-layered on top of `System.Numerics.Tensors` (which is never modified). Everything
-degrades gracefully: with no GPU the whole API runs on the CPU.
+Device management for tensors with pluggable CPU / **CUDA** backends, layered on
+top of `System.Numerics.Tensors` (which is never modified). Everything degrades
+gracefully: with no GPU the whole API runs on the CPU.
+
+> **Note:** the optional `PredictiveCoding.Device.Torch` project (Apple **Metal/MPS**
+> via TorchSharp) has been removed. The solution now targets **CPU** and **NVIDIA
+> CUDA** only; there is no Apple-GPU backend.
 
 ## Design
 
@@ -12,14 +16,13 @@ infrastructure. A backend registers itself and the model code is unchanged.
 
 ```
 PredictiveCoding.Device          → CUDA backend (direct cuBLAS P/Invoke)
-PredictiveCoding.Device.Torch    → Metal backend (TorchSharp / MPS)
 ```
 
 ## `PredictiveCoding.Device`
 
 | Type | Role |
 |------|------|
-| **`Device`** | `Cpu`, `Cuda(id)`, `CudaMulti`, `Metal`, `Rocm`. |
+| **`Device`** | `Cpu`, `Cuda(id)`, `CudaMulti`. (Any `Metal` / `Rocm` enum value resolves to the CPU now that the Torch backend is gone.) |
 | **`DeviceTensor<T>`** | Host (`DenseTensor<T>`) + device buffer, `DevicePtr`, `Stream`, `.To(device)` / `.ToHost()`. |
 | **`DeviceRuntime`** | Detects CUDA via `cudaGetDeviceCount`; `CudaAvailable`, `Resolve` (CUDA→CPU fallback). |
 | **`CudaAllocator`** | Bucketed pooling, pinned host memory, `cudaMallocAsync`/`FreeAsync`. |
@@ -42,34 +45,14 @@ using var c = TensorOps.MatMul(g, b);              // cuBLAS GEMM
 var result = c.ToHostTensor();                     // download
 ```
 
-## `PredictiveCoding.Device.Torch` (Metal / MPS)
-
-Metal has no flat C ABI like cudart/cublas, so the managed route to GPU matmul on
-Apple Silicon is LibTorch's **MPS** backend via **TorchSharp**.
-
-| Type | Role |
-|------|------|
-| **`TorchGemmProvider`** | Runs the matmul on a torch device (`mps` / `cuda` / `cpu`); implements `IGemmProvider`; falls back to CPU. |
-| **`TorchBackend`** | `MetalAvailable` / `CudaAvailable` probes (never throw if LibTorch is absent); `EnableMetal()` / `EnableBest()`. |
-
-The `TorchSharp` package compiles everywhere; to run you add **one** LibTorch
-backend per platform — e.g. `libtorch-cpu-macos-arm64` (ships MPS) on a Mac.
-
-```csharp
-if (TorchBackend.EnableMetal())          // route the LLM GEMM stack to the Apple GPU
-    Console.WriteLine("Running on Metal (MPS).");
-```
-
 ## Extending to ROCm / new backends
-Implement `IGemmProvider` (and `IComputeDevice` for collectives) and register it.
-ROCm already works through `TorchGemmProvider` on a HIP device LibTorch exposes as
-CUDA; it just isn't wired to a dedicated switch.
+Implement `IGemmProvider` (and `IComputeDevice` for collectives) and register it —
+model code is backend-agnostic, so a new accelerator slots in without touching it.
 
 ## What runs where
 | Path | Status |
 |------|--------|
 | CPU | Always (SIMD + multithreaded). |
 | CUDA (cuBLAS) | When the CUDA Toolkit + an NVIDIA GPU are present. |
-| Metal (MPS) | On Apple Silicon with the macOS LibTorch backend. |
 | Multi-GPU NCCL | CPU implementation today; a `libnccl` binding is a clean extension. |
 | Fused flash-attention kernel | Not implemented (needs a GPU kernel). |

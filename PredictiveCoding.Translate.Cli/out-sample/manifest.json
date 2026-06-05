@@ -1,0 +1,9 @@
+{
+  "Vocab": 335,
+  "Dim": 64,
+  "NumBlocks": 2,
+  "NumHeads": 2,
+  "FfDim": 128,
+  "MaxSeq": 48,
+  "Eps": 1E-05
+}
