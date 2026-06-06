@@ -20,11 +20,19 @@ public static class FaceDescriptor
 
     private static readonly int[] UniformMap = BuildUniformMap();
 
+    /// <summary>Full pipeline: load → crop → resize → LBP descriptor.</summary>
     public static float[] Compute(string imagePath)
+        => ComputeFromPixels(LoadPixels(imagePath));
+
+    /// <summary>
+    /// Loads, centre-crops and resizes the image to <c>Size × Size</c> grayscale.
+    /// Call this once and share the pixels between LBP, HOG, and FacePreprocessor
+    /// so each face image is only decoded once.
+    /// </summary>
+    public static byte[] LoadPixels(string imagePath)
     {
         using Image<L8> image = Image.Load<L8>(imagePath);
-        int side = (int)(Math.Min(image.Width, image.Height) * CropFraction);
-        side = Math.Max(1, side);
+        int side = Math.Max(1, (int)(Math.Min(image.Width, image.Height) * CropFraction));
         int x0 = (image.Width - side) / 2;
         int y0 = (image.Height - side) / 2;
         image.Mutate(ctx => ctx
@@ -41,7 +49,15 @@ public static class FaceDescriptor
                     gray[(y * Size) + x] = row[x].PackedValue;
             }
         });
+        return gray;
+    }
 
+    /// <summary>
+    /// Computes the LBP descriptor from pre-loaded grayscale pixels of size <c>Size × Size</c>.
+    /// Lets callers share image loading with HOG and other descriptors.
+    /// </summary>
+    public static float[] ComputeFromPixels(byte[] gray)
+    {
         int cell = Size / Grid;
         var feature = new float[Dimension];
         for (int y = 1; y < Size - 1; y++)
@@ -51,13 +67,13 @@ public static class FaceDescriptor
                 byte c = gray[(y * Size) + x];
                 int code =
                     (Ge(gray, y - 1, x - 1, c) << 0) |
-                    (Ge(gray, y - 1, x, c) << 1) |
+                    (Ge(gray, y - 1, x,     c) << 1) |
                     (Ge(gray, y - 1, x + 1, c) << 2) |
-                    (Ge(gray, y, x + 1, c) << 3) |
+                    (Ge(gray, y,     x + 1, c) << 3) |
                     (Ge(gray, y + 1, x + 1, c) << 4) |
-                    (Ge(gray, y + 1, x, c) << 5) |
+                    (Ge(gray, y + 1, x,     c) << 5) |
                     (Ge(gray, y + 1, x - 1, c) << 6) |
-                    (Ge(gray, y, x - 1, c) << 7);
+                    (Ge(gray, y,     x - 1, c) << 7);
 
                 int cellIndex = (Math.Min(y / cell, Grid - 1) * Grid) + Math.Min(x / cell, Grid - 1);
                 feature[(cellIndex * Bins) + UniformMap[code]]++;
