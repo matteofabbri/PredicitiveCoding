@@ -1,5 +1,6 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using PredictiveCoding.FaceRecognition.FaceAlignment;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -9,11 +10,13 @@ namespace PredictiveCoding.FaceRecognition;
 /// <summary>
 /// The "how the best do it" embedder: a pretrained <b>ArcFace</b> deep model (InsightFace <c>w600k_r50</c>,
 /// trained on Glint360K with an additive-angular-margin loss) run via ONNX Runtime. Produces the standard
-/// 512-D face embedding; cosine similarity then drives verification / identification — the same harness and
-/// vector index, just a far stronger vector.
+/// 512-D face embedding; cosine similarity then drives verification / identification.
 /// <para>
-/// Faces are centre-cropped to approximate the ArcFace alignment template before the 112×112 input. Proper
-/// 5-point alignment (a face detector) would recover the last accuracy points toward ~99% on LFW.
+/// When <paramref name="useAlignment"/> is <see langword="true"/> (the default), the
+/// <see cref="RetinaFaceDetector"/> detects the face and computes 5-point landmarks;
+/// <see cref="FaceAligner"/> then warps the image to the canonical 112×112 ArcFace template via
+/// a closed-form similarity transform — the same pipeline used by InsightFace in production.
+/// If no face is detected, it falls back to a centre-crop.
 /// </para>
 /// </summary>
 public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
@@ -21,25 +24,28 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
     // InsightFace buffalo_l recognition model, public mirror (no auth).
     private const string ModelUrl = "https://huggingface.co/immich-app/buffalo_l/resolve/main/recognition/model.onnx";
 
-    private readonly string _modelsDir;
-    private readonly string _cudaDir;
-    private readonly float _cropFraction;
-    private const int BatchSize = 64;
-    private InferenceSession? _session;
-    private string? _inputName;
-    private string? _provider;
-    private int _dimension = 512;
-    private bool _supportsBatch = true;
+    private readonly string  _modelsDir;
+    private readonly string  _cudaDir;
+    private readonly float   _cropFraction;
+    private readonly bool    _useAlignment;
+    private const    int     BatchSize = 64;
+    private InferenceSession?  _session;
+    private string?            _inputName;
+    private string?            _provider;
+    private int                _dimension = 512;
+    private bool               _supportsBatch = true;
+    private RetinaFaceDetector? _detector;    // null until EnsureLoaded() when _useAlignment=true
 
-    public ArcFaceOnnxEmbedder(string modelsDir, float cropFraction = 0.50f)
+    public ArcFaceOnnxEmbedder(string modelsDir, float cropFraction = 0.50f, bool useAlignment = true)
     {
-        _modelsDir = modelsDir;
-        _cudaDir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(modelsDir)) ?? modelsDir, ".cuda");
+        _modelsDir    = modelsDir;
+        _cudaDir      = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(modelsDir)) ?? modelsDir, ".cuda");
         _cropFraction = cropFraction;
+        _useAlignment = useAlignment;
     }
 
-    public int Dimension => _dimension;
-    public string Name => $"ArcFace w600k_r50 · {_provider ?? "ONNX"}";
+    public int    Dimension => _dimension;
+    public string Name      => $"ArcFace w600k_r50{(_useAlignment ? " +align" : "")} · {_provider ?? "ONNX"}";
 
     public void Fit(IReadOnlyList<string> trainingImagePaths) => EnsureLoaded(); // pretrained: nothing to learn
 
@@ -129,24 +135,53 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
         try
         {
             using Image<Rgb24> image = Image.Load<Rgb24>(imagePath);
-            int side = Math.Max(1, (int)(Math.Min(image.Width, image.Height) * _cropFraction));
-            int x0 = (image.Width - side) / 2;
-            int y0 = (image.Height - side) / 2;
-            image.Mutate(ctx => ctx.Crop(new Rectangle(x0, y0, side, side)).Resize(112, 112));
-            image.ProcessPixelRows(accessor =>
+
+            // Preferred path: detect face → 5-point similarity-transform alignment → 112×112
+            Image<Rgb24>? aligned = null;
+            try
             {
-                for (int y = 0; y < 112; y++)
+                if (_detector is not null)
                 {
-                    Span<Rgb24> row = accessor.GetRowSpan(y);
-                    for (int x = 0; x < 112; x++)
-                    {
-                        Rgb24 p = row[x];
-                        tensor[batchIndex, 0, y, x] = (p.R - 127.5f) / 127.5f;
-                        tensor[batchIndex, 1, y, x] = (p.G - 127.5f) / 127.5f;
-                        tensor[batchIndex, 2, y, x] = (p.B - 127.5f) / 127.5f;
-                    }
+                    FaceDetection? det = _detector.Detect(image);
+                    if (det is not null)
+                        aligned = FaceAligner.AlignFace(image, det.Landmarks);
                 }
-            });
+            }
+            catch { /* detection failure: fall through to centre-crop */ }
+
+            // Fallback: centre-crop (original behaviour)
+            if (aligned is null)
+            {
+                int side = Math.Max(1, (int)(Math.Min(image.Width, image.Height) * _cropFraction));
+                int x0   = (image.Width  - side) / 2;
+                int y0   = (image.Height - side) / 2;
+                image.Mutate(ctx => ctx.Crop(new Rectangle(x0, y0, side, side)).Resize(112, 112));
+                aligned = image;
+            }
+
+            // Write NCHW float tensor: (pixel - 127.5) / 127.5  →  [−1, +1]
+            bool usedAlignedCopy = !ReferenceEquals(aligned, image);
+            try
+            {
+                aligned.ProcessPixelRows(accessor =>
+                {
+                    for (int y = 0; y < 112; y++)
+                    {
+                        Span<Rgb24> row = accessor.GetRowSpan(y);
+                        for (int x = 0; x < 112; x++)
+                        {
+                            Rgb24 p = row[x];
+                            tensor[batchIndex, 0, y, x] = (p.R - 127.5f) / 127.5f;
+                            tensor[batchIndex, 1, y, x] = (p.G - 127.5f) / 127.5f;
+                            tensor[batchIndex, 2, y, x] = (p.B - 127.5f) / 127.5f;
+                        }
+                    }
+                });
+            }
+            finally
+            {
+                if (usedAlignedCopy) aligned.Dispose();
+            }
             return true;
         }
         catch
@@ -185,6 +220,13 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
         // (output {1,512}); feeding N>1 hits a slow dynamic path, so use parallel-decode + sequential runs.
         _supportsBatch = outDims.Length > 0 && outDims[0] != 1;
         Console.WriteLine($"   [ArcFace] execution provider: {_provider}  (batch: {(_supportsBatch ? "on" : "parallel per-image")})");
+
+        // Optionally initialise the RetinaFace 5-point alignment detector (lazy model download)
+        if (_useAlignment)
+        {
+            _detector = new RetinaFaceDetector(_modelsDir);
+            Console.WriteLine("   [ArcFace] face alignment: RetinaFace det_10g (5-point, downloads on first use)");
+        }
     }
 
     // Headless, no-admin self-provisioning: ensure the CUDA runtime + cuDNN DLLs exist and are on the process
@@ -246,5 +288,9 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
         File.Move(tmp, destination, overwrite: true);
     }
 
-    public void Dispose() => _session?.Dispose();
+    public void Dispose()
+    {
+        _session?.Dispose();
+        _detector?.Dispose();
+    }
 }

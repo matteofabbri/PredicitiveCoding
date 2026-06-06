@@ -1,6 +1,7 @@
 using PredictiveCoding.FaceRecognition;
 using PredictiveCoding.FaceRecognition.Benchmark;
 using PredictiveCoding.FaceRecognition.Datasets;
+using PredictiveCoding.FaceRecognition.Recognition;
 
 namespace PredictiveCoding.Main.Demos;
 
@@ -12,11 +13,12 @@ namespace PredictiveCoding.Main.Demos;
 //   2. Benchmarks five embedders on the standard LFW 10-fold verification protocol:
 //        • LBP descriptor (baseline, 4704-D fixed)
 //        • Predictive Coding latent (128-D, PC autoencoder)
-//        • ArcFace w600k_r50 (512-D, ONNX, downloads ~166 MB)
+//        • ArcFace w600k_r50 + RetinaFace 5-pt alignment (512-D, ~99.5% LFW)
 //        • Enhanced LBP: Tan&Triggs DoG normalization + PCA whitening (200-D, ~80%)
 //        • Fused LBP+HOG: gamma + PCA whitening (256-D, ~84%)
-//   3. Runs closed-set identification (gallery + probe split).
-//   4. Optionally downloads large-scale training datasets from HuggingFace Hub.
+//   3. FaceDatabase production API (register, identify, verify).
+//   4. Runs closed-set identification (gallery + probe split).
+//   5. Optionally downloads large-scale training datasets from HuggingFace Hub.
 // ─────────────────────────────────────────────────────────────────────────────
 
 public static class FaceRecognitionDemo
@@ -46,10 +48,11 @@ public static class FaceRecognitionDemo
         {
             Console.WriteLine();
             Console.WriteLine("  ── Menu ─────────────────────────────────────────────────────────────────");
-            Console.WriteLine("  1  LFW Verification Benchmark  (10-fold, 6000 pairs, 3 embedders)");
+            Console.WriteLine("  1  LFW Verification Benchmark  (10-fold, 6000 pairs)");
             Console.WriteLine("  2  Face Identification          (closed-set Rank-1 / Rank-5)");
-            Console.WriteLine("  3  Download large-scale dataset (HuggingFace Hub)");
-            Console.WriteLine("  4  Dataset statistics");
+            Console.WriteLine("  3  FaceDatabase                 (register · identify · verify — production API)");
+            Console.WriteLine("  4  Download large-scale dataset (HuggingFace Hub)");
+            Console.WriteLine("  5  Dataset statistics");
             Console.WriteLine("  Q  Quit");
             Console.Write("\n  Choice: ");
             string? input = Console.ReadLine()?.Trim().ToUpperInvariant();
@@ -60,15 +63,18 @@ public static class FaceRecognitionDemo
                     RunVerification(imagesRoot, pairsFile);
                     break;
                 case "1":
-                    Console.WriteLine("  pairs.txt not found — re-download LFW or use option 3.");
+                    Console.WriteLine("  pairs.txt not found — re-download LFW (option D at start).");
                     break;
                 case "2":
                     RunIdentification(imagesRoot);
                     break;
                 case "3":
-                    DownloadLargeDataset();
+                    RunFaceDatabase(imagesRoot);
                     break;
                 case "4":
+                    DownloadLargeDataset();
+                    break;
+                case "5":
                     ShowStats(imagesRoot);
                     break;
                 case "Q" or "":
@@ -277,6 +283,157 @@ public static class FaceRecognitionDemo
             Console.WriteLine($"    {g.Key,-36}  {g.Count(),5}");
     }
 
+    // ── FaceDatabase production demo ──────────────────────────────────────────────
+
+    private static void RunFaceDatabase(string imagesRoot)
+    {
+        Console.WriteLine("\n  FaceDatabase — production register / identify / verify");
+        Console.WriteLine("  Embedder: ArcFace w600k_r50 + RetinaFace 5-point alignment");
+        Console.WriteLine("  (model files auto-downloaded on first use)");
+
+        string dbPath  = Path.Combine(StoreDir, "faces.json");
+        Directory.CreateDirectory(StoreDir);
+
+        using var embedder = new ArcFaceOnnxEmbedder(ModelsDir, useAlignment: true);
+        FaceDatabase db;
+
+        if (File.Exists(dbPath))
+        {
+            Console.WriteLine($"\n  Found existing database: {dbPath}");
+            Console.Write("  Load it? [Y/n]: ");
+            string? yn = Console.ReadLine()?.Trim().ToUpperInvariant();
+            db = (yn is null or "" or "Y")
+                ? FaceDatabase.Load(dbPath, embedder)
+                : new FaceDatabase(embedder);
+        }
+        else
+        {
+            db = new FaceDatabase(embedder);
+        }
+
+        Console.WriteLine($"\n  Database has {db.Count} registered face(s).");
+
+        while (true)
+        {
+            Console.WriteLine();
+            Console.WriteLine("  ── FaceDatabase ─────────────────────────────────────────────────────");
+            Console.WriteLine($"  R  Register a face        ({db.Count} in database)");
+            Console.WriteLine("  I  Identify a face        (1:N search)");
+            Console.WriteLine("  V  Verify two faces       (1:1 comparison)");
+            Console.WriteLine("  S  Show registered faces");
+            Console.WriteLine("  W  Save database to disk");
+            Console.WriteLine("  Q  Back");
+            Console.Write("\n  Choice: ");
+            string? cmd = Console.ReadLine()?.Trim().ToUpperInvariant();
+
+            switch (cmd)
+            {
+                case "R": DbRegister(db); break;
+                case "I": DbIdentify(db); break;
+                case "V": DbVerify(db);   break;
+                case "S": DbShow(db);     break;
+                case "W":
+                    db.Save(dbPath);
+                    Console.WriteLine($"\n  Saved → {dbPath}  ({db.Count} record(s))");
+                    break;
+                case "Q" or "": return;
+                default:
+                    Console.WriteLine("  Unknown option.");
+                    break;
+            }
+        }
+    }
+
+    private static void DbRegister(FaceDatabase db)
+    {
+        Console.Write("\n  Name (e.g. Alice): ");
+        string? name = Console.ReadLine()?.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+
+        Console.Write("  Image path (or folder with multiple images): ");
+        string? path = Console.ReadLine()?.Trim().Trim('"');
+        if (string.IsNullOrEmpty(path)) return;
+
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                // Register average of all images in the folder
+                var images = Directory.GetFiles(path, "*.jpg", SearchOption.AllDirectories)
+                    .Concat(Directory.GetFiles(path, "*.png", SearchOption.AllDirectories))
+                    .ToList();
+                if (images.Count == 0)
+                { Console.WriteLine("  No images found."); return; }
+
+                Console.WriteLine($"  Found {images.Count} image(s). Computing average embedding …");
+                var rec = db.RegisterAverage(name, images);
+                Console.WriteLine($"  Registered: {rec.Name}  id={rec.Id}  quality={rec.Quality:P0}");
+            }
+            else
+            {
+                var rec = db.Register(name, path);
+                Console.WriteLine($"  Registered: {rec.Name}  id={rec.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ERROR: {ex.Message}");
+        }
+    }
+
+    private static void DbIdentify(FaceDatabase db)
+    {
+        if (db.Count == 0) { Console.WriteLine("\n  Database is empty — register faces first."); return; }
+
+        Console.Write("\n  Image path to identify: ");
+        string? path = Console.ReadLine()?.Trim().Trim('"');
+        if (string.IsNullOrEmpty(path)) return;
+
+        try
+        {
+            var top5 = db.IdentifyTopK(path, k: 5);
+            Console.WriteLine("\n  ┌─ Matches ───────────────────────────────────────────────────────");
+            for (int i = 0; i < top5.Count; i++)
+            {
+                var (rec, score) = top5[i];
+                string verdict = score >= db.VerifyThreshold ? "✓ SAME" : "✗ diff";
+                Console.WriteLine($"  │  #{i + 1}  {rec.Name,-24}  score={score:F4}  [{verdict}]");
+            }
+            Console.WriteLine("  └─────────────────────────────────────────────────────────────────");
+        }
+        catch (Exception ex) { Console.WriteLine($"  ERROR: {ex.Message}"); }
+    }
+
+    private static void DbVerify(FaceDatabase db)
+    {
+        Console.Write("\n  Image 1 path: ");
+        string? p1 = Console.ReadLine()?.Trim().Trim('"');
+        Console.Write("  Image 2 path: ");
+        string? p2 = Console.ReadLine()?.Trim().Trim('"');
+        if (string.IsNullOrEmpty(p1) || string.IsNullOrEmpty(p2)) return;
+
+        try
+        {
+            var (same, score) = db.VerifyPaths(p1, p2);
+            Console.WriteLine($"\n  Cosine similarity : {score:F4}");
+            Console.WriteLine($"  Threshold         : {db.VerifyThreshold:F4}");
+            Console.WriteLine($"  Verdict           : {(same ? "✓  SAME PERSON" : "✗  DIFFERENT PERSON")}");
+        }
+        catch (Exception ex) { Console.WriteLine($"  ERROR: {ex.Message}"); }
+    }
+
+    private static void DbShow(FaceDatabase db)
+    {
+        var all = db.GetAll();
+        if (all.Count == 0) { Console.WriteLine("\n  Database is empty."); return; }
+
+        Console.WriteLine($"\n  Registered faces ({all.Count}):");
+        Console.WriteLine($"  {"Id",-14}  {"Name",-24}  {"Quality",7}  Added");
+        Console.WriteLine("  " + new string('─', 62));
+        foreach (var r in all.OrderBy(r => r.Name))
+            Console.WriteLine($"  {r.Id,-14}  {r.Name,-24}  {r.Quality,6:P0}  {r.AddedAt:yyyy-MM-dd}");
+    }
+
     // ── Embedder selection ────────────────────────────────────────────────────────
 
     private static List<IFaceEmbedder> ChooseEmbedders()
@@ -285,9 +442,9 @@ public static class FaceRecognitionDemo
         Console.WriteLine("  Embedders:");
         Console.WriteLine("  1  LBP raw               (4704-D, baseline, no training)");
         Console.WriteLine("  2  PC latent             (128-D, unsupervised PC autoencoder)");
-        Console.WriteLine("  3  ArcFace w600k_r50     (512-D, downloads ~166 MB ONNX model)  [SOTA]");
-        Console.WriteLine("  4  Enhanced LBP          (DoG + PCA 200-D, expected ~80%)  ← new");
-        Console.WriteLine("  5  Fused LBP+HOG         (gamma + PCA 256-D, expected ~84%)  ← new");
+        Console.WriteLine("  3  ArcFace +align        (512-D, RetinaFace 5-pt · ~99.5% LFW)  [SOTA]");
+        Console.WriteLine("  4  Enhanced LBP          (DoG + PCA 200-D, ~80%)");
+        Console.WriteLine("  5  Fused LBP+HOG         (gamma + PCA 256-D, ~84%)");
         Console.WriteLine("  A  All five              (full benchmark comparison)");
         Console.Write("\n  Choice [4]: ");
         string? choice = Console.ReadLine()?.Trim().ToUpperInvariant();
@@ -297,7 +454,7 @@ public static class FaceRecognitionDemo
         var result = new List<IFaceEmbedder>();
         if (all || choice == "1") result.Add(new DescriptorEmbedder());
         if (all || choice == "2") result.Add(new PcFaceEmbedder(StoreDir));
-        if (all || choice == "3") result.Add(new ArcFaceOnnxEmbedder(ModelsDir));
+        if (all || choice == "3") result.Add(new ArcFaceOnnxEmbedder(ModelsDir, useAlignment: true));
         if (all || choice == "4") result.Add(new EnhancedLbpEmbedder());
         if (all || choice == "5") result.Add(new FusedEmbedder());
         return result;
@@ -371,7 +528,8 @@ public static class FaceRecognitionDemo
         Console.WriteLine();
         Console.WriteLine("  ╔═══════════════════════════════════════════════════════════════════╗");
         Console.WriteLine("  ║          Face Recognition Demo  ·  Predictive Coding              ║");
-        Console.WriteLine("  ║  LBP · Enhanced LBP (DoG+PCA) · Fused · PC · ArcFace ONNX        ║");
+        Console.WriteLine("  ║  LBP · Enhanced LBP (DoG+PCA) · Fused · PC                       ║");
+        Console.WriteLine("  ║  ArcFace w600k_r50 + RetinaFace 5-pt alignment  [production]     ║");
         Console.WriteLine("  ╚═══════════════════════════════════════════════════════════════════╝");
         Console.WriteLine();
         Console.WriteLine($"  Data  : {DataDir}");
