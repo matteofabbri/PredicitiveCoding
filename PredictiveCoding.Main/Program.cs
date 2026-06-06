@@ -18,6 +18,7 @@ Console.WriteLine("  4  Temporal PC demo (sequence learning)");
 Console.WriteLine("  5  Mixture of Experts demo (bimodal specialisation)");
 Console.WriteLine("  6  Face Recognition demo (LFW benchmark · LBP · PC · ArcFace ONNX)");
 Console.WriteLine("  7  Language ID demo (PC network vs naive-Bayes · PredictiveCoding.Data)");
+Console.WriteLine("  8  People counting (live cam / video · YOLOX ONNX · per-frame count)");
 Console.Write("\n  Choice [1]: ");
 string? choice = Console.ReadLine()?.Trim();
 
@@ -54,6 +55,12 @@ if (choice == "6")
 if (choice == "7")
 {
     LanguageClassificationDemo.Run();
+    return;
+}
+
+if (choice == "8")
+{
+    PeopleCountingDemo.Run();
     return;
 }
 

@@ -64,6 +64,19 @@ public sealed class RetinaFaceDetector : IDisposable
     /// </summary>
     public FaceDetection? Detect(Image<Rgb24> image)
     {
+        List<FaceDetection> all = DetectList(image);
+        return all.Count > 0 ? all[0] : null;   // candidates are sorted highest-confidence first
+    }
+
+    /// <summary>
+    /// Returns <b>every</b> detected face in <paramref name="image"/> (highest
+    /// confidence first), after NMS — the basis for face/head people counting.
+    /// The method does NOT dispose <paramref name="image"/>.
+    /// </summary>
+    public IReadOnlyList<FaceDetection> DetectAll(Image<Rgb24> image) => DetectList(image);
+
+    private List<FaceDetection> DetectList(Image<Rgb24> image)
+    {
         EnsureLoaded();
 
         // Scale factors: convert 640×640 detection coords → original image coords
@@ -93,12 +106,12 @@ public sealed class RetinaFaceDetector : IDisposable
         using var outputs = _session!.Run(
             [NamedOnnxValue.CreateFromTensor(_inputName!, tensor)]);
 
-        return ParseAndDecode(outputs.ToList(), scaleX, scaleY);
+        return ParseAndDecodeAll(outputs.ToList(), scaleX, scaleY);
     }
 
     // ── Output parsing ────────────────────────────────────────────────────────────
 
-    private static FaceDetection? ParseAndDecode(
+    private static List<FaceDetection> ParseAndDecodeAll(
         IReadOnlyList<NamedOnnxValue> outputs,
         float scaleX, float scaleY)
     {
@@ -159,7 +172,7 @@ public sealed class RetinaFaceDetector : IDisposable
         kpsOuts  .Sort((a, b) => b.N.CompareTo(a.N));
 
         if (scoreOuts.Count < 3 || bboxOuts.Count < 3 || kpsOuts.Count < 3)
-            return null; // model format not recognised
+            return []; // model format not recognised
 
         // Collect candidates
         var candidates = new List<(float Score, float X1, float Y1, float X2, float Y2, float[] Kps)>();
@@ -204,7 +217,7 @@ public sealed class RetinaFaceDetector : IDisposable
             }
         }
 
-        if (candidates.Count == 0) return null;
+        if (candidates.Count == 0) return [];
 
         // Greedy NMS — keep highest-scoring non-overlapping detections
         candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
@@ -220,8 +233,13 @@ public sealed class RetinaFaceDetector : IDisposable
             if (!suppressed) kept.Add(i);
         }
 
-        var best = candidates[kept[0]];
-        return new FaceDetection(best.X1, best.Y1, best.X2, best.Y2, best.Score, best.Kps);
+        var result = new List<FaceDetection>(kept.Count);
+        foreach (int idx in kept)
+        {
+            var c = candidates[idx];
+            result.Add(new FaceDetection(c.X1, c.Y1, c.X2, c.Y2, c.Score, c.Kps));
+        }
+        return result;   // sorted highest-confidence first
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
