@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Generated training-metrics output from the demo runs (TrainingConfig.CsvOutputPath)
+metrics.csv
