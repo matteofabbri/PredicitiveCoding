@@ -54,16 +54,17 @@ what still has to be built.
 | Anatomical cortical-area modules to host columns | P5 | ✅ | `Cortex` (`VisualCortex`, `AssociationCortex`, `Sensory/*`, `Thalamus`, …). |
 | Inhibition / k-winners-take-all for sparsity | P4 | ❌ | New (used by spatial pooler & TM). |
 
-## Phase 2 — Sequence memory (HTM Temporal Memory)
+## Phase 2 — Sequence memory (HTM Temporal Memory) · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
-| Distal dendritic segments + synaptic permanences | P4 | ❌ | New cell/segment model. |
-| Temporal Memory: high-order sequence learning, predictive cells, bursting on surprise | P4 | ❌ | New; the core of P4. |
-| Spatial Pooler: stable sparse encoding of input → SDR | P4 | ❌ | New. |
-| Anomaly / surprise (prediction-error) signal | P4 | 🟡 | PCN free-energy/error already computed in `Networks/Network`. |
+| Distal dendritic segments + synaptic permanences | P4 | ✅ | `Sequence/TemporalMemory.cs` (Segment / Synapse). |
+| Temporal Memory: high-order sequence learning, predictive cells, bursting on surprise | P4 | ✅ | `Sequence/TemporalMemory.cs`. |
+| Spatial Pooler: stable sparse encoding of input → SDR | P4 | ✅ | `Sequence/SpatialPooler.cs`. |
+| Anomaly / surprise (prediction-error) signal | P4 | ✅ | `TemporalMemoryResult.Anomaly` (fraction of bursting columns). |
 | Sequence-model baselines for comparison | P4 | 🟡 | `Expanded` `TemporalNetwork`, `DeepRecurrentNetwork`, `GatedStateNetwork`. |
 | Associative recall of stored patterns | P4 | 🟡 | `Expanded/Hopfield` (`HopfieldMemory`, `HopfieldNetwork`). |
+| Unit tests (4) for SP + TM (sequence learning & prediction) | P4 | ✅ | `TEST/PredicitiveCoding.UnitTests/BrainSequenceTests.cs`. |
 
 ## Phase 3 — Reference frames & location (grid cells)
 
