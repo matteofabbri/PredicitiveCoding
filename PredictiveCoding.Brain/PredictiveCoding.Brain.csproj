@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PredictiveCoding.Brain</RootNamespace>
+    <AssemblyName>PredictiveCoding.Brain</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="ROADMAP.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Expanded\PredictiveCoding.Expanded.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Cortex\PredictiveCoding.Cortex.csproj" />
+  </ItemGroup>
+
+</Project>
