@@ -23,6 +23,19 @@ returns *all* boxes**, a **multi-object tracker**, the **counting logic**, and a
 
 *Status reflects the repository as of 2026-06-06.*
 
+> **✅ Phases 0–4 (partial) are implemented** in the new **`PredictiveCoding.Vision`**
+> project, wired as **demo option 8** in `PredictiveCoding.Main`
+> (`Demos/PeopleCountingDemo.cs`). A live feed / video / image is decoded by
+> `Capture/FrameStream`; each frame is run through a `YoloPersonDetector`
+> (OpenCV-Zoo YOLOX, COCO, Apache-2.0, auto-downloaded) or the bundled
+> `FaceCountDetector` fallback; a SORT-style `Tracking/SortTracker` turns the boxes
+> into stable IDs and reports both **current** ("people now") and cumulative
+> **unique** ("distinct people seen") counts. Verified on still images
+> (`bus.jpg` → 4, `zidane.jpg` → 2), on the `vtest.avi` pedestrian clip
+> (≈7 concurrent / 21 unique over 100 frames), and by 8 tracker unit tests.
+> **Next up: Phase 4 line-crossing/zones and Phase 5 re-ID** for an
+> occlusion-robust unique count.
+
 ---
 
 ## What already exists (and where)
@@ -38,59 +51,59 @@ returns *all* boxes**, a **multi-object tracker**, the **counting logic**, and a
 | CUDA provisioning / EP selection | ✅ | `PredictiveCoding.FaceRecognition/CudaProvisioner.cs`. |
 | Identity embedding + gallery (for *unique* counting / re-ID) | 🟡 | `ArcFaceOnnxEmbedder.cs`, `Recognition/FaceDatabase.cs`, `Recognition/FaceRecord.cs`. |
 | Demo wiring pattern (menu entry in Main) | ✅ | Face demo is **option 6** in `PredictiveCoding.Main/Program.cs`; `Demos/FaceRecognitionDemo.cs`. |
-| **Person / full-body detector returning all boxes** | ❌ | — |
-| **Multi-object tracker (Kalman + association)** | ❌ | — |
-| **Counting logic (per-frame / line-crossing / unique)** | ❌ | — |
-| **Continuous live streaming loop** | ❌ | — |
+| **Person / full-body detector returning all boxes** | ✅ | `Vision/Detection/YoloPersonDetector.cs` (YOLOX, COCO). |
+| **Multi-object tracker (Kalman + association)** | ✅ | `Vision/Tracking/SortTracker.cs` + `Track.cs` (alpha-beta + greedy IoU). |
+| **Counting logic (per-frame / line-crossing / unique)** | 🟡 | Per-frame + **current/unique** done (`SortTracker`); line-crossing / zones are Phase 4. |
+| **Continuous live streaming loop** | ✅ | `Vision/Capture/FrameStream.cs`. |
 
 ---
 
-## Phase 0 — Capture & infrastructure · 🟡 mostly there
+## Phase 0 — Capture & infrastructure · ✅ done
 
 | Task | Status | Reuse / notes |
 |------|:------:|---------------|
-| Open a USB webcam and read frames | ✅ | `WebcamCapture` already wraps OpenCV `VideoCapture(deviceIndex)`. |
-| Open an **IP / RTSP** camera | 🟡 | OpenCV `VideoCapture` accepts an `rtsp://…` **string**; the wrapper only takes an `int` index — add a `string source` overload. |
-| Frame → NCHW float tensor preprocessing | ✅ | Pattern in `RetinaFaceDetector.Detect` (resize → normalise → `DenseTensor`) and `OpenCvVideoLoader`. |
-| **Continuous live frame producer** (grab forever, drop stale frames) | ❌ | New: a loop yielding `Mat`/frame with a bounded buffer; today `CaptureFrames` returns after N frames. |
-| GPU execution provider + CPU fallback | ✅ | `Microsoft.ML.OnnxRuntime.Gpu` + `CudaProvisioner`; falls back to CPU automatically. |
+| Open a USB webcam and read frames | ✅ | `Vision/Capture/FrameStream.cs` opens `VideoCapture(index)`; `WebcamCapture` stays for batch grabs. |
+| Open an **IP / RTSP** camera | ✅ | `FrameStream` passes a non-numeric `source` to `VideoCapture(string)`, so `rtsp://…` / `http://…` URLs work. |
+| Frame → NCHW float tensor preprocessing | ✅ | `YoloPersonDetector` (letterbox + BGR) and `RetinaFaceDetector` (normalised RGB). |
+| **Continuous live frame producer** (grab forever, drop stale frames) | ✅ | `FrameStream.Read` streams `Image<Rgb24>` until cancel/EOF, with a `frameStride` skip. |
+| GPU execution provider + CPU fallback | ✅ | `OnnxRuntime.Gpu`; `YoloPersonDetector` probes `CudaProvisioner` and falls back to CPU. |
 
-## Phase 1 — Person detection (per frame) · ❌ core new work
-
-| Task | Status | Reuse / notes |
-|------|:------:|---------------|
-| `PersonDetector` — ONNX body detector returning **every** person box | ❌ | Follow `RetinaFaceDetector` end-to-end; load a COCO detector, keep class `person` (id 0). |
-| Decode model output to candidate boxes | 🟡 | Reuse the decode/anchor logic shape from `RetinaFaceDetector.ParseAndDecode`. |
-| **Return a list, not the single best** | 🟡 | `RetinaFaceDetector.Detect` returns one top face — generalise to return all detections above threshold. |
-| NMS + IoU | ✅ | Already in `RetinaFaceDetector` (`Iou`, greedy NMS) — extract to `Detection/Nms.cs`. |
-| Confidence threshold + min-box-size + ROI filter | ❌ | Trivial post-filters. |
-| `Detection` result type (box, score, class) | 🟡 | Mirror `FaceDetection`. |
-| **Face detector as a "head count" cross-check** | 🟡 | `RetinaFaceDetector` already detects faces — useful in crowds where bodies overlap but heads are visible. |
-
-## Phase 2 — Per-frame counting · ❌ first demonstrable milestone
+## Phase 1 — Person detection (per frame) · ✅ done
 
 | Task | Status | Reuse / notes |
 |------|:------:|---------------|
-| Count = number of detections after NMS/threshold | ❌ | Trivial once Phase 1 lands → **"N people visible now"**. |
+| `PersonDetector` — ONNX body detector returning **every** person box | ✅ | `Vision/Detection/YoloPersonDetector.cs` (OpenCV-Zoo YOLOX, COCO, Apache-2.0, auto-download). |
+| Decode model output to candidate boxes | ✅ | YOLOX grid/stride/exp decode in `YoloPersonDetector.Decode`. |
+| **Return a list, not the single best** | ✅ | `RetinaFaceDetector.DetectAll` added; detectors return `IReadOnlyList<Detection>`. |
+| NMS + IoU | ✅ | Extracted to `Vision/Detection/Nms.cs` (`Iou`, `Apply`). |
+| Confidence threshold + min-box-size + ROI filter | 🟡 | Score + NMS thresholds done; ROI filter still to add. |
+| `Detection` result type (box, score, class) | ✅ | `Vision/Detection/Detection.cs`. |
+| **Face detector as a "head count" cross-check** | ✅ | `Vision/Detection/FaceCountDetector.cs` wraps `RetinaFaceDetector.DetectAll`. |
+
+## Phase 2 — Per-frame counting · ✅ done (first milestone)
+
+| Task | Status | Reuse / notes |
+|------|:------:|---------------|
+| Count = number of detections after NMS/threshold | ✅ | `PeopleCountingDemo` prints the live count → **"N people visible now"**. |
 | Region-of-interest mask (count only inside a zone) | ❌ | Polygon/rect test against box centre. |
-| Temporal smoothing (median over a short window) to stop flicker | ❌ | Reduces frame-to-frame jitter in the displayed count. |
+| Temporal smoothing (median over a short window) to stop flicker | ✅ | `Vision/Counting/CountSmoother.cs` (sliding-window median). |
 
-## Phase 3 — Multi-object tracking · ❌ enables stable, non-double-counted IDs
-
-| Task | Status | Reuse / notes |
-|------|:------:|---------------|
-| `Track` type (id, box, velocity, age, hits, time-since-update) | ❌ | New. |
-| Motion model — constant-velocity **Kalman filter** | ❌ | Pure maths; unit-testable (SORT-style). |
-| Data association — IoU cost + Hungarian (or greedy) | 🟡 | IoU exists; add assignment. |
-| Track lifecycle: tentative → confirmed → lost | ❌ | Avoids counting one-frame false positives. |
-| Reference: **SORT** (no extra model) / **ByteTrack** (uses low-score boxes) | — | SORT is detector-only; ByteTrack improves recall in crowds. |
-
-## Phase 4 — Counting semantics · ❌
+## Phase 3 — Multi-object tracking · ✅ done
 
 | Task | Status | Reuse / notes |
 |------|:------:|---------------|
-| **Current occupancy** = number of confirmed tracks | ❌ | The live "how many are here". |
-| **Cumulative unique count** = distinct track IDs ever confirmed | ❌ | The "how many people came through". |
+| `Track` type (id, box, velocity, age, hits, time-since-update) | ✅ | `Vision/Tracking/Track.cs`. |
+| Motion model — constant-velocity Kalman | ✅ | `Track` uses a fixed-gain **alpha-beta** filter (lightweight Kalman); full-covariance Kalman is an optional upgrade. |
+| Data association — IoU cost + Hungarian (or greedy) | ✅ | Greedy, highest-IoU-first, in `SortTracker.Update` (reuses `Nms.Iou`). |
+| Track lifecycle: tentative → confirmed → lost | ✅ | `minHits` to confirm, `maxAge` to retire; suppresses one-frame false positives. |
+| Reference: **SORT** / **ByteTrack** | — | Built SORT-style; ByteTrack (low-score 2nd pass) is a future upgrade for crowds. |
+
+## Phase 4 — Counting semantics · 🟡 current & unique done
+
+| Task | Status | Reuse / notes |
+|------|:------:|---------------|
+| **Current occupancy** = number of confirmed tracks | ✅ | `SortTracker.CurrentCount` (confirmed tracks matched this frame). |
+| **Cumulative unique count** = distinct track IDs ever confirmed | ✅ | `SortTracker.UniqueCount`. |
 | **Line-crossing / tripwire** (in / out across a virtual line) | ❌ | Sign of (track centre − line) flips between frames. |
 | Zone dwell / per-region occupancy | ❌ | Builds on Phase 2 ROI + Phase 3 tracks. |
 

@@ -21,6 +21,7 @@ papers), a full Transformer/LLM stack, and a CPU/CUDA/Metal device layer.
 | 7 | [Device & GPU](07-device-gpu.md) | `PredictiveCoding.Device(.Torch)` — CPU/CUDA/Metal acceleration |
 | 8 | [Testing](08-testing.md) | The xUnit suite (300+ tests) and its conventions |
 | 9 | [Build & run](09-build-and-run.md) | Building, testing, running the demos and the GPU paths |
+| 10 | [Live people counting](10-people-counting-roadmap.md) | `PredictiveCoding.Vision` — detect (YOLOX) · track (SORT) · count people in a live feed |
 
 ## At a glance
 
@@ -35,6 +36,7 @@ PredictiveCoding.Device/      device management + CUDA backend (net10)
 PredictiveCoding.Device.Torch/ Metal (MPS) backend via TorchSharp (net10)
 PredicitiveCoding.UnitTests/  xUnit test suite (net10)
 PredictiveCoding.Main/        demo entry point + CIFAR-10 (net10)
+PredictiveCoding.Vision/      people counting: detect · track · count (net10)
 ```
 
 > **Note on the folder name.** The original core folder is spelled `PredicitiveCoding`

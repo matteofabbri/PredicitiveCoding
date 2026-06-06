@@ -1,5 +1,6 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using PredictiveCoding.FaceRecognition;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -187,11 +188,13 @@ public sealed class YoloPersonDetector : IPersonDetector
         }
     }
 
-    // Tries the CUDA execution provider, transparently falling back to CPU when
-    // the CUDA runtime is unavailable (no provisioned DLLs / no NVIDIA GPU).
+    // Uses the CUDA execution provider when an NVIDIA GPU + CUDA runtime are
+    // actually present, otherwise runs on CPU. The availability probe avoids the
+    // noisy native "failed to load onnxruntime_providers_cuda.dll" message on
+    // CPU-only machines; any residual failure still falls back to CPU.
     private static InferenceSession CreateSession(string path, bool useGpu)
     {
-        if (useGpu)
+        if (useGpu && CudaLooksAvailable())
         {
             try
             {
@@ -206,6 +209,21 @@ public sealed class YoloPersonDetector : IPersonDetector
         }
         var cpu = new SessionOptions { LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR };
         return new InferenceSession(path, cpu);
+    }
+
+    private static bool CudaLooksAvailable()
+    {
+        try
+        {
+            // ORT's CUDA EP needs the CUDA runtime *and* cuDNN; require both so a
+            // partial CUDA install doesn't trigger a failed native load.
+            GpuStatus s = CudaProvisioner.Detect();
+            return s.HasNvidiaGpu && s.CudaRuntimePresent && s.CudnnPresent;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void Download(string url, string dest)

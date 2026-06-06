@@ -45,6 +45,7 @@
 | `PredicitiveCoding/` | Core PC library — layers, networks, training, data, logging |
 | `PredictiveCoding.Expanded/` | Expanded PC extensions (generative, memory, multi-modal, routed) |
 | `PredictiveCoding.Main/` | Demo entry point and CIFAR-10 runner |
+| `PredictiveCoding.Vision/` | People counting — YOLOX person detector + SORT tracker + frame stream (Main demo #8) |
 | `PredicitiveCoding.UnitTests/` | Unit test suite (xUnit) |
 | `PredictiveCoding.Tests/` | Integration test harness (WinUI) |
 | `cifar-10-data/` | CIFAR-10 binary dataset files |
