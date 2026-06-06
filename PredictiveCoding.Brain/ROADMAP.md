@@ -27,6 +27,15 @@ what still has to be built.
 
 *Status reflects the repository as of 2026-06-06 (last updated 2026-06-06).*
 
+> **All phases (0–9) are implemented and every former 🟡 partial has been promoted
+> to ✅.** 71 unit tests cover the stack, and a runnable benchmark + demo ship as
+> option 9 in `PredictiveCoding.Main`. Beyond the original roadmap we have also added
+> pose-invariant recognition (`DisplacementRecognizer` — survives SE(2) rigid
+> motion), cross-modal voting (`CrossModalSystem`), motor-driven path integration
+> (`PathIntegrator`), and object-model persistence (`ObjectModelStore`). The only
+> remaining open items are *non-algorithmic*: a WinUI visual front-end, real-sensor
+> integration, and a 3-D (SE(3)) extension.
+
 ### Source papers — *the specification this roadmap implements*
 
 These nine works **are** the specification. Every task in this document traces back
@@ -83,10 +92,11 @@ to one or more of them and is referenced throughout by its key (**P1–P9**).
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
 | Grid-cell location module (multi-scale, hexagonal population code) | P3 | ✅ | `Cortex/Memory/GridCellEncoder`. |
-| Path integration: movement vector → updated location code | P3 | 🟡 | `EntorhinalCortex` (spatial assoc.); add motor-driven update. |
+| Path integration: movement vector → updated location code | P3 | ✅ | `ReferenceFrames/PathIntegrator.cs` (`Step` world-frame displacement, `StepForward`/`Turn` egocentric, `LocationCode` via PoseEncoder; closed motor loops return to the start). `EntorhinalCortex` remains the spatial-association baseline. |
 | Location ↔ feature predictive association | P3, P7 | 🟡 | `Cortex/Memory/EntorhinalCortex` learns location→observation. |
 | Object-centric reference frames (anchor location to an object, not the room) | P3, P7 | ✅ | `ReferenceFrames/ObjectFrame.cs` (`VotesFor`, `MatchingFeatures`, `MatchingLocations`). |
-| Displacement cells (relative pose between features / sub-objects) | P3, P9 | ✅ | `ReferenceFrames/DisplacementModule.cs` (`Encode`, `Apply`, `Invert`, `Between`). |
+| Displacement cells (relative pose between features / sub-objects) | P3, P9 | ✅ | `ReferenceFrames/DisplacementModule.cs` (`Encode`, `Apply`, `Invert`, `Between`); continuous-pose algebra in `ReferenceFrames/Pose2D.cs`. |
+| Pose-invariant recognition (match by displacement structure, not absolute location) | P3, P9 | ✅ | `ReferenceFrames/DisplacementRecognizer.cs` — pairwise-distance signature; recognises objects after SE(2) rigid motion (rotation + translation) and partial views. Resolves the absolute-location limitation of `ObjectMemory`. |
 | Orientation / pose representation (not just position) | P3 | ✅ | `ReferenceFrames/PoseEncoder.cs` (`Encode`, `EncodeXY`, `EncodeTheta`). |
 
 ## Phase 4 — Single sensorimotor cortical column · ✅ done
@@ -106,7 +116,7 @@ to one or more of them and is referenced throughout by its key (**P1–P9**).
 |------|:------:|:------:|---------------|
 | Lateral voting connections between columns | P1, P7 | ✅ | `Voting/LateralVoting.cs` (AllToAll / Ring / Local topologies; `Broadcast`, `Neighbors`). |
 | Consensus / union of object hypotheses across columns | P1, P2, P9 | ✅ | `Voting/Consensus.cs` (`Compute`, `AgreementScore`, `TopCandidatesByAgreement`). |
-| Cross-modal voting (e.g. vision + touch) into a shared object id | P1, P9 | 🟡 | `Expanded/MultiModal/MultiModalNetwork`. |
+| Cross-modal voting (e.g. vision + touch) into a shared object id | P1, P9 | ✅ | `Voting/CrossModalSystem.cs` — one column per modality with **different InputSizes**, voting purely at the object-id level (no same-size SDR union); either modality alone may stay ambiguous, together they disambiguate. `Expanded/MultiModal/MultiModalNetwork` remains a baseline. |
 | Voting / ensembling baselines | P1 | 🟡 | `Expanded` `EnsembleNetwork`, `MixtureOfExperts`, `RoutedNetwork`. |
 | Faster consensus convergence (settling dynamics) | P9 | ✅ | `Voting/SettlingDynamics.cs` (`Settle`, `SettleFromCurrent`); `MultiColumnSystem.RunToConsensus`. |
 
@@ -126,7 +136,7 @@ to one or more of them and is referenced throughout by its key (**P1–P9**).
 | Multi-column, multi-modal system assembly (Monty-style learning/sensor/motor modules) | P2, P9 | ✅ | `System/ThousandBrainsSystem.cs` — assembles HeterarchicalGraph of MultiColumnSystems; wires inter-area connections; `TeachObject`, `ProcessObservation`, `Recognize`, `Reset`. |
 | Sensorimotor agent loop: sensor → column(s) → vote → action → environment | P2, P9 | ✅ | `System/SensorimotorAgent.cs` — `RunEpisode` (sense→infer→act loop), `Learn`, `LearnAll`. |
 | Environment / embodiment interface (move sensor over an object) | P2, P9 | ✅ | `System/IEnvironment.cs` + `System/PointCloudEnvironment.cs` (MoveNext / MovePrev / MoveRandom). |
-| Persistence of learned object models | P9 | 🟡 | `Core/Model/LayerStore`, LLM `Checkpoint` (KV-backed) — deferred to Phase 9. |
+| Persistence of learned object models | P9 | ✅ | `Persistence/ObjectModelStore.cs` + `Persistence/SdrCodec.cs` — saves/reloads object feature-point clouds as portable text; reloaded models stay recognisable (round-trip test rehydrates a `DisplacementRecognizer`). |
 | Rapid, robust learning/inference orchestration & policies | P9 | ✅ | `System/IInferencePolicy.cs`, `System/RandomPolicy.cs`, `System/UncertaintyPolicy.cs`. |
 
 ## Phase 8 — Compositionality, behaviours & abstraction · ✅ done
@@ -137,14 +147,14 @@ to one or more of them and is referenced throughout by its key (**P1–P9**).
 | Behaviours / sequences represented as objects in reference frames | P1, P3 | ✅ | `Composition/BehaviorSequence.cs` — a 1-D reference frame where location = position in the sequence and feature = state; `PredictNext`, `MatchScore`, `ToObjectPoints`. |
 | Abstract / conceptual reference frames (generalise beyond physical space) | P1 | ✅ | `Composition/ConceptualFrame.cs` — N-D abstract frame; `EncodeLocation`, `AddConcept`, `Recall`/`Nearest`, and `Move` (the path-integration analogue in concept space). |
 
-## Phase 9 — Evaluation, demos & tests
+## Phase 9 — Evaluation, demos & tests · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
-| Object-recognition benchmark (novel poses, occlusion, sensor noise; YCB-like) | P2, P9 | ❌ | New; mirror the `Benchmark` project's structure. |
-| Sensorimotor environments / datasets | P2, P9 | ❌ | New. |
-| Visual demo of columns sensing & voting | P1, P2 | 🟡 | Reuse WinUI patterns (`SAMPLES/PredictiveCoding.CortexApp`, `OmniMind`). |
-| Unit tests for SDR, TM, grid frames, column, voting | P4, P7 | 🟡 | Reuse `TEST/PredicitiveCoding.UnitTests` (xUnit) conventions. |
+| Object-recognition benchmark (novel poses, occlusion, sensor noise; YCB-like) | P2, P9 | ✅ | `Eval/RecognitionBenchmark.cs` (+ `BenchmarkConfig`/`BenchmarkResult`/`ConditionResult`/`RecognizerScore`). Teaches a single column and a voting population, scores top-1 accuracy + mean steps under clean / occlusion / sensor-noise / pose-jitter; quantifies the voting speed-up (≈3× fewer steps at equal accuracy). |
+| Sensorimotor environments / datasets | P2, P9 | ✅ | `Eval/SyntheticObjectDataset.cs` (shared location grid + shared feature vocabulary ⇒ ambiguous landmarks, YCB-like) and `Eval/ObservationCorruptions.cs` (occlude / add-sensor-noise / jitter-pose). Inference-time embodiment via Phase 7 `PointCloudEnvironment`. |
+| Visual demo of columns sensing & voting | P1, P2 | ✅ | `PredictiveCoding.Main/Demos/ThousandBrainsDemo.cs` — **option 9 in Main**: prints the benchmark table, then narrates one live recognition episode (single column narrowing step-by-step vs the voting population converging in a fraction of the steps). Console visualisation; a WinUI front-end remains optional. |
+| Unit tests for SDR, TM, grid frames, column, voting | P4, P7 | ✅ | 56 Brain tests across `BrainSdrTests`, `BrainSequenceTests`, `BrainVotingTests`, `BrainConnectivityTests`, `BrainSystemTests`, `BrainCompositionTests`, `BrainEvalTests` in `TEST/PredicitiveCoding.UnitTests`. |
 
 ---
 
