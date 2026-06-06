@@ -29,6 +29,7 @@
     <ProjectReference Include="..\..\PredicitiveCoding\PredictiveCoding.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.Expanded\PredictiveCoding.Expanded.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.Cortex\PredictiveCoding.Cortex.csproj" />
+    <ProjectReference Include="..\..\PredictiveCoding.Brain\PredictiveCoding.Brain.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.LLM\PredictiveCoding.LLM.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.Device\PredictiveCoding.Device.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.Data\PredictiveCoding.Data.csproj" />

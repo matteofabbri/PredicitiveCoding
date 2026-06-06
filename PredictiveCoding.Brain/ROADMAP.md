@@ -34,15 +34,16 @@ what still has to be built.
 
 ---
 
-## Phase 0 — Representations & foundations
+## Phase 0 — Representations & foundations · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
-| Sparse Distributed Representation (SDR) type: sparse bitset with overlap, union, subsample, add-noise | P1, P4 | ❌ | New `Sdr` core type. |
-| SDR similarity & metrics (overlap score, match, stability, capacity) | P4 | ❌ | New. |
-| Scalar / category / coordinate → SDR encoders | P3 | 🟡 | `GridCellEncoder` (coordinates); add scalar/category encoders. |
-| Dense ↔ SDR bridges to `DenseTensor<float>` | — | 🟡 | `DenseTensor` exists in Core. |
+| Sparse Distributed Representation (SDR) type: overlap, union, intersect, subsample, add-noise | P1, P4 | ✅ | `Sdr/Sdr.cs`. |
+| SDR similarity & metrics (overlap, overlap score, match) | P4 | ✅ | `Sdr.Overlap` / `OverlapScore` / `Matches`. |
+| Scalar / category / coordinate → SDR encoders | P3 | ✅ | `Sdr/ScalarEncoder.cs`, `Sdr/CategoryEncoder.cs`; coordinates via `Cortex/GridCellEncoder`. |
+| Dense ↔ SDR bridges to `DenseTensor<float>` | — | ✅ | `Sdr.ToDense` / `Sdr.FromDense`. |
 | Deterministic RNG / seeding utilities | — | ✅ | `Core/RandomUtils`. |
+| Unit tests (12) for SDR + encoders | P4 | ✅ | `TEST/PredicitiveCoding.UnitTests/BrainSdrTests.cs`. |
 
 ## Phase 1 — Cortical microcircuit substrate
 
