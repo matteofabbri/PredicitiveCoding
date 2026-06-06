@@ -108,6 +108,11 @@ public enum DataSourceKind
     /// <summary>Generic SPARQL endpoint (DBpedia, Wikidata, …).</summary>
     Sparql,
 
+    // ── Local model servers (→ text / vectors) ─────────────────────────────────
+
+    /// <summary>Local LLM via LM Studio's OpenAI-compatible server (text generation &amp; embeddings).</summary>
+    LmStudio,
+
     // ── Storage & streaming ────────────────────────────────────────────────────
 
     /// <summary>Blob storage download by URL (S3 / Azure / GCS).</summary>

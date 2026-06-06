@@ -35,4 +35,9 @@
     <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
   </ItemGroup>
 
+  <!-- Offline language-detection model, extracted from Catalyst by tools/CatalystImport. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\langdetect.bin" />
+  </ItemGroup>
+
 </Project>
