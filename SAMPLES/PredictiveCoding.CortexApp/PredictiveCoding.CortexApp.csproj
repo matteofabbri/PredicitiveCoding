@@ -29,8 +29,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
-    <ProjectReference Include="..\PredictiveCoding.Cortex\PredictiveCoding.Cortex.csproj" />
+    <ProjectReference Include="..\..\PredicitiveCoding\PredictiveCoding.csproj" />
+    <ProjectReference Include="..\..\PredictiveCoding.Cortex\PredictiveCoding.Cortex.csproj" />
   </ItemGroup>
 
 </Project>

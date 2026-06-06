@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>PredictiveCoding.FaceRecognition</RootNamespace>
     <AssemblyName>PredictiveCoding.FaceRecognition</AssemblyName>
-    <!-- NU1902: moderate ImageSharp advisory without a 2.1.x fix; we only decode trusted dataset images. -->
+    <!-- NU1902: moderate ImageSharp advisory (GHSA-rxmq-m78w-7wmc) still open on the 3.1.x line; we only decode trusted dataset images. -->
     <NoWarn>$(NoWarn);NU1902</NoWarn>
   </PropertyGroup>
 
@@ -17,7 +17,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.26.0" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="2.1.10" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
   </ItemGroup>
 
 </Project>
