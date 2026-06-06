@@ -107,15 +107,15 @@ what still has to be built.
 | Hierarchical composition baseline | P8 | 🟡 | `Expanded/Hierarchical/HierarchicalNetwork`. |
 | Thalamo-cortical routing / gating of long-range signals | P8 | 🟡 | `Cortex/Control/Thalamus`, `AssociationCortex`. |
 
-## Phase 7 — Thousand-Brains system & sensorimotor agent
+## Phase 7 — Thousand-Brains system & sensorimotor agent · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
-| Multi-column, multi-modal system assembly (Monty-style learning/sensor/motor modules) | P2, P9 | ❌ | New top-level orchestrator. |
-| Sensorimotor agent loop: sensor → column(s) → vote → action → environment | P2, P9 | 🟡 | `MotorCortex` loop as a starting point. |
-| Environment / embodiment interface (move sensor over an object) | P2, P9 | ❌ | New abstraction + simple environments. |
-| Persistence of learned object models | P9 | 🟡 | `Core/Model/LayerStore`, LLM `Checkpoint` (KV-backed). |
-| Rapid, robust learning/inference orchestration & policies | P9 | ❌ | New. |
+| Multi-column, multi-modal system assembly (Monty-style learning/sensor/motor modules) | P2, P9 | ✅ | `System/ThousandBrainsSystem.cs` — assembles HeterarchicalGraph of MultiColumnSystems; wires inter-area connections; `TeachObject`, `ProcessObservation`, `Recognize`, `Reset`. |
+| Sensorimotor agent loop: sensor → column(s) → vote → action → environment | P2, P9 | ✅ | `System/SensorimotorAgent.cs` — `RunEpisode` (sense→infer→act loop), `Learn`, `LearnAll`. |
+| Environment / embodiment interface (move sensor over an object) | P2, P9 | ✅ | `System/IEnvironment.cs` + `System/PointCloudEnvironment.cs` (MoveNext / MovePrev / MoveRandom). |
+| Persistence of learned object models | P9 | 🟡 | `Core/Model/LayerStore`, LLM `Checkpoint` (KV-backed) — deferred to Phase 9. |
+| Rapid, robust learning/inference orchestration & policies | P9 | ✅ | `System/IInferencePolicy.cs`, `System/RandomPolicy.cs`, `System/UncertaintyPolicy.cs`. |
 
 ## Phase 8 — Compositionality, behaviours & abstraction
 

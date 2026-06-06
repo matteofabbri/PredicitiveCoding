@@ -48,10 +48,15 @@ public sealed class HeterarchicalMessagePassing
 
     /// <summary>Runs the full iterative message-passing algorithm on <paramref name="graph"/>.
     /// <paramref name="areaInputs"/> maps each area id to the (feature, location) list for its
-    /// columns (length must equal the area's ColumnCount).</summary>
+    /// columns (length must equal the area's ColumnCount).
+    /// <paramref name="resetColumnSystems"/> controls whether each area's column system is reset
+    /// before round 0. Set to <c>false</c> when calling from a sensorimotor loop that manages
+    /// resets externally (e.g. <see cref="ThousandBrainsSystem"/>) so that the hypothesis state
+    /// accumulated across multiple observations is preserved.</summary>
     public IReadOnlyDictionary<int, AreaOutput> PassMessages(
         HeterarchicalGraph graph,
-        IReadOnlyDictionary<int, IReadOnlyList<(Sdr Feature, Sdr Location)>> areaInputs)
+        IReadOnlyDictionary<int, IReadOnlyList<(Sdr Feature, Sdr Location)>> areaInputs,
+        bool resetColumnSystems = true)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(areaInputs);
@@ -61,7 +66,7 @@ public sealed class HeterarchicalMessagePassing
         foreach (var area in graph.Areas)
         {
             var inputs = RequireInputs(areaInputs, area.AreaId, area.ColumnSystem.ColumnCount);
-            area.ColumnSystem.Reset();
+            if (resetColumnSystems) area.ColumnSystem.Reset();
             var consensus = area.ColumnSystem.VoteStep(inputs);
             var output = new AreaOutput(area.AreaId, consensus, 0, 0);
             area.UpdateOutput(consensus);
