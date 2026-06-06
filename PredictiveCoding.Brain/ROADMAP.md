@@ -16,7 +16,7 @@ what still has to be built.
 | 🟡 | **Partial** — a reusable building block exists; needs adaptation/extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status reflects the repository as of 2026-06-06.*
+*Status reflects the repository as of 2026-06-06 (last updated 2026-06-06).*
 
 ### Source papers
 
@@ -45,14 +45,14 @@ what still has to be built.
 | Deterministic RNG / seeding utilities | — | ✅ | `Core/RandomUtils`. |
 | Unit tests (12) for SDR + encoders | P4 | ✅ | `TEST/PredicitiveCoding.UnitTests/BrainSdrTests.cs`. |
 
-## Phase 1 — Cortical microcircuit substrate
+## Phase 1 — Cortical microcircuit substrate · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
-| Mini-column abstraction (group of cells sharing feed-forward input, L4) | P5, P6, P7 | ❌ | New. |
-| Layered column scaffold mapped to the canonical microcircuit (L4 input · L2/3 object output · L5 motor · L6a location) | P5, P6 | ❌ | Design grounded in P5/P6; new types. |
+| Mini-column abstraction (group of cells sharing feed-forward input, L4) | P5, P6, P7 | ✅ | `Columns/MiniColumn.cs`. |
+| Layered column scaffold mapped to the canonical microcircuit (L4 input · L2/3 object output · L5 motor · L6a location) | P5, P6 | ✅ | `Columns/LayeredColumn.cs` (`LayeredColumnConfig`, `LayeredColumnOutput`). |
 | Anatomical cortical-area modules to host columns | P5 | ✅ | `Cortex` (`VisualCortex`, `AssociationCortex`, `Sensory/*`, `Thalamus`, …). |
-| Inhibition / k-winners-take-all for sparsity | P4 | ❌ | New (used by spatial pooler & TM). |
+| Inhibition / k-winners-take-all for sparsity | P4 | ✅ | `Columns/KWinners.cs` (`SelectTopK`, `SelectTopKPercent`, `LocalInhibition`). |
 
 ## Phase 2 — Sequence memory (HTM Temporal Memory) · ✅ done
 
@@ -66,37 +66,37 @@ what still has to be built.
 | Associative recall of stored patterns | P4 | 🟡 | `Expanded/Hopfield` (`HopfieldMemory`, `HopfieldNetwork`). |
 | Unit tests (4) for SP + TM (sequence learning & prediction) | P4 | ✅ | `TEST/PredicitiveCoding.UnitTests/BrainSequenceTests.cs`. |
 
-## Phase 3 — Reference frames & location (grid cells)
+## Phase 3 — Reference frames & location (grid cells) · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
 | Grid-cell location module (multi-scale, hexagonal population code) | P3 | ✅ | `Cortex/Memory/GridCellEncoder`. |
 | Path integration: movement vector → updated location code | P3 | 🟡 | `EntorhinalCortex` (spatial assoc.); add motor-driven update. |
 | Location ↔ feature predictive association | P3, P7 | 🟡 | `Cortex/Memory/EntorhinalCortex` learns location→observation. |
-| Object-centric reference frames (anchor location to an object, not the room) | P3, P7 | ❌ | New. |
-| Displacement cells (relative pose between features / sub-objects) | P3, P9 | ❌ | New; basis for compositionality. |
-| Orientation / pose representation (not just position) | P3 | ❌ | New (extend grid code with orientation). |
+| Object-centric reference frames (anchor location to an object, not the room) | P3, P7 | ✅ | `ReferenceFrames/ObjectFrame.cs` (`VotesFor`, `MatchingFeatures`, `MatchingLocations`). |
+| Displacement cells (relative pose between features / sub-objects) | P3, P9 | ✅ | `ReferenceFrames/DisplacementModule.cs` (`Encode`, `Apply`, `Invert`, `Between`). |
+| Orientation / pose representation (not just position) | P3 | ✅ | `ReferenceFrames/PoseEncoder.cs` (`Encode`, `EncodeXY`, `EncodeTheta`). |
 
-## Phase 4 — Single sensorimotor cortical column
+## Phase 4 — Single sensorimotor cortical column · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
-| `CorticalColumn`: feature-at-location → object model | P7, P3 | ❌ | New; integrates Phases 1–3. |
-| Sensorimotor inference: predict next sensation given a movement | P2, P7 | ❌ | New. |
-| Object/pose belief update + disambiguation over a sensation sequence | P7, P9 | ❌ | New. |
-| One/few-shot online object learning | P2, P9 | ❌ | New. |
+| `CorticalColumn`: feature-at-location → object model | P7, P3 | ✅ | `Columns/CorticalColumn.cs` (SP + TM + ObjectMemory + hypothesis tracking). |
+| Sensorimotor inference: predict next sensation given a movement | P2, P7 | ✅ | `CorticalColumn.Infer` runs a full sensation sequence; anomaly from TM. |
+| Object/pose belief update + disambiguation over a sensation sequence | P7, P9 | ✅ | `ObjectMemory` + monotone hypothesis intersection in `CorticalColumn.Compute`. |
+| One/few-shot online object learning | P2, P9 | ✅ | `CorticalColumn.LearnObject` / `StartNewObject` + `Compute(learn:true)`. |
 | Active sensing policy (choose the next movement) | P2 | 🟡 | `Cortex/Executive/MotorCortex` + `Expanded/Active/ActiveNetwork` (active inference). |
 | Goal-directed action / perception-action loop | P2 | 🟡 | `MotorCortex` closed-loop controller. |
 
-## Phase 5 — Voting across columns (the "thousand brains")
+## Phase 5 — Voting across columns (the "thousand brains") · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
-| Lateral voting connections between columns | P1, P7 | ❌ | New; defining mechanism of TBT. |
-| Consensus / union of object hypotheses across columns | P1, P2, P9 | ❌ | New. |
+| Lateral voting connections between columns | P1, P7 | ✅ | `Voting/LateralVoting.cs` (AllToAll / Ring / Local topologies; `Broadcast`, `Neighbors`). |
+| Consensus / union of object hypotheses across columns | P1, P2, P9 | ✅ | `Voting/Consensus.cs` (`Compute`, `AgreementScore`, `TopCandidatesByAgreement`). |
 | Cross-modal voting (e.g. vision + touch) into a shared object id | P1, P9 | 🟡 | `Expanded/MultiModal/MultiModalNetwork`. |
 | Voting / ensembling baselines | P1 | 🟡 | `Expanded` `EnsembleNetwork`, `MixtureOfExperts`, `RoutedNetwork`. |
-| Faster consensus convergence (settling dynamics) | P9 | ❌ | New. |
+| Faster consensus convergence (settling dynamics) | P9 | ✅ | `Voting/SettlingDynamics.cs` (`Settle`, `SettleFromCurrent`); `MultiColumnSystem.RunToConsensus`. |
 
 ## Phase 6 — Long-range connections & heterarchy
 
