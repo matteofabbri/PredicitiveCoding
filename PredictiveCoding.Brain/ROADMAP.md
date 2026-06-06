@@ -129,13 +129,13 @@ to one or more of them and is referenced throughout by its key (**P1–P9**).
 | Persistence of learned object models | P9 | 🟡 | `Core/Model/LayerStore`, LLM `Checkpoint` (KV-backed) — deferred to Phase 9. |
 | Rapid, robust learning/inference orchestration & policies | P9 | ✅ | `System/IInferencePolicy.cs`, `System/RandomPolicy.cs`, `System/UncertaintyPolicy.cs`. |
 
-## Phase 8 — Compositionality, behaviours & abstraction
+## Phase 8 — Compositionality, behaviours & abstraction · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
-| Objects composed of objects (nested reference frames via displacement) | P3, P9 | ❌ | New; builds on Phase 3 displacement cells. |
-| Behaviours / sequences represented as objects in reference frames | P1, P3 | ❌ | New. |
-| Abstract / conceptual reference frames (generalise beyond physical space) | P1 | ❌ | New; long-horizon. |
+| Objects composed of objects (nested reference frames via displacement) | P3, P9 | ✅ | `ReferenceFrames/Pose2D.cs` (continuous relative-pose algebra: `Apply`, `Compose`, `Inverse`) + `Composition/` (`FeaturePoint`, `ObjectPart`, `CompositeObject`, `CompositionLibrary`). `CompositionLibrary.Resolve` flattens nested frames with cycle/depth guards; `ToObservations` encodes the result for a `CorticalColumn`. |
+| Behaviours / sequences represented as objects in reference frames | P1, P3 | ✅ | `Composition/BehaviorSequence.cs` — a 1-D reference frame where location = position in the sequence and feature = state; `PredictNext`, `MatchScore`, `ToObjectPoints`. |
+| Abstract / conceptual reference frames (generalise beyond physical space) | P1 | ✅ | `Composition/ConceptualFrame.cs` — N-D abstract frame; `EncodeLocation`, `AddConcept`, `Recall`/`Nearest`, and `Move` (the path-integration analogue in concept space). |
 
 ## Phase 9 — Evaluation, demos & tests
 
@@ -180,6 +180,7 @@ PredictiveCoding.Brain
 ├── Voting/         (Phase 5)  ColumnVoting, Consensus
 ├── Connectivity/   (Phase 6)  LongRange, Heterarchy
 ├── System/         (Phase 7)  ThousandBrainsSystem, SensorimotorAgent, Environment
+├── Composition/    (Phase 8)  CompositeObject, CompositionLibrary, BehaviorSequence, ConceptualFrame
 └── Eval/           (Phase 9)  benchmarks, demos
 ```
 
