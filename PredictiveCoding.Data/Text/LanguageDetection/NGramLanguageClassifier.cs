@@ -92,22 +92,9 @@ public sealed class NGramLanguageClassifier
     /// </summary>
     public static NGramLanguageClassifier CreateDefault()
     {
-        var assembly = typeof(NGramLanguageClassifier).Assembly;
-        string name = Array.Find(assembly.GetManifestResourceNames(),
-                          n => n.EndsWith("language-samples.tsv", StringComparison.Ordinal))
-                      ?? throw new InvalidOperationException("Embedded 'language-samples.tsv' not found.");
-
         var trainer = new NGramLanguageClassifierTrainer();
-        using var stream = assembly.GetManifestResourceStream(name)!;
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        string? line;
-        while ((line = reader.ReadLine()) is not null)
-        {
-            if (line.Length == 0 || line[0] == '#') continue;
-            int tab = line.IndexOf('\t');
-            if (tab <= 0 || tab >= line.Length - 1) continue;
-            trainer.Add(line[..tab].Trim(), line[(tab + 1)..]);
-        }
+        foreach (var (language, text) in LanguageSamples.Default())
+            trainer.Add(language, text);
         return trainer.Train();
     }
 
