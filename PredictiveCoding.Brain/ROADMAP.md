@@ -1,8 +1,17 @@
 # PredictiveCoding.Brain — Thousand Brains Project roadmap
 
-Goal: implement a **Thousand-Brains sensorimotor system** — many cortical columns
-that each learn models of objects in their own reference frames and **vote** to
-reach consensus — on top of the existing predictive-coding stack
+> **Mission — this roadmap is one mandate: implement, in code, the theory and
+> mechanisms described in the reference papers listed below (P1–P9).** It is not a
+> loose wishlist of brain-inspired features; it is an engineering plan to realise
+> the published Thousand Brains science. Every phase and every task exists to build
+> a specific claim from those papers and is tagged with the paper key(s) it
+> implements (e.g. *P4*, *P7*). The rule runs both ways: if a task cannot be traced
+> back to one of these papers it does not belong here, and if a paper describes a
+> mechanism we have not yet built it belongs here as a task.
+
+The end state is a working **Thousand-Brains sensorimotor system** — many cortical
+columns that each learn models of objects in their own reference frames and
+**vote** to reach consensus — built on top of the existing predictive-coding stack
 (`PredictiveCoding` Core, `PredictiveCoding.Expanded`, `PredictiveCoding.Cortex`).
 
 Each task below carries a **status flag** so it is clear what can be reused and
@@ -18,16 +27,19 @@ what still has to be built.
 
 *Status reflects the repository as of 2026-06-06 (last updated 2026-06-06).*
 
-### Source papers
+### Source papers — *the specification this roadmap implements*
+
+These nine works **are** the specification. Every task in this document traces back
+to one or more of them and is referenced throughout by its key (**P1–P9**).
 
 | Key | Reference |
 |:---:|-----------|
-| **P1** | Hawkins, J. (2021). *A Thousand Brains: A New Theory of Intelligence.* |
+| **P1** | Hawkins, J. (2021). *A Thousand Brains: A New Theory of Intelligence.* (Foreword by Richard Dawkins.) |
 | **P2** | Clay, V. et al. (2024). *The Thousand Brains Project: A New Paradigm for Sensorimotor Intelligence.* |
 | **P3** | Hawkins, J. et al. (2019). *A Framework for Intelligence and Cortical Function Based on Grid Cells in the Neocortex.* Frontiers in Neural Circuits. |
 | **P4** | Hawkins, J. & Ahmad, S. (2016). *Why Neurons Have Thousands of Synapses, a Theory of Sequence Memory in Neocortex.* Frontiers in Neural Circuits. |
 | **P5** | Harris, K.D. & Shepherd, G.M.G. (2015). *The neocortical circuit: themes and variations.* Nature Neuroscience. |
-| **P6** | Haueis, P. (2016). *The life of the cortical column…* History and Philosophy of the Life Sciences. |
+| **P6** | Haueis, P. (2016). *The life of the cortical column: opening the domain of functional architecture of the cortex (1955–1981).* History and Philosophy of the Life Sciences. |
 | **P7** | Hawkins, J. (n.d.). *A Theory of How Columns in the Neocortex Enable Learning the Structure of the World.* Numenta whitepaper. |
 | **P8** | Hawkins, J., Leadholm, N., Clay, V. (2025). *Hierarchy or Heterarchy? A Theory of Long-Range Connections for the Sensorimotor Brain.* |
 | **P9** | Leadholm, N., Clay, V., Knudstrup, S., Lee, H., Hawkins, J. (2025). *Thousand-Brains Systems: Sensorimotor Intelligence for Rapid, Robust Learning and Inference.* |

@@ -5,7 +5,8 @@ A .NET 10 / C# research codebase built around **predictive coding** (Rao & Balla
 standard deep learning where perception and learning are framed as local
 free-energy minimisation. On top of the core PC engine the solution grows into
 brain-inspired architectures, a model of the visual cortex (and 14 other cortical
-areas), a full Transformer/LLM stack, and a CPU/CUDA/Metal device layer.
+areas), a **Thousand Brains sensorimotor system** (implementing the Hawkins/Numenta
+papers), a full Transformer/LLM stack, and a CPU/CUDA/Metal device layer.
 
 ## Documentation map
 
@@ -27,6 +28,7 @@ areas), a full Transformer/LLM stack, and a CPU/CUDA/Metal device layer.
 PredicitiveCoding/            core PC library (net10)
 PredictiveCoding.Expanded/    brain-inspired architectures (net10)
 PredictiveCoding.Cortex/      visual cortex + cortical areas (net10)
+PredictiveCoding.Brain/       Thousand Brains sensorimotor system (net10)
 PredictiveCoding.CortexApp/   WinUI 3 demo app (net10-windows)
 PredictiveCoding.LLM/         Transformer / LLM stack (net10)
 PredictiveCoding.Device/      device management + CUDA backend (net10)
@@ -42,5 +44,6 @@ PredictiveCoding.Main/        demo entry point + CIFAR-10 (net10)
 - [`CODEBASE.md`](../CODEBASE.md) — quick orientation for the core library.
 - [`CLAUDE_PROJECT_RULES.md`](../CLAUDE_PROJECT_RULES.md) — important paths and conventions.
 - [`PredictiveCoding.LLM/LLM_Roadmap.md`](../PredictiveCoding.LLM/LLM_Roadmap.md) — the LLM feature checklist.
+- [`PredictiveCoding.Brain/ROADMAP.md`](../PredictiveCoding.Brain/ROADMAP.md) — the Thousand Brains roadmap: a phase-by-phase plan to implement the Hawkins/Numenta papers (P1–P9) in code.
 - [`PredictiveCoding.Device/README.md`](../PredictiveCoding.Device/README.md) and
   [`PredictiveCoding.Device.Torch/README.md`](../PredictiveCoding.Device.Torch/README.md).
