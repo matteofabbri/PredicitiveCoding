@@ -17,6 +17,7 @@ Console.WriteLine("  3  CIFAR-10 hard classification demo");
 Console.WriteLine("  4  Temporal PC demo (sequence learning)");
 Console.WriteLine("  5  Mixture of Experts demo (bimodal specialisation)");
 Console.WriteLine("  6  Face Recognition demo (LFW benchmark · LBP · PC · ArcFace ONNX)");
+Console.WriteLine("  7  Language ID demo (PC network vs naive-Bayes · PredictiveCoding.Data)");
 Console.Write("\n  Choice [1]: ");
 string? choice = Console.ReadLine()?.Trim();
 
@@ -47,6 +48,12 @@ if (choice == "5")
 if (choice == "6")
 {
     FaceRecognitionDemo.Run();
+    return;
+}
+
+if (choice == "7")
+{
+    LanguageClassificationDemo.Run();
     return;
 }
 

@@ -54,6 +54,13 @@ public enum DataSourceKind
     /// <summary>World Bank open-data indicators.</summary>
     WorldBank,
 
+    // ── Dataset catalogues (R / Python teaching &amp; benchmark data → tables) ──────
+
+    /// <summary>R's bundled / package datasets via the Rdatasets CSV mirror (iris, mtcars, …).</summary>
+    RDatasets,
+    /// <summary>Python's standard datasets via the seaborn-data repository (penguins, tips, titanic, …).</summary>
+    SeabornDatasets,
+
     // ── Documents (local → text) ───────────────────────────────────────────────
 
     /// <summary>Plain-text corpus / directory.</summary>
