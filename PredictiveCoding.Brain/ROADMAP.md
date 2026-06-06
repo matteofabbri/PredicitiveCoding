@@ -98,12 +98,12 @@ what still has to be built.
 | Voting / ensembling baselines | P1 | 🟡 | `Expanded` `EnsembleNetwork`, `MixtureOfExperts`, `RoutedNetwork`. |
 | Faster consensus convergence (settling dynamics) | P9 | ✅ | `Voting/SettlingDynamics.cs` (`Settle`, `SettleFromCurrent`); `MultiColumnSystem.RunToConsensus`. |
 
-## Phase 6 — Long-range connections & heterarchy
+## Phase 6 — Long-range connections & heterarchy · ✅ done
 
 | Task | Papers | Status | Reuse / notes |
 |------|:------:|:------:|---------------|
-| Long-range cortico-cortical connections between distant columns/areas | P8 | ❌ | New. |
-| Heterarchical (non-strictly-hierarchical) message passing | P8 | ❌ | New; the thesis of P8. |
+| Long-range cortico-cortical connections between distant columns/areas | P8 | ✅ | `Connectivity/LongRangeConnection.cs` (ConnectionType, Weight); `Connectivity/HeterarchicalGraph.cs` (AddArea, Connect, OutgoingConnections, IncomingConnections). |
+| Heterarchical (non-strictly-hierarchical) message passing | P8 | ✅ | `Connectivity/HeterarchicalMessagePassing.cs` (PassMessages, GatherIncomingHypotheses, IsAllConverged); iterative belief propagation over arbitrary directed graphs. |
 | Hierarchical composition baseline | P8 | 🟡 | `Expanded/Hierarchical/HierarchicalNetwork`. |
 | Thalamo-cortical routing / gating of long-range signals | P8 | 🟡 | `Cortex/Control/Thalamus`, `AssociationCortex`. |
 

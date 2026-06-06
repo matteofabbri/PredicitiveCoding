@@ -134,6 +134,19 @@ public sealed class MultiColumnSystem
         return _currentConsensus;
     }
 
+    /// <summary>Injects an external hypothesis constraint into every column, narrowing each
+    /// column's active hypothesis set to the intersection with <paramref name="externalCandidates"/>.
+    /// Called by <see cref="HeterarchicalMessagePassing"/> to propagate long-range signals
+    /// from connected cortical areas into this area's columns.</summary>
+    public void PropagateConstraint(IEnumerable<int> externalCandidates)
+    {
+        ArgumentNullException.ThrowIfNull(externalCandidates);
+        var list = externalCandidates.ToList();
+        if (list.Count > 0)
+            foreach (var col in _columns)
+                col.ConstrainHypotheses(list);
+    }
+
     /// <summary>Resets temporal context and hypothesis state in all columns.</summary>
     public void Reset()
     {
