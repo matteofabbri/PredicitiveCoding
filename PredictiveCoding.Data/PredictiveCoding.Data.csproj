@@ -35,9 +35,11 @@
     <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
   </ItemGroup>
 
-  <!-- Offline language-detection model, extracted from Catalyst by tools/CatalystImport. -->
+  <!-- Offline language-detection assets. langdetect.bin: model extracted from Catalyst
+       by tools/CatalystImport. language-samples.tsv: seed corpus for the native n-gram classifier. -->
   <ItemGroup>
     <EmbeddedResource Include="Resources\langdetect.bin" />
+    <EmbeddedResource Include="Resources\language-samples.tsv" />
   </ItemGroup>
 
 </Project>

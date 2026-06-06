@@ -1,0 +1,53 @@
+# Seed training corpus for NGramLanguageClassifier (CreateDefault).
+# Format: <LanguageLabel><TAB><sample text>.  Lines starting with # are ignored.
+# Add more lines (and more languages) to improve accuracy — the model is retrained
+# from this file on CreateDefault(). Text is original (no licensing constraints).
+English	The quick brown fox jumps over the lazy dog while the rain falls outside.
+English	Today we will go to the market to buy fresh fruit, vegetables and some bread.
+English	Knowledge is important, and reading every day helps the mind to grow stronger.
+English	We should always try to understand other people before we judge them.
+English	This is an example of an English text written to train a language classifier.
+English	Automatic language detection works much better with many more examples for each language.
+English	She thought the weather would be nice, so they went for a long walk in the park.
+Italian	Il gatto dorme tranquillo sul divano mentre fuori piove a dirotto.
+Italian	Oggi andremo al mercato per comprare frutta fresca, verdura e un po' di pane.
+Italian	La conoscenza è importante, e leggere ogni giorno aiuta la mente a crescere.
+Italian	Dobbiamo sempre cercare di capire gli altri prima di giudicarli.
+Italian	Questo è un esempio di testo italiano scritto per addestrare un classificatore di lingue.
+Italian	Il riconoscimento automatico della lingua funziona molto meglio con più esempi per ogni lingua.
+Italian	Pensava che il tempo sarebbe stato bello, così sono andati a fare una lunga passeggiata.
+French	Le chat dort tranquillement sur le canapé pendant qu'il pleut dehors.
+French	Aujourd'hui nous irons au marché pour acheter des fruits frais, des légumes et du pain.
+French	La connaissance est importante, et lire chaque jour aide l'esprit à grandir.
+French	Nous devrions toujours essayer de comprendre les autres avant de les juger.
+French	Ceci est un exemple de texte français écrit pour entraîner un classificateur de langues.
+French	La détection automatique de la langue fonctionne bien mieux avec beaucoup plus d'exemples.
+French	Elle pensait qu'il ferait beau, alors ils sont allés faire une longue promenade.
+Spanish	El gato duerme tranquilo en el sofá mientras llueve afuera.
+Spanish	Hoy iremos al mercado para comprar fruta fresca, verduras y un poco de pan.
+Spanish	El conocimiento es importante, y leer cada día ayuda a la mente a crecer.
+Spanish	Siempre debemos intentar comprender a los demás antes de juzgarlos.
+Spanish	Este es un ejemplo de texto en español escrito para entrenar un clasificador de idiomas.
+Spanish	La detección automática del idioma funciona mucho mejor con más ejemplos de cada lengua.
+Spanish	El niño pequeño aprende muy rápido en la escuela del pueblo y pregunta por qué.
+German	Die Katze schläft ruhig auf dem Sofa, während es draußen regnet.
+German	Heute gehen wir zum Markt, um frisches Obst, Gemüse und etwas Brot zu kaufen.
+German	Wissen ist wichtig, und jeden Tag zu lesen hilft dem Geist zu wachsen.
+German	Wir sollten immer versuchen, andere Menschen zu verstehen, bevor wir sie verurteilen.
+German	Dies ist ein Beispiel für einen deutschen Text, um einen Sprachklassifikator zu trainieren.
+German	Die automatische Spracherkennung funktioniert viel besser mit vielen weiteren Beispielen.
+German	Sie dachte, das Wetter wäre schön, also machten sie einen langen Spaziergang im Park.
+Portuguese	O gato dorme tranquilo no sofá enquanto chove lá fora.
+Portuguese	Hoje vamos ao mercado para comprar fruta fresca, legumes e um pouco de pão.
+Portuguese	O conhecimento é importante, e ler todos os dias ajuda a mente a crescer.
+Portuguese	Devemos sempre tentar compreender os outros antes de os julgar.
+Portuguese	Este é um exemplo de texto em português escrito para treinar um classificador de línguas.
+Portuguese	A detecção automática do idioma funciona muito melhor com mais exemplos de cada língua.
+Portuguese	Ela achava que o tempo estaria bom, então foram dar um longo passeio no parque.
+Dutch	De kat slaapt rustig op de bank terwijl het buiten regent.
+Dutch	Vandaag gaan we naar de markt om vers fruit, groenten en wat brood te kopen.
+Dutch	Kennis is belangrijk, en elke dag lezen helpt de geest om te groeien.
+Dutch	We moeten altijd proberen anderen te begrijpen voordat we hen veroordelen.
+Dutch	Dit is een voorbeeld van een Nederlandse tekst om een taalclassificator te trainen.
+Dutch	Automatische taaldetectie werkt veel beter met veel meer voorbeelden per taal.
+Dutch	Ze dacht dat het mooi weer zou worden, dus gingen ze een lange wandeling maken.

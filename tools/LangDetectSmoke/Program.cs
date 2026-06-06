@@ -3,7 +3,8 @@ using PredictiveCoding.Data.Text;
 
 Console.OutputEncoding = Encoding.UTF8;
 
-var detector = LanguageDetector.CreateDefault(seed: 42);
+var catalyst = LanguageDetector.CreateDefault(seed: 42);   // ported Catalyst model
+var ngram = NGramLanguageClassifier.CreateDefault();        // native n-gram naive-Bayes
 
 (string label, string text)[] samples =
 [
@@ -15,10 +16,15 @@ var detector = LanguageDetector.CreateDefault(seed: 42);
     ("PT", "Este é um pequeno texto em português para testar a detecção automática do idioma."),
 ];
 
-Console.WriteLine("=== Detect (offline, native) ===");
+Console.WriteLine($"{"sample",-8}{"Catalyst-port",-22}{"n-gram classifier",-22}");
+Console.WriteLine(new string('-', 52));
 foreach (var (label, text) in samples)
-    Console.WriteLine($"  [{label}] -> {detector.Detect(text)}");
+    Console.WriteLine($"{label,-8}{catalyst.Detect(text),-22}{ngram.Predict(text),-22}");
 
-Console.WriteLine("\n=== DetectAll (IT sample, with probabilities) ===");
-foreach (var c in detector.DetectAll(samples[1].text))
-    Console.WriteLine($"   {c.Language,-14} {c.Probability:P1}");
+Console.WriteLine("\nn-gram PredictAll (ES sample — the one Catalyst gets wrong):");
+foreach (var c in ngram.PredictAll(samples[4].text))
+    if (c.Probability > 0.001) Console.WriteLine($"   {c.Language,-12} {c.Probability:P1}");
+
+Console.WriteLine("\nShort/hard snippets (n-gram classifier):");
+foreach (var t in new[] { "Hola, ¿qué tal estás hoy?", "Merci beaucoup, à bientôt!", "Grazie mille, a presto!", "Muito obrigado e até logo!" })
+    Console.WriteLine($"   {ngram.Predict(t),-12} <- {t}");
