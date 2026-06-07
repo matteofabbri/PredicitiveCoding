@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PredictiveCoding.Tools.DetectorDistiller</RootNamespace>
+    <AssemblyName>DetectorDistiller</AssemblyName>
+    <!-- NU1902: moderate ImageSharp advisory, accepted repo-wide (see ImageSharp pin). -->
+    <NoWarn>$(NoWarn);NU1902</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\PredictiveCoding.Vision\PredictiveCoding.Vision.csproj" />
+    <ProjectReference Include="..\..\PredictiveCoding.FaceRecognition\PredictiveCoding.FaceRecognition.csproj" />
+  </ItemGroup>
+
+</Project>

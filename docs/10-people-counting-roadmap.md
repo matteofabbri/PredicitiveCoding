@@ -86,6 +86,7 @@ returns *all* boxes**, a **multi-object tracker**, the **counting logic**, and a
 | Confidence threshold + min-box-size + ROI filter | 🟡 | Score + NMS thresholds done; ROI filter still to add. |
 | `Detection` result type (box, score, class) | ✅ | `Vision/Detection/Detection.cs`. |
 | **Face detector as a "head count" cross-check** | ✅ | `Vision/Detection/FaceCountDetector.cs` wraps `RetinaFaceDetector.DetectAll`. |
+| **In-house detector (no download, no ONNX)** | ✅ | `Vision/Detection/Hog/{HogDescriptor, LinearModel, HogPersonDetector}` — HOG + linear SVM behind `IPersonDetector`; trained by `HogTrainer`; weights produced offline by `tools/DetectorDistiller`. See the in-house path below. |
 
 ## Phase 2 — Per-frame counting · ✅ done (first milestone)
 
@@ -143,6 +144,27 @@ returns *all* boxes**, a **multi-object tracker**, the **counting logic**, and a
 | WinUI live demo | 🟡 | Reuse `SAMPLES/PredictiveCoding.CortexApp` / `OmniMind` WinUI patterns. |
 | Menu entry in `PredictiveCoding.Main` | 🟡 | Mirror the Face demo (**option 6**) wiring. |
 | Unit tests: NMS, IoU, Kalman, association, line-crossing | 🟡 | All pure functions; reuse the xUnit conventions in `TEST/PredicitiveCoding.UnitTests`. |
+
+---
+
+## In-house, download-free path (no ONNX at inference)
+
+For environments that cannot download model weights — or to stay fully in managed
+predictive-coding code — the repo ships an in-house detector **and** a distiller that
+trains it from the ONNX teachers:
+
+- `Vision/Detection/Hog/` — `HogDescriptor` (HOG features), `LinearModel` (linear SVM
+  with in-house SGD training), `HogPersonDetector` (sliding-window image-pyramid + NMS
+  behind `IPersonDetector`), `HogTrainer`, and `LinearRegressor` (for embedder distillation).
+- `tools/DetectorDistiller` — a console program that uses the ONNX teachers **once,
+  offline** to auto-label frames and train the in-house students: **YOLOX → in-house
+  person detector**, **RetinaFace → in-house face detector**, **ArcFace → distilled
+  in-house face embedder** (regress face-HOG → the 512-D ArcFace vector). After
+  distillation the detectors run with no ONNX runtime and no download — lower accuracy
+  than the teachers, in exchange for transparency and zero external weights at inference.
+
+This is the same "bring your own model" pattern the face demo already uses
+(`PcFaceEmbedder` / `EnhancedLbpEmbedder` vs `ArcFaceOnnxEmbedder`, all behind `IFaceEmbedder`).
 
 ---
 
