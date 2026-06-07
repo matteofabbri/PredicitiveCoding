@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "omnimind",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "SAMPLES/PredictiveCoding.OmniMind.Web", "--launch-profile", "http"],
+      "port": 5240
+    }
+  ]
+}

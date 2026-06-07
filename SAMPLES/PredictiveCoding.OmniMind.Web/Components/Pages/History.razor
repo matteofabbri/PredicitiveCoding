@@ -1,5 +1,5 @@
 @page "/history"
-@inject HistoryStore History
+@inject HistoryStore Store
 
 <PageTitle>OmniMind · History</PageTitle>
 
@@ -50,7 +50,7 @@
 
     protected override void OnInitialized()
     {
-        count = History.Count;
+        count = Store.Count;
         RunSearch();
     }
 
@@ -60,7 +60,7 @@
     }
 
     private void RunSearch() =>
-        runs = (string.IsNullOrWhiteSpace(query) ? History.ListRecent() : History.Search(query)).ToList();
+        runs = (string.IsNullOrWhiteSpace(query) ? Store.ListRecent() : Store.Search(query)).ToList();
 
     private void Clear()
     {

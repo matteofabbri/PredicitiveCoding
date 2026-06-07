@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/tools/">
+    <Project Path="tools/DetectorDistiller/DetectorDistiller.csproj" />
+  </Folder>
   <Project Path="PredicitiveCoding/PredictiveCoding.csproj" />
   <Project Path="PredictiveCoding.Expanded/PredictiveCoding.Expanded.csproj" />
   <Project Path="PredictiveCoding.Cortex/PredictiveCoding.Cortex.csproj" />
@@ -12,7 +15,7 @@
     <Project Path="PredictiveCoding.Main/PredictiveCoding.Main.csproj" Id="e8a35ce4-78ad-497a-a9a5-6099d702940c" />
     <Project Path="PredictiveCoding.Translate.Cli/PredictiveCoding.Translate.Cli.csproj" />
     <Project Path="SAMPLES/PredictiveCoding.CortexApp/PredictiveCoding.CortexApp.csproj" />
-    <Project Path="SAMPLES/PredictiveCoding.OmniMind/PredictiveCoding.OmniMind.csproj" />
+    <Project Path="SAMPLES/PredictiveCoding.OmniMind.Web/PredictiveCoding.OmniMind.Web.csproj" />
   </Folder>
   <Folder Name="/TEST/">
     <Project Path="TEST/PredicitiveCoding.UnitTests/PredicitiveCoding.UnitTests.csproj" />

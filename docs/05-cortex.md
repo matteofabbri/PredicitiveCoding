@@ -1,6 +1,6 @@
 # 5. Cortex — `PredictiveCoding.Cortex` (+ `CortexApp`)
 
-A predictive-coding model of the **visual cortex** and 18 other brain regions,
+A predictive-coding model of the **visual cortex** and 35 other brain regions,
 built by composing core and Expanded networks plus a few new primitives.
 
 ## The visual cortex
@@ -40,6 +40,10 @@ persistent state.
 | **SomatosensoryCortex** | Somatotopic S1: same microcircuit on an `[R,H,W]` skin map. |
 | **DorsalStream** | "Where/how" path: per-frame `VisualCortex` + `DeepRecurrentNetwork` for motion. |
 | **RetinaLgn** *(new)* | Center-surround (Difference-of-Gaussians) whitening front-end. |
+| **OlfactoryBulb** *(new)* | Decorrelating gain-control front-end to `PiriformCortex` (1-D whitening; mirrors `RetinaLgn`). |
+| **GustatoryCortex** *(new)* | Taste content-addressable memory (`HopfieldNetwork`, the gustatory `PiriformCortex`). |
+| **VestibularSystem** *(new)* | Self-motion integration → head-direction code (`DeepRecurrentNetwork`); partner of the grid cells. |
+| **FrontalEyeFields** *(new)* | Saccade selection: saliency (patch contrast) + inhibition-of-return over `RetinotopicMap`. |
 
 ### Memory / medial temporal lobe (`Memory/`)
 | Area | What it is |
@@ -47,6 +51,8 @@ persistent state.
 | **HippocampalFormation** | Fast `HopfieldNetwork` episodic store + offline **replay** consolidating into a neocortex (McClelland 1995). |
 | **EntorhinalCortex** + **GridCellEncoder** *(new)* | Hexagonal grid-cell code for a 2-D position + a predictive spatial association. |
 | **PiriformCortex** | Olfactory content-addressable memory (Hopfield). |
+| **PerirhinalCortex** *(new)* | Item familiarity / novelty: `Network` encoder + `MemoryBank` (recognition memory). |
+| **ParahippocampalCortex** *(new)* | Scene/context gist ("place area"): `VisualCortex` gist + a context readout. |
 
 ### Executive / frontal (`Executive/`)
 | Area | What it is |
@@ -54,6 +60,7 @@ persistent state.
 | **PrefrontalCortex** | `GatedStateNetwork` working memory + `HierarchicalMixtureOfExperts` task selection. |
 | **MotorCortex** | Active-inference control loop over `ActiveNetwork` (`ReachGoal`). |
 | **CerebellarCortex** | Fast supervised forward model `[state ⊕ command] → next state`. |
+| **PremotorCortex / SMA** *(new)* | Action sequencing: `TemporalMixtureOfExperts` predicts the next action; feeds `MotorCortex`. |
 
 ### Integration / control (`Control/`)
 | Area | What it is |
@@ -62,6 +69,8 @@ persistent state.
 | **Thalamus** *(new)* | Precision/gain controller: allocates gain across areas by inverse free energy. |
 | **BasalGanglia** *(new)* | Action selection by energy gating (go/no-go). |
 | **DefaultModeNetwork** | Offline generative imagination via `GenerativeNetwork.Sample`. |
+| **PosteriorParietalCortex** *(new)* | Coordinate transforms / intentional maps via `MultiModalNetwork` (dorsal→motor bridge). |
+| **Claustrum** *(new)* | Global binding: consensus broadcast (mean latent) + workspace coherence. |
 
 ### Neuromodulation (`Neuromodulation/`)
 | Area | What it is |
@@ -75,25 +84,31 @@ These four are pure controllers (no persistence), in the style of `Thalamus` /
 `BasalGanglia`. They emit signals (RPE, gain, learning-rate factors); applying them is
 the caller's job, since `Network` exposes no public runtime learning-rate setter.
 
-## Roadmap — planned cortical areas
+### Limbic / affective (`Limbic/`)
+| Area | What it is |
+|------|-----------|
+| **Amygdala** *(new)* | Affective salience/valence: a PCN maps a stimulus to an affect vector and emits a `SalienceGain` to steer `Thalamus`. |
+| **OrbitofrontalCortex** *(new)* | Expected-value model (stimulus → scalar value) feeding `BasalGanglia`. |
+| **CingulateCortex (ACC)** *(new)* | Conflict (gate-entropy) and surprise monitor over area free-energies → calls for top-down control. |
+| **InsularCortex** *(new)* | Interoception: a `DeepRecurrentNetwork` integrates the body-state stream into a feeling latent. |
+| **Hypothalamus** *(new)* | Homeostatic set-points → drive (set-point − current) and the goal observation for `MotorCortex`. |
 
-The next areas to build are tracked in
-[`PredictiveCoding.Cortex/ROADMAP.md`](../PredictiveCoding.Cortex/ROADMAP.md).
-They close whole missing systems (**neuromodulation is done** — see above; limbic
-and language next) plus targeted single-area gaps, and — like every area above —
-each is just an assembly of already-tested primitives (no new learning algorithm).
+### Language (`Language/`)
+| Area | What it is |
+|------|-----------|
+| **WernickeArea** *(new)* | Comprehension: a `DeepRecurrentNetwork` maps a token sequence to a semantic latent. |
+| **BrocaArea** *(new)* | Production: a `GenerativeNetwork` decodes a semantic latent into an utterance (pairs with `MotorCortex`). |
+| **AngularGyrus** *(new)* | Relational semantic hub: a `GraphPredictiveNetwork` completes a concept from its related concepts. |
 
-| Group (new folder) | Areas | Why |
-|--------------------|-------|-----|
-| ~~**Neuromodulation** (`Neuromodulation/`)~~ | DopaminergicSystem, LocusCoeruleus, NucleusBasalis, RapheNuclei | ✅ **Done (2026-06-07)** — now documented under *The cortical areas → Neuromodulation* above; 15 tests. |
-| **Limbic** (`Limbic/`) | Amygdala (salience/valence), OrbitofrontalCortex (value), CingulateCortex/ACC (conflict & surprise), InsularCortex (interoception), Hypothalamus (homeostatic drives) | Adds the emotion / valuation axis; plugs into `Thalamus`, `BasalGanglia`, `PrefrontalCortex`. |
-| **Language** (`Language/`) | WernickeArea (comprehension), BrocaArea (production), AngularGyrus (semantic hub) | Bridges the cortex to `PredictiveCoding.LLM` via `TemporalNetwork` / `GenerativeNetwork`. |
-| **Extra Sensory** (`Sensory/`) | OlfactoryBulb, GustatoryCortex, VestibularSystem (+head-direction), FrontalEyeFields/SuperiorColliculus (saccades) | Fills sensory gaps; saccades drive `RetinotopicMap` patch selection. |
-| **Extra Memory** (`Memory/`) | PerirhinalCortex (familiarity/novelty), ParahippocampalCortex (scene/context) | Recognition memory + scene gist; complements grid cells. |
-| **Extra Motor / Integration** (`Executive/`, `Control/`) | PremotorCortex/SMA (action sequencing), PosteriorParietalCortex (coordinate transforms), Claustrum (global binding) | Sensorimotor transforms + global workspace. |
+## Roadmap
 
-See the roadmap for the per-area primitive mapping, target paths, references and the
-recommended build order.
+**All planned areas are implemented.** The full record — per-area primitive mapping,
+references and build order — is in
+[`PredictiveCoding.Cortex/ROADMAP.md`](../PredictiveCoding.Cortex/ROADMAP.md). The
+roadmap delivered three whole systems (neuromodulation, limbic/affective, language)
+plus extra sensory, memory and motor/integration areas — **21 new areas, 33 new
+tests** — every one an assembly of already-tested primitives (no new learning
+algorithm).
 
 ## `CortexApp` — WinUI 3 demo
 
