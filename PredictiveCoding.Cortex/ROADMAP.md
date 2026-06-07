@@ -4,8 +4,9 @@
 > regions it was still missing.** The project began with 15 areas (the ventral stream
 > + 14 regions across Sensory / Memory / Executive / Control). This roadmap added
 > **three whole missing systems** — **neuromodulation**, the **limbic / affective**
-> system, and **language** — plus a set of targeted single-area gaps. **All groups are
-> now implemented** (36 areas total).
+> system, and **language** — plus a set of targeted single-area gaps, and then a
+> further **Group G** of subcortical / reward / association regions. **All groups are
+> now implemented** (**47 areas total**).
 
 Same design contract as every existing area: each region is an `IDisposable` (or a
 pure controller) that **composes already-tested primitives** from `PredictiveCoding`
@@ -106,24 +107,47 @@ Implemented 2026-06-07 (3 areas, 3 tests in `CortexIntegrationTests`).
 | **PremotorCortex / SMA** | Action sequencing / chunking → feeds `MotorCortex` | `TemporalMixtureOfExperts` | ✅ |
 | **Claustrum** | Global binding / workspace synchronisation (consensus + coherence) | pure controller | ✅ |
 
+## Group G — Subcortical, reward & association · ✅ done
+
+Anatomical regions beyond the original 36 — three subcortical sensory/attention hubs,
+the reward/aversion/defence loop, and a set of higher-order association areas. Same
+contract: every one composes existing primitives. Implemented 2026-06-07 (11 areas,
+12 tests across `CortexSubcorticalTests` (3), `CortexRewardTests` (3),
+`CortexAssociationTests` (6)).
+
+| Area | Function | Reuse / primitive | Status |
+|------|----------|-------------------|:------:|
+| **InferiorColliculus** | Auditory midbrain: tonotopic lateral-inhibition / whitening → `AuditoryCortex` | pure transform (mirrors `RetinaLgn` / `OlfactoryBulb`) | ✅ |
+| **SuperiorColliculus** | Multisensory orienting priority map (visual + auditory) + inhibition of return | controller (mirrors `FrontalEyeFields`) | ✅ |
+| **Pulvinar** | Higher-order thalamic attention hub: top-down precision routing by salience | soft-max controller (like `Thalamus`) | ✅ |
+| **NucleusAccumbens** | Ventral striatum: reward → action gating / incentive salience = value·(1+DA) | controller + `DopaminergicSystem` | ✅ |
+| **Habenula** | Negative reward-prediction-error → suppresses dopamine | controller paired with `DopaminergicSystem` | ✅ |
+| **PeriaqueductalGray** | Defensive response by threat imminence (Freeze / Flight / Fight) from `Amygdala` | pure controller | ✅ |
+| **TemporoparietalJunction** | Ventral-attention "circuit breaker": reorient on a salient surprise | pure controller | ✅ |
+| **SuperiorTemporalSulcus** | Multimodal social perception (biological motion + voice → agent) | `MultiModalNetwork` | ✅ |
+| **FusiformFaceArea** | Face-selective ventral stream: visual latent → face-identity embedding | `Network` (PCN) | ✅ |
+| **VisualWordFormArea** | Orthography ("letterbox"): word image → pre-lexical code → `WernickeArea` | `Network` (PCN) | ✅ |
+| **FrontopolarCortex (BA10)** | Cognitive branching / metacognition: hold an alternative goal & switch | pure controller | ✅ |
+
 ---
 
 ## Namespace layout (delivered)
 
 ```
 PredictiveCoding.Cortex
-├── Neuromodulation/  (Group A)  DopaminergicSystem, LocusCoeruleus, NucleusBasalis, RapheNuclei
-├── Limbic/           (Group B)  Amygdala, OrbitofrontalCortex, CingulateCortex, InsularCortex, Hypothalamus
-├── Language/         (Group C)  WernickeArea, BrocaArea, AngularGyrus
-├── Sensory/          (Group D)  OlfactoryBulb, GustatoryCortex, VestibularSystem, FrontalEyeFields (+ existing)
+├── Neuromodulation/  (A, G)  DopaminergicSystem, LocusCoeruleus, NucleusBasalis, RapheNuclei, Habenula
+├── Limbic/           (B, G)  Amygdala, OrbitofrontalCortex, CingulateCortex, InsularCortex, Hypothalamus, NucleusAccumbens, PeriaqueductalGray
+├── Language/         (C, G)  WernickeArea, BrocaArea, AngularGyrus, VisualWordFormArea
+├── Sensory/          (D, G)  OlfactoryBulb, GustatoryCortex, VestibularSystem, FrontalEyeFields, InferiorColliculus, SuperiorColliculus, SuperiorTemporalSulcus, FusiformFaceArea (+ existing)
 ├── Memory/           (Group E)  PerirhinalCortex, ParahippocampalCortex (+ existing)
-├── Executive/        (Group F)  PremotorCortex (+ existing)
-└── Control/          (Group F)  PosteriorParietalCortex, Claustrum (+ existing)
+├── Executive/        (F, G)  PremotorCortex, FrontopolarCortex (+ existing)
+└── Control/          (F, G)  PosteriorParietalCortex, Claustrum, Pulvinar, TemporoparietalJunction (+ existing)
 ```
 
 Tests: `CortexNeuromodulationTests` (15), `CortexLimbicTests` (6), `CortexLanguageTests` (3),
-`CortexSensoryExtraTests` (4), `CortexMemoryExtraTests` (2), `CortexIntegrationTests` (3)
-— **33 new tests**, all green, alongside the pre-existing cortex tests.
+`CortexSensoryExtraTests` (4), `CortexMemoryExtraTests` (2), `CortexIntegrationTests` (3),
+and Group G's `CortexSubcorticalTests` (3), `CortexRewardTests` (3), `CortexAssociationTests` (6)
+— **45 new tests**, all green (64 cortex tests total).
 
 ## Build order (all complete)
 
