@@ -2,7 +2,7 @@ namespace PredictiveCoding.FaceRecognition;
 
 public static class FaceImages
 {
-    private static readonly string[] Extensions = [".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".ppm"];
+    private static readonly string[] Extensions = [".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".ppm", ".pgm"];
 
     public static bool IsImage(string file) => Extensions.Contains(Path.GetExtension(file).ToLowerInvariant());
 

@@ -15,6 +15,10 @@ public static class FaceDatasetDownloader
     private const string LfwUrl             = "http://vis-www.cs.umass.edu/lfw/lfw.tgz";
     private const string LfwPairsUrl        = "http://vis-www.cs.umass.edu/lfw/pairs.txt";
 
+    // ── Other directly-downloadable, folder-per-identity datasets ─────────────────
+    private const string GeorgiaTechUrl = "http://www.anefian.com/research/gt_db.zip";
+    private const string AttFacesUrl    = "https://cam-orl.co.uk/data/att_faces.zip";
+
     // ── Well-known HuggingFace datasets ──────────────────────────────────────────
     public static readonly DatasetInfo[] LargeScaleDatasets =
     [
@@ -22,6 +26,14 @@ public static class FaceDatasetDownloader
         new("CASIA/CASIA-WebFace",            "CASIA-WebFace",   "~4 GB, 490K images, 10575 subjects — GATED"),
         new("nateraw/celebahq-256",           "CelebA-HQ 256",   "~7 GB, 30K high-res images — PUBLIC (no token needed)"),
         new("deepinsight/ms1m-retinaface-t1", "MS1M-RetinaFace", "~87 GB, 5.1 M images, 93K subjects — GATED"),
+    ];
+
+    // ── Small, directly-downloadable benchmark datasets (no token, folder-per-identity) ──
+    public static readonly DatasetInfo[] DirectDatasets =
+    [
+        new("lfw",        "LFW (Labeled Faces in the Wild)", "~233 MB, 13K images, 5749 people — folder per identity + verification pairs.txt. DownloadLfwAsync."),
+        new("gt_db",      "Georgia Tech Face Database",      "~150 MB, 750 images, 50 people (15 each), colour JPEG — folder per identity. DownloadGeorgiaTechAsync."),
+        new("att_faces",  "AT&T / ORL Database of Faces",    "~4 MB, 400 images, 40 people (10 each), 92×112 grayscale PGM — folder per identity. DownloadAttFacesAsync."),
     ];
 
     // ── LFW ──────────────────────────────────────────────────────────────────────
@@ -81,6 +93,65 @@ public static class FaceDatasetDownloader
         }
 
         return imagesRoot;
+    }
+
+    // ── Georgia Tech & AT&T / ORL (ZIP, folder-per-identity) ─────────────────────
+
+    /// <summary>Downloads and extracts the <b>Georgia Tech</b> face database (~150 MB,
+    /// 50 people × 15 colour JPEGs). Returns the images root (one sub-folder per person).</summary>
+    public static Task<string> DownloadGeorgiaTechAsync(
+        string dataDir, string? url = null, Action<string>? onProgress = null, CancellationToken cancellation = default)
+        => DownloadZipDatasetAsync(dataDir, url ?? GeorgiaTechUrl, "gt_db", "gt_db.zip",
+            minBytes: 1_000_000, onProgress, cancellation);
+
+    /// <summary>Downloads and extracts the <b>AT&amp;T / ORL</b> Database of Faces (~4 MB,
+    /// 40 people × 10 grayscale PGMs). Returns the images root (one sub-folder per person).</summary>
+    public static Task<string> DownloadAttFacesAsync(
+        string dataDir, string? url = null, Action<string>? onProgress = null, CancellationToken cancellation = default)
+        => DownloadZipDatasetAsync(dataDir, url ?? AttFacesUrl, "att_faces", "att_faces.zip",
+            minBytes: 100_000, onProgress, cancellation);
+
+    /// <summary>Downloads a ZIP dataset to <paramref name="dataDir"/>/<paramref name="archiveName"/>,
+    /// extracts it under <paramref name="dataDir"/>/<paramref name="datasetDir"/>, and returns the
+    /// folder-per-identity images root (descending through a single wrapper folder if the archive
+    /// has one).</summary>
+    public static async Task<string> DownloadZipDatasetAsync(
+        string dataDir, string url, string datasetDir, string archiveName,
+        long minBytes = 100_000, Action<string>? onProgress = null, CancellationToken cancellation = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+        Directory.CreateDirectory(dataDir);
+        string archivePath = Path.Combine(dataDir, archiveName);
+        string extractDir  = Path.Combine(dataDir, datasetDir);
+
+        bool alreadyExtracted = Directory.Exists(extractDir) &&
+                                Directory.EnumerateDirectories(extractDir).Any();
+        if (!alreadyExtracted)
+        {
+            if (!(File.Exists(archivePath) && new FileInfo(archivePath).Length > minBytes))
+            {
+                onProgress?.Invoke($"Downloading {archiveName} …");
+                await DownloadAsync(url, archivePath,
+                    (got, total) =>
+                    {
+                        if (total > 0)
+                            onProgress?.Invoke(
+                                $"  {got / 1_048_576:F0} / {total / 1_048_576:F0} MB  ({100.0 * got / total:F0}%)");
+                    },
+                    cancellation);
+            }
+
+            onProgress?.Invoke($"Extracting {archiveName} …");
+            Directory.CreateDirectory(extractDir);
+            await ExtractZipAsync(archivePath, extractDir, cancellation);
+            onProgress?.Invoke("Extraction complete.");
+        }
+        else
+        {
+            onProgress?.Invoke($"Dataset already present at {extractDir}");
+        }
+
+        return ResolveImagesRoot(extractDir);
     }
 
     // ── HuggingFace Hub ───────────────────────────────────────────────────────────
@@ -166,6 +237,21 @@ public static class FaceDatasetDownloader
         await using FileStream fs = File.OpenRead(tgzPath);
         await using GZipStream gz = new(fs, CompressionMode.Decompress);
         await TarFile.ExtractToDirectoryAsync(gz, destDir, overwriteFiles: true, cancellation);
+    }
+
+    private static async Task ExtractZipAsync(string zipPath, string destDir, CancellationToken cancellation)
+        => await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, destDir, overwriteFiles: true), cancellation);
+
+    /// <summary>Returns the folder-per-identity root, descending through a single wrapper
+    /// directory if the archive extracted to one (e.g. <c>gt_db/sNN/…</c>).</summary>
+    public static string ResolveImagesRoot(string extractDir)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(extractDir);
+        if (!Directory.Exists(extractDir)) return extractDir;
+        string[] subdirs = Directory.GetDirectories(extractDir);
+        return subdirs.Length == 1 && Directory.GetDirectories(subdirs[0]).Length > 0
+            ? subdirs[0]
+            : extractDir;
     }
 
     private static bool IsValidArchive(string path) =>
