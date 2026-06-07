@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PredictiveCoding.OmniMind.Web</RootNamespace>
+    <AssemblyName>PredictiveCoding.OmniMind.Web</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core framework + the live providers + the trainable transformer. -->
+    <ProjectReference Include="..\..\PredicitiveCoding\PredictiveCoding.csproj" />
+    <ProjectReference Include="..\..\PredictiveCoding.Data\PredictiveCoding.Data.csproj" />
+    <ProjectReference Include="..\..\PredictiveCoding.LLM\PredictiveCoding.LLM.csproj" />
+    <!-- Run-history persistence: the Sperone embedded document store (sibling repo). -->
+    <ProjectReference Include="..\..\..\SPERONE\Sperone\Sperone.Core\Sperone.Core.csproj" />
+  </ItemGroup>
+
+</Project>

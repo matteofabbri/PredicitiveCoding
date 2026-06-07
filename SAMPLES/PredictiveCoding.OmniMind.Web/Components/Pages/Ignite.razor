@@ -1,0 +1,215 @@
+@page "/"
+@inject MindService Mind
+@inject ILogger<Ignite> Log
+@implements IDisposable
+
+<PageTitle>OmniMind</PageTitle>
+
+<div class="ignite-head">
+    <h1>OmniMind</h1>
+    <p class="muted">One mind. Every external source. Read live, learned from scratch in seconds.</p>
+
+    <div class="ignite-controls">
+        <input class="topic-box" @bind="topic" @bind:event="oninput" @onkeydown="OnKey"
+               placeholder="Enter a topic…" disabled="@running" />
+        @if (!running)
+        {
+            <button class="btn primary" @onclick="Start" disabled="@string.IsNullOrWhiteSpace(topic)">Ignite</button>
+        }
+        else
+        {
+            <button class="btn danger" @onclick="Stop">Stop</button>
+            <span class="spinner" aria-hidden="true"></span>
+        }
+        <span class="status">@status</span>
+    </div>
+
+    <p class="muted small">Live calls to ~24 providers. Optional keys via env: GITHUB_TOKEN · ELSEVIER_API_KEY · UNPAYWALL_EMAIL</p>
+</div>
+
+<div class="ignite-grid">
+    <section class="panel sources-panel">
+        <div class="panel-title">
+            Sources
+            @if (sources.Count > 0)
+            {
+                <span class="muted">— @doneCount/@sources.Count probed · @liveCount live</span>
+            }
+        </div>
+        <div class="tiles">
+            @if (sources.Count == 0)
+            {
+                <p class="muted" style="padding:8px">Enter a topic and hit Ignite — every provider lights up here as it answers.</p>
+            }
+            @foreach (var s in sources)
+            {
+                <SourceTile Source="s" />
+            }
+        </div>
+    </section>
+
+    <aside class="mind-col">
+        <section class="panel">
+            <div class="panel-title">Fused corpus</div>
+            <div class="panel-body">@corpusText</div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-title">Learning the topic (live, from scratch)</div>
+            <LossChart Points="lossPoints" />
+            <div class="panel-body small">@lossText</div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-title">In its own (freshly trained) words</div>
+            <pre class="generated">@generated</pre>
+        </section>
+
+        <section class="panel">
+            <div class="panel-title">Cross-source concepts</div>
+            <div class="concepts">
+                @foreach (var t in concepts)
+                {
+                    <span class="chip">@t</span>
+                }
+            </div>
+        </section>
+    </aside>
+</div>
+
+@code {
+    private string topic = "black holes";
+    private bool running;
+    private bool _disposed;
+    private string status = "Ready.";
+
+    private readonly List<LiveSource> sources = [];
+    private int doneCount;
+    private int liveCount;
+
+    private string corpusText = "—";
+    private readonly List<float> lossPoints = [];
+    private string lossText = "awaiting corpus…";
+    private string generated = "";
+    private List<string> concepts = [];
+
+    private CancellationTokenSource? cts;
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !running && !string.IsNullOrWhiteSpace(topic))
+            await Start();
+    }
+
+    private async Task Start()
+    {
+        if (running) return;
+
+        cts?.Cancel();
+        cts?.Dispose();
+        cts = new CancellationTokenSource();
+
+        running = true;
+        status = "Fanning out across every source…";
+        sources.Clear();
+        doneCount = 0;
+        liveCount = 0;
+        corpusText = "—";
+        lossPoints.Clear();
+        lossText = "fanning out…";
+        generated = "";
+        concepts = [];
+
+        var progress = new Progress<IgniteUpdate>(Apply);
+        try
+        {
+            await Mind.RunAsync(topic, progress, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            status = "Cancelled.";
+        }
+        catch (Exception ex)
+        {
+            status = "Error: " + ex.Message;
+            Log.LogError(ex, "OmniMind run failed");
+        }
+        finally
+        {
+            running = false;
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
+    private void Stop() => cts?.Cancel();
+
+    private void Apply(IgniteUpdate u)
+    {
+        if (_disposed) return;
+
+        switch (u.Stage)
+        {
+            case IgniteStage.Started:
+                sources.Clear();
+                foreach (var s in u.Sources!)
+                    sources.Add(new LiveSource { Name = s.Name, Category = s.Category });
+                status = "Fanning out…";
+                break;
+
+            case IgniteStage.SourceRunning:
+                if (u.SourceIndex < sources.Count)
+                    sources[u.SourceIndex].Status = LiveSourceStatus.Running;
+                break;
+
+            case IgniteStage.SourceDone:
+                if (u.SourceIndex < sources.Count)
+                {
+                    var s = sources[u.SourceIndex];
+                    s.Status = LiveSourceStatus.Done;
+                    s.Outcome = u.Outcome;
+                }
+                doneCount = u.DoneSources;
+                liveCount = u.LiveSources;
+                status = $"Fanning out… {doneCount}/{sources.Count}";
+                break;
+
+            case IgniteStage.Fused:
+                corpusText = $"{u.CorpusDocs:N0} documents · {u.CorpusChars:N0} characters fused from {u.LiveSources} live sources.";
+                concepts = u.TopTerms?.ToList() ?? [];
+                status = "Learning…";
+                break;
+
+            case IgniteStage.Train:
+                var p = u.Progress!;
+                lossPoints.Add(p.Loss);
+                lossText = $"step {p.Step}/{p.TotalSteps} · loss {p.Loss:F3} · perplexity {p.Perplexity:F1} · " +
+                           $"{p.StepsPerSec:F1} steps/s · vocab {p.Vocab} · {p.Params:N0} params";
+                break;
+
+            case IgniteStage.Log:
+                if (!string.IsNullOrWhiteSpace(u.Text)) status = u.Text!;
+                break;
+
+            case IgniteStage.Token:
+                generated = u.Text ?? "";
+                break;
+
+            case IgniteStage.Completed:
+                status = "Done — read every source and learned the topic from scratch. Saved to history.";
+                break;
+
+            case IgniteStage.Failed:
+                status = u.Text ?? "Failed.";
+                break;
+        }
+
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        cts?.Cancel();
+        cts?.Dispose();
+    }
+}

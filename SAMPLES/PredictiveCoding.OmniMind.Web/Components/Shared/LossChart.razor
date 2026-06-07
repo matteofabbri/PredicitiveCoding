@@ -1,0 +1,38 @@
+<div class="loss-chart">
+    <svg viewBox="0 0 @W @H" preserveAspectRatio="none" class="loss-svg" role="img" aria-label="training loss">
+        @if (Points.Count > 1)
+        {
+            <polyline points="@PointsAttr" />
+        }
+    </svg>
+</div>
+
+@code {
+    [Parameter] public List<float> Points { get; set; } = [];
+
+    private const int W = 600;
+    private const int H = 140;
+
+    private string PointsAttr
+    {
+        get
+        {
+            int n = Points.Count;
+            if (n < 2) return "";
+
+            float max = 0.1f;
+            foreach (float v in Points) if (v > max) max = v;
+
+            var sb = new System.Text.StringBuilder(n * 12);
+            for (int i = 0; i < n; i++)
+            {
+                double x = (double)i / (n - 1) * W;
+                double norm = Math.Clamp(Points[i] / max, 0d, 1d);
+                double y = H - 4 - norm * (H - 8);
+                sb.Append(x.ToString("0.#", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(y.ToString("0.#", CultureInfo.InvariantCulture)).Append(' ');
+            }
+            return sb.ToString();
+        }
+    }
+}

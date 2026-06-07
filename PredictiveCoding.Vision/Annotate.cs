@@ -11,7 +11,9 @@ namespace PredictiveCoding.Vision;
 /// </summary>
 public static class Annotate
 {
-    private static readonly Rgb24 DetColor = new(0, 255, 0); // green
+    private static readonly Rgb24 DetColor = new(0, 255, 0);    // green
+    private static readonly Rgb24 LineColor = new(255, 220, 32); // amber tripwire
+    private static readonly Rgb24 ZoneColor = new(32, 230, 230); // cyan zone
 
     // Per-track palette: same colour ⇒ same tracked person across frames.
     private static readonly Rgb24[] Palette =
@@ -34,6 +36,54 @@ public static class Annotate
         {
             Rgb24 c = Palette[(t.Id % Palette.Length + Palette.Length) % Palette.Length];
             DrawRect(image, (int)t.X1, (int)t.Y1, (int)t.X2, (int)t.Y2, thickness, c);
+        }
+    }
+
+    /// <summary>Draws a virtual tripwire line A→B (in place).</summary>
+    public static void DrawLine(Image<Rgb24> image, float ax, float ay, float bx, float by,
+        Rgb24? color = null, int thickness = 2)
+    {
+        Rgb24 c = color ?? LineColor;
+        float dx = bx - ax, dy = by - ay;
+        float len = MathF.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-3f) return;
+
+        float px = -dy / len, py = dx / len;   // unit perpendicular, for thickness
+        int half = Math.Max(0, thickness / 2);
+        for (int o = -half; o <= half; o++)
+            DrawSegment(image,
+                (int)MathF.Round(ax + px * o), (int)MathF.Round(ay + py * o),
+                (int)MathF.Round(bx + px * o), (int)MathF.Round(by + py * o), c);
+    }
+
+    /// <summary>Draws the outline of a polygonal zone (auto-closed, in place).</summary>
+    public static void DrawZone(Image<Rgb24> image, IReadOnlyList<(float X, float Y)> polygon,
+        Rgb24? color = null, int thickness = 2)
+    {
+        ArgumentNullException.ThrowIfNull(polygon);
+        if (polygon.Count < 2) return;
+        Rgb24 c = color ?? ZoneColor;
+        for (int i = 0; i < polygon.Count; i++)
+        {
+            var a = polygon[i];
+            var b = polygon[(i + 1) % polygon.Count];
+            DrawLine(image, a.X, a.Y, b.X, b.Y, c, thickness);
+        }
+    }
+
+    // Bresenham line.
+    private static void DrawSegment(Image<Rgb24> img, int x0, int y0, int x1, int y1, Rgb24 c)
+    {
+        int dx = Math.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+        int dy = -Math.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy;
+        while (true)
+        {
+            if ((uint)x0 < (uint)img.Width && (uint)y0 < (uint)img.Height) img[x0, y0] = c;
+            if (x0 == x1 && y0 == y1) break;
+            int e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x0 += sx; }
+            if (e2 <= dx) { err += dx; y0 += sy; }
         }
     }
 

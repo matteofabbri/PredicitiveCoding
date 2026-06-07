@@ -23,18 +23,23 @@ returns *all* boxes**, a **multi-object tracker**, the **counting logic**, and a
 
 *Status reflects the repository as of 2026-06-06.*
 
-> **✅ Phases 0–4 (partial) are implemented** in the new **`PredictiveCoding.Vision`**
+> **✅ Phases 0–5 are implemented** in the new **`PredictiveCoding.Vision`**
 > project, wired as **demo option 8** in `PredictiveCoding.Main`
 > (`Demos/PeopleCountingDemo.cs`). A live feed / video / image is decoded by
 > `Capture/FrameStream`; each frame is run through a `YoloPersonDetector`
 > (OpenCV-Zoo YOLOX, COCO, Apache-2.0, auto-downloaded) or the bundled
 > `FaceCountDetector` fallback; a SORT-style `Tracking/SortTracker` turns the boxes
 > into stable IDs and reports both **current** ("people now") and cumulative
-> **unique** ("distinct people seen") counts. Verified on still images
-> (`bus.jpg` → 4, `zidane.jpg` → 2), on the `vtest.avi` pedestrian clip
-> (≈7 concurrent / 21 unique over 100 frames), and by 8 tracker unit tests.
-> **Next up: Phase 4 line-crossing/zones and Phase 5 re-ID** for an
-> occlusion-robust unique count.
+> **unique** ("distinct people seen") counts. `Counting/LineCounter` and
+> `Counting/ZoneCounter` add directional tripwire crossings and per-zone occupancy /
+> dwell (Phase 4); `ReId/ReidPeopleCounter` + `PersonGallery` dedup the same person
+> returning after an occlusion for a robust unique count (Phase 5). Verified on still
+> images (`bus.jpg` → 4, `zidane.jpg` → 2), on the `vtest.avi` pedestrian clip
+> (≈7 concurrent / 21 unique over 100 frames). `Runtime/PeopleCountingPipeline` runs
+> the whole capture → detect → track → count loop with capture decoupled from
+> inference (drop-under-load) and detection every N-th frame (Phase 6). Covered by
+> **25 unit tests** (tracker, line/zone, re-ID, pipeline). **Next up: Phase 7** —
+> overlay/console output and an optional WinUI demo.
 
 ---
 
@@ -53,7 +58,9 @@ returns *all* boxes**, a **multi-object tracker**, the **counting logic**, and a
 | Demo wiring pattern (menu entry in Main) | ✅ | Face demo is **option 6** in `PredictiveCoding.Main/Program.cs`; `Demos/FaceRecognitionDemo.cs`. |
 | **Person / full-body detector returning all boxes** | ✅ | `Vision/Detection/YoloPersonDetector.cs` (YOLOX, COCO). |
 | **Multi-object tracker (Kalman + association)** | ✅ | `Vision/Tracking/SortTracker.cs` + `Track.cs` (alpha-beta + greedy IoU). |
-| **Counting logic (per-frame / line-crossing / unique)** | 🟡 | Per-frame + **current/unique** done (`SortTracker`); line-crossing / zones are Phase 4. |
+| **Counting logic (per-frame / line-crossing / unique)** | ✅ | `SortTracker` (current/unique) + `Counting/LineCounter` (tripwire) + `Counting/ZoneCounter` (zones). |
+| **Re-identification (robust unique count)** | ✅ | `ReId/{ReidPeopleCounter, PersonGallery, ColorHistogramEmbedder}`; face/body ONNX embedders plug into `IAppearanceEmbedder`. |
+| **Streaming runtime (decoupled capture↔inference, detect-every-N, FPS)** | ✅ | `Runtime/PeopleCountingPipeline` + `Runtime/LatestFrameBuffer`. |
 | **Continuous live streaming loop** | ✅ | `Vision/Capture/FrameStream.cs`. |
 
 ---
@@ -98,32 +105,33 @@ returns *all* boxes**, a **multi-object tracker**, the **counting logic**, and a
 | Track lifecycle: tentative → confirmed → lost | ✅ | `minHits` to confirm, `maxAge` to retire; suppresses one-frame false positives. |
 | Reference: **SORT** / **ByteTrack** | — | Built SORT-style; ByteTrack (low-score 2nd pass) is a future upgrade for crowds. |
 
-## Phase 4 — Counting semantics · 🟡 current & unique done
+## Phase 4 — Counting semantics · ✅ done
 
 | Task | Status | Reuse / notes |
 |------|:------:|---------------|
 | **Current occupancy** = number of confirmed tracks | ✅ | `SortTracker.CurrentCount` (confirmed tracks matched this frame). |
 | **Cumulative unique count** = distinct track IDs ever confirmed | ✅ | `SortTracker.UniqueCount`. |
-| **Line-crossing / tripwire** (in / out across a virtual line) | ❌ | Sign of (track centre − line) flips between frames. |
-| Zone dwell / per-region occupancy | ❌ | Builds on Phase 2 ROI + Phase 3 tracks. |
+| **Line-crossing / tripwire** (in / out across a virtual line) | ✅ | `Vision/Counting/LineCounter.cs` — directional In/Out from segment-intersection of the track path with the tripwire; off-segment passes ignored. |
+| Zone dwell / per-region occupancy | ✅ | `Vision/Counting/ZoneCounter.cs` — point-in-polygon on the track's feet; `Occupancy`, distinct `Entered`, per-track `DwellFrames`. |
 
-## Phase 5 — Re-identification (optional, robust unique count) · 🟡
-
-| Task | Status | Reuse / notes |
-|------|:------:|---------------|
-| Merge tracks that are the **same person** returning after occlusion / leaving | ❌ | Needed for an accurate cumulative count. |
-| Face-based identity as a proxy (when faces are visible) | 🟡 | Reuse `ArcFaceOnnxEmbedder` + `FaceDatabase` (cosine gallery) directly. |
-| Body **Re-ID** appearance embedding (e.g. OSNet ONNX) | ❌ | For when faces are not visible; same ONNX pattern as the face embedder. |
-| "Seen people" gallery + dedup | 🟡 | `FaceDatabase` is already a cosine-similarity register/identify store. |
-
-## Phase 6 — Live runtime & performance · ❌
+## Phase 5 — Re-identification (robust unique count) · ✅ done (appearance baseline)
 
 | Task | Status | Reuse / notes |
 |------|:------:|---------------|
-| Streaming pipeline: capture → detect → track → count | ❌ | New orchestrator. |
-| Decouple capture thread from inference thread | ❌ | Bounded `Channel<Frame>`; drop frames under load so latency stays low. |
-| Detect every N-th frame, track in between | ❌ | Detection is the bottleneck; the tracker bridges skipped frames. |
-| FPS / latency / count metrics | 🟡 | Reuse logging conventions (`PredictiveCoding.Logging`). |
+| Merge tracks that are the **same person** returning after occlusion / leaving | ✅ | `Vision/ReId/ReidPeopleCounter.cs` — embeds each newly-confirmed track and re-identifies it against the gallery, so a re-entry reuses its person id instead of inflating the count. |
+| "Seen people" gallery + dedup | ✅ | `Vision/ReId/PersonGallery.cs` — cosine register/identify (mirrors `FaceDatabase`); `UniquePeople` = distinct people. |
+| Appearance embedding (dependency-free baseline) | ✅ | `Vision/ReId/ColorHistogramEmbedder.cs` behind the `IAppearanceEmbedder` interface. |
+| Face-based identity as a proxy (when faces are visible) | 🟡 | Plug `ArcFaceOnnxEmbedder` into `IAppearanceEmbedder` (needs the model + face crops). |
+| Body **Re-ID** appearance embedding (e.g. OSNet ONNX) | 🟡 | Interface ready; OSNet ONNX weights are a drop-in upgrade over the colour baseline. |
+
+## Phase 6 — Live runtime & performance · ✅ done
+
+| Task | Status | Reuse / notes |
+|------|:------:|---------------|
+| Streaming pipeline: capture → detect → track → count | ✅ | `Vision/Runtime/PeopleCountingPipeline.cs` — `Process` (one frame) and `RunBlocking` (over a frame source). |
+| Decouple capture thread from inference thread | ✅ | `Vision/Runtime/LatestFrameBuffer.cs` — single-slot latest-wins hand-off; `RunBlocking` reads on a background thread while the inference loop always takes the freshest frame, dropping (and disposing) the rest so latency stays bounded. |
+| Detect every N-th frame, track in between | ✅ | `detectEveryN`: the detector runs on 1/N frames; the tracker advances every frame, carrying boxes between detections. |
+| FPS / latency / count metrics | ✅ | `PeopleCountingPipeline` exposes `Fps`, `ProcessedFrames`, `DetectionFrames`, `CurrentCount`, `UniqueCount`. |
 | CUDA acceleration | ✅ | Available via `OnnxRuntime.Gpu` + `CudaProvisioner`. |
 
 ## Phase 7 — Output, demo & tests · 🟡 patterns exist
