@@ -60,6 +60,12 @@ public enum DataSourceKind
     RDatasets,
     /// <summary>Python's standard datasets via the seaborn-data repository (penguins, tips, titanic, …).</summary>
     SeabornDatasets,
+    /// <summary>Vega / Vega-Lite / Altair example datasets via the vega-datasets repository (cars, movies, seattle-weather, …).</summary>
+    VegaDatasets,
+    /// <summary>Plotly's example datasets via the plotly/datasets repository (iris, tips, gapminder, …).</summary>
+    PlotlyDatasets,
+    /// <summary>OpenML machine-learning benchmark datasets (by numeric id) via the OpenML REST API.</summary>
+    OpenML,
 
     // ── Documents (local → text) ───────────────────────────────────────────────
 

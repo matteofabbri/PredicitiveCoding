@@ -120,4 +120,104 @@ public sealed class DatasetSourcesTests
         await Assert.ThrowsAsync<ArgumentException>(() => source.GetCsvAsync(""));
         Assert.Throws<ArgumentException>(() => SeabornSource.ParseIndex(""));
     }
+
+    // ── Vega: vega-datasets ──────────────────────────────────────────────────
+
+    [Fact]
+    public void Vega_ParseIndex_KeepsOnlyCsvUnderDataFolder()
+    {
+        const string json = """
+            { "tree": [
+                { "path": "data/cars.csv", "type": "blob" },
+                { "path": "data/movies.csv", "type": "blob" },
+                { "path": "data/airports.json", "type": "blob" },
+                { "path": "README.md", "type": "blob" },
+                { "path": "data", "type": "tree" } ] }
+            """;
+
+        IReadOnlyList<string> names = VegaDatasetsSource.ParseIndex(json);
+
+        Assert.Equal(["cars", "movies"], names); // sorted, data/ stripped, .json & non-data excluded
+    }
+
+    [Fact]
+    public void Vega_WellKnownDatasets_ContainTheClassics()
+    {
+        Assert.Contains("cars", VegaDatasetsSource.WellKnownDatasets);
+        Assert.Contains("seattle-weather", VegaDatasetsSource.WellKnownDatasets);
+    }
+
+    [Fact]
+    public async Task Vega_ConstructionAndValidation()
+    {
+        using var source = new VegaDatasetsSource();
+        await Assert.ThrowsAsync<ArgumentException>(() => source.GetCsvAsync(""));
+        Assert.Throws<ArgumentException>(() => VegaDatasetsSource.ParseIndex(""));
+    }
+
+    // ── Plotly: plotly/datasets ──────────────────────────────────────────────
+
+    [Fact]
+    public void Plotly_ParseIndex_KeepsRootCsvBlobs()
+    {
+        const string json = """
+            { "tree": [
+                { "path": "iris.csv", "type": "blob" },
+                { "path": "tips.csv", "type": "blob" },
+                { "path": "README.md", "type": "blob" },
+                { "path": "api", "type": "tree" } ] }
+            """;
+
+        IReadOnlyList<string> names = PlotlyDatasetsSource.ParseIndex(json);
+
+        Assert.Equal(["iris", "tips"], names);
+    }
+
+    [Fact]
+    public void Plotly_WellKnownDatasets_ContainTheClassics()
+    {
+        Assert.Contains("iris", PlotlyDatasetsSource.WellKnownDatasets);
+        Assert.Contains("tips", PlotlyDatasetsSource.WellKnownDatasets);
+    }
+
+    [Fact]
+    public async Task Plotly_ConstructionAndValidation()
+    {
+        using var source = new PlotlyDatasetsSource();
+        await Assert.ThrowsAsync<ArgumentException>(() => source.GetCsvAsync(""));
+        Assert.Throws<ArgumentException>(() => PlotlyDatasetsSource.ParseIndex(""));
+    }
+
+    // ── OpenML: REST API ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void OpenML_ParseIndex_ReadsDidAndName()
+    {
+        const string json = """
+            { "data": { "dataset": [
+                { "did": 61, "name": "iris", "status": "active" },
+                { "did": 31, "name": "credit-g", "status": "active" } ] } }
+            """;
+
+        IReadOnlyList<OpenMLDatasetInfo> datasets = OpenMLSource.ParseIndex(json);
+
+        Assert.Equal(2, datasets.Count);
+        Assert.Equal(61, datasets[0].Id);
+        Assert.Equal("iris", datasets[0].Name);
+        Assert.Equal("active", datasets[0].Status);
+        Assert.Equal("credit-g", datasets[1].Name);
+    }
+
+    [Fact]
+    public void OpenML_WellKnownDatasets_IncludeIrisById()
+        => Assert.Contains(OpenMLSource.WellKnownDatasets, d => d.Id == 61 && d.Name == "iris");
+
+    [Fact]
+    public async Task OpenML_Validation()
+    {
+        using var source = new OpenMLSource();
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => source.GetCsvAsync(0));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => source.ListDatasetsAsync(0));
+        Assert.Throws<ArgumentException>(() => OpenMLSource.ParseIndex(""));
+    }
 }
