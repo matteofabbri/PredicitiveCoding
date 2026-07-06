@@ -9,6 +9,7 @@
   <Project Path="PredictiveCoding.Device/PredictiveCoding.Device.csproj" />
   <Project Path="PredictiveCoding.Data/PredictiveCoding.Data.csproj" />
   <Project Path="PredictiveCoding.FaceRecognition/PredictiveCoding.FaceRecognition.csproj" />
+  <Project Path="PredictiveCoding.Onnx/PredictiveCoding.Onnx.csproj" />
   <Project Path="PredictiveCoding.Vision/PredictiveCoding.Vision.csproj" />
   <Project Path="PredictiveCoding.Brain/PredictiveCoding.Brain.csproj" />
   <Folder Name="/SAMPLES/">

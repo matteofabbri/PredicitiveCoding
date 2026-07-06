@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PredictiveCoding.Onnx</RootNamespace>
+    <AssemblyName>PredictiveCoding.Onnx</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Deliberately dependency-free: the whole point of this project is to load and
+       execute .onnx models with no ONNX Runtime, no protobuf package, no downloads. -->
+
+</Project>

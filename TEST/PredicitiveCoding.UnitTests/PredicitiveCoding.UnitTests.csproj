@@ -34,6 +34,7 @@
     <ProjectReference Include="..\..\PredictiveCoding.Device\PredictiveCoding.Device.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.Data\PredictiveCoding.Data.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.Vision\PredictiveCoding.Vision.csproj" />
+    <ProjectReference Include="..\..\PredictiveCoding.Onnx\PredictiveCoding.Onnx.csproj" />
   </ItemGroup>
 
   <ItemGroup>
