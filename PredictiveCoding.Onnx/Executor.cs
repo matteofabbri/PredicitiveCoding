@@ -78,6 +78,14 @@ public static class Executor
                                                    n.GetInt("count_include_pad", 0) != 0)],
         "GlobalAveragePool"    => [Ops.GlobalAveragePool(a[0])],
 
+        // Resampling. Opset 10: Resize(X, scales); opset 11+: Resize(X, roi, scales[, sizes]).
+        "Resize"               => [Ops.Resize(a[0],
+                                              scales: a.Length == 2 ? a[1] : a.Length > 2 ? a[2] : null,
+                                              sizes: a.Length > 3 ? a[3] : null,
+                                              mode: n.GetString("mode", "nearest"),
+                                              coordMode: n.GetString("coordinate_transformation_mode", "half_pixel"),
+                                              nearestMode: n.GetString("nearest_mode", "round_prefer_floor"))],
+
         // Linear algebra / normalisation
         "Gemm"                 => [Ops.Gemm(a[0], a[1], a.Length > 2 ? a[2] : null,
                                             n.GetFloat("alpha", 1f), n.GetFloat("beta", 1f),
