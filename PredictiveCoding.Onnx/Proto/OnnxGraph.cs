@@ -74,10 +74,11 @@ public sealed class OnnxTensorData
     public float[]? Floats;                         // set when DataType == Float
     public long[]? Longs;                           // set when DataType == Int64 / Int32 (widened)
 
-    /// <summary>Convert to a runtime tensor. Rank-0 scalars are widened to shape [1].</summary>
+    /// <summary>Convert to a runtime tensor. Rank-0 scalars keep their empty shape —
+    /// Gather/Unsqueeze shape pipelines depend on the scalar-vs-[1] distinction.</summary>
     public Tensor ToTensor()
     {
-        int[] shape = Dims.Length == 0 ? [1] : Array.ConvertAll(Dims, d => checked((int)d));
+        int[] shape = Array.ConvertAll(Dims, d => checked((int)d));
         return Floats is not null ? new Tensor(shape, Floats)
              : Longs is not null ? new Tensor(shape, Longs)
              : throw new NotSupportedException($"Initializer '{Name}' has unsupported data type {DataType}.");

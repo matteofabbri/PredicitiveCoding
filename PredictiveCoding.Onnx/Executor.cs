@@ -124,6 +124,7 @@ public static class Executor
                                   : throw new NotSupportedException(
                                         "Slice with attribute-form parameters (opset < 10) is not supported."),
         "Shape"                => [Ops.Shape(a[0])],
+        "Gather"               => [Ops.Gather(a[0], a[1], (int)n.GetInt("axis", 0))],
         "Unsqueeze"            => [Ops.Unsqueeze(a[0], a.Length > 1 ? a[1] : null, n.GetInts("axes"))],
         "Squeeze"              => [Ops.Squeeze(a[0], a.Length > 1 ? a[1] : null, n.GetInts("axes"))],
         "Identity"             => [a[0]],

@@ -1,8 +1,10 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using PredictiveCoding.Onnx;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using OnnxTensor = PredictiveCoding.Onnx.Tensor;
 
 namespace PredictiveCoding.FaceRecognition.FaceAlignment;
 
@@ -19,7 +21,7 @@ namespace PredictiveCoding.FaceRecognition.FaceAlignment;
 public sealed class RetinaFaceDetector : IDisposable
 {
     private const string ModelUrl =
-        "https://huggingface.co/immich-app/buffalo_l/resolve/main/det_10g.onnx";
+        "https://huggingface.co/immich-app/buffalo_l/resolve/main/detection/model.onnx";   // det_10g (repo restructured 2026: flat file names became detection/recognition folders)
 
     private const int InputSize      = 640;   // model input (H = W = 640)
     private const float ScoreThresh  = 0.5f;
@@ -36,13 +38,19 @@ public sealed class RetinaFaceDetector : IDisposable
     ];
 
     private readonly string  _modelPath;
+    private readonly bool    _useInHouse;
     private InferenceSession? _session;
+    private OnnxModel?        _inHouse;
     private string?           _inputName;
     private readonly object   _lock = new();
 
-    public RetinaFaceDetector(string modelsDir)
+    /// <param name="useInHouseRuntime">Run the model on the dependency-free
+    /// <see cref="OnnxModel"/> executor instead of ONNX Runtime. CPU-only and ~25× slower
+    /// (≈1.6 s/frame) — meant for offline work (distillation, tests), not real-time.</param>
+    public RetinaFaceDetector(string modelsDir, bool useInHouseRuntime = false)
     {
-        _modelPath = Path.Combine(modelsDir, "det_10g.onnx");
+        _modelPath  = Path.Combine(modelsDir, "det_10g.onnx");
+        _useInHouse = useInHouseRuntime;
         Directory.CreateDirectory(modelsDir);
     }
 
@@ -103,16 +111,40 @@ public sealed class RetinaFaceDetector : IDisposable
             });
         }
 
-        using var outputs = _session!.Run(
-            [NamedOnnxValue.CreateFromTensor(_inputName!, tensor)]);
+        return ParseAndDecodeAll(RunRaw(tensor), scaleX, scaleY);
+    }
 
-        return ParseAndDecodeAll(outputs.ToList(), scaleX, scaleY);
+    /// <summary>Runs the model on whichever backend is active and returns every float
+    /// output as (dims, flat data) — the only shape the decoder needs.</summary>
+    private List<(int[] Dims, float[] Data)> RunRaw(DenseTensor<float> tensor)
+    {
+        if (_inHouse is not null)
+        {
+            var input = new OnnxTensor([1, 3, InputSize, InputSize], tensor.Buffer.ToArray());
+            return _inHouse.Run(new() { [_inputName!] = input })
+                .Values.Where(t => !t.IsInt64)
+                .Select(t => (t.Shape, t.Data))
+                .ToList();
+        }
+
+        using var outputs = _session!.Run([NamedOnnxValue.CreateFromTensor(_inputName!, tensor)]);
+        var raw = new List<(int[] Dims, float[] Data)>(outputs.Count);
+        foreach (NamedOnnxValue ov in outputs)
+        {
+            try
+            {
+                Tensor<float> t = ov.AsTensor<float>();
+                raw.Add((t.Dimensions.ToArray(), t.ToArray()));
+            }
+            catch { /* skip non-float outputs */ }
+        }
+        return raw;
     }
 
     // ── Output parsing ────────────────────────────────────────────────────────────
 
     private static List<FaceDetection> ParseAndDecodeAll(
-        IReadOnlyList<NamedOnnxValue> outputs,
+        IReadOnlyList<(int[] Dims, float[] Data)> outputs,
         float scaleX, float scaleY)
     {
         // Classify the 9 output tensors by shape:
@@ -125,45 +157,37 @@ public sealed class RetinaFaceDetector : IDisposable
         var bboxOuts  = new List<(int N, float[] Data)>();
         var kpsOuts   = new List<(int N, float[] Data)>();
 
-        foreach (NamedOnnxValue ov in outputs)
+        foreach ((int[] dims, float[] data) in outputs)
         {
-            try
+            // Determine N and lastDim from tensor shape
+            int n, lastDim;
+            if (dims.Length == 3)
             {
-                Tensor<float> t = ov.AsTensor<float>();
-                ReadOnlySpan<int> dims = t.Dimensions;
-                float[] data = t.ToArray();
-
-                // Determine N and lastDim from tensor shape
-                int n, lastDim;
-                if (dims.Length == 3)
-                {
-                    // [batch=1, N, lastDim]
-                    n = dims[1]; lastDim = dims[2];
-                }
-                else if (dims.Length == 2)
-                {
-                    // [1, N] → scores,  or  [N, lastDim]
-                    if (dims[0] == 1 && KnownN.Contains(dims[1]))
-                        { n = dims[1]; lastDim = 1; }
-                    else
-                        { n = dims[0]; lastDim = dims[1]; }
-                }
-                else if (dims.Length == 1)
-                {
-                    n = dims[0]; lastDim = 1;
-                }
-                else continue;
-
-                if (!KnownN.Contains(n)) continue;
-
-                switch (lastDim)
-                {
-                    case  1: scoreOuts.Add((n, data)); break;
-                    case  4: bboxOuts .Add((n, data)); break;
-                    case 10: kpsOuts  .Add((n, data)); break;
-                }
+                // [batch=1, N, lastDim]
+                n = dims[1]; lastDim = dims[2];
             }
-            catch { /* skip unrecognised outputs */ }
+            else if (dims.Length == 2)
+            {
+                // [1, N] → scores,  or  [N, lastDim]
+                if (dims[0] == 1 && KnownN.Contains(dims[1]))
+                    { n = dims[1]; lastDim = 1; }
+                else
+                    { n = dims[0]; lastDim = dims[1]; }
+            }
+            else if (dims.Length == 1)
+            {
+                n = dims[0]; lastDim = 1;
+            }
+            else continue;
+
+            if (!KnownN.Contains(n)) continue;
+
+            switch (lastDim)
+            {
+                case  1: scoreOuts.Add((n, data)); break;
+                case  4: bboxOuts .Add((n, data)); break;
+                case 10: kpsOuts  .Add((n, data)); break;
+            }
         }
 
         // Sort by N descending (stride 8 first → N=12800, 16 → 3200, 32 → 800)
@@ -263,16 +287,24 @@ public sealed class RetinaFaceDetector : IDisposable
 
     private void EnsureLoaded()
     {
-        if (_session is not null) return;
+        if (_session is not null || _inHouse is not null) return;
         lock (_lock)
         {
-            if (_session is not null) return;
+            if (_session is not null || _inHouse is not null) return;
 
             if (!File.Exists(_modelPath) || new FileInfo(_modelPath).Length < 1_000_000)
             {
                 Console.WriteLine("  [RetinaFace] downloading det_10g.onnx (~16 MB) …");
                 Download(ModelUrl, _modelPath);
                 Console.WriteLine("  [RetinaFace] model ready.");
+            }
+
+            if (_useInHouse)
+            {
+                _inHouse   = OnnxModel.Load(_modelPath);
+                _inputName = _inHouse.InputNames[0];
+                Console.WriteLine($"  [RetinaFace] loaded (in-house runtime) — {_inHouse.OutputNames.Count} outputs");
+                return;
             }
 
             var options = new SessionOptions { LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR };

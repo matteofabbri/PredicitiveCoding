@@ -1,9 +1,11 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using PredictiveCoding.FaceRecognition;
+using PredictiveCoding.Onnx;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using OnnxTensor = PredictiveCoding.Onnx.Tensor;
 
 namespace PredictiveCoding.Vision.Detectors;
 
@@ -34,24 +36,34 @@ public sealed class YoloPersonDetector : IPersonDetector
     private readonly float  _scoreThreshold;
     private readonly float  _nmsThreshold;
     private readonly bool   _useGpu;
+    private readonly bool   _useInHouse;
 
     private InferenceSession? _session;
+    private OnnxModel?        _inHouse;
     private string?           _inputName;
     private readonly object   _lock = new();
 
     /// <inheritdoc />
-    public string Name => "YOLOX full-body (COCO person)";
+    public string Name => _useInHouse
+        ? "YOLOX full-body (COCO person) · in-house"
+        : "YOLOX full-body (COCO person)";
 
+    /// <param name="useInHouseRuntime">Run the model on the dependency-free
+    /// <see cref="OnnxModel"/> executor instead of ONNX Runtime. CPU-only and ~25× slower
+    /// (≈1.7 s/frame) — meant for offline work (distillation, tests), not real-time.
+    /// When set, <paramref name="useGpu"/> is ignored.</param>
     public YoloPersonDetector(
         string modelsDir,
-        float  scoreThreshold = 0.45f,
-        float  nmsThreshold   = 0.45f,
-        bool   useGpu         = true)
+        float  scoreThreshold    = 0.45f,
+        float  nmsThreshold      = 0.45f,
+        bool   useGpu            = true,
+        bool   useInHouseRuntime = false)
     {
         _modelPath      = Path.Combine(modelsDir, "yolox_2022nov.onnx");
         _scoreThreshold = scoreThreshold;
         _nmsThreshold   = nmsThreshold;
         _useGpu         = useGpu;
+        _useInHouse     = useInHouseRuntime;
         Directory.CreateDirectory(modelsDir);
     }
 
@@ -91,20 +103,33 @@ public sealed class YoloPersonDetector : IPersonDetector
             });
         }
 
+        (int[] dims, float[] data) = RunRaw(tensor);
+        return Decode(dims, data, r, frame.Width, frame.Height);
+    }
+
+    /// <summary>Runs the model on whichever backend is active and returns the first
+    /// output as (dims, flat data) — the only shape the decoder needs.</summary>
+    private (int[] Dims, float[] Data) RunRaw(DenseTensor<float> tensor)
+    {
+        if (_inHouse is not null)
+        {
+            var input = new OnnxTensor([1, 3, InputSize, InputSize], tensor.Buffer.ToArray());
+            PredictiveCoding.Onnx.Tensor outT = _inHouse.Run(new() { [_inputName!] = input })[_inHouse.OutputNames[0]];
+            return (outT.Shape, outT.Data);
+        }
+
         using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> outputs =
             _session!.Run([NamedOnnxValue.CreateFromTensor(_inputName!, tensor)]);
-
-        return Decode(outputs.ToList(), r, frame.Width, frame.Height);
+        Tensor<float> ort = outputs[0].AsTensor<float>();
+        return (ort.Dimensions.ToArray(), ort.ToArray());
     }
 
     // ── Output decoding ───────────────────────────────────────────────────────────
 
     private List<Detection> Decode(
-        List<DisposableNamedOnnxValue> outputs, float r, int origW, int origH)
+        int[] dims, float[] data, float r, int origW, int origH)
     {
-        Tensor<float> outT = outputs[0].AsTensor<float>();
-        ReadOnlySpan<int> dims = outT.Dimensions;       // expected [1, 8400, 85]
-        float[] data = outT.ToArray();
+        // dims expected [1, 8400, 85]
 
         // Resolve which axis carries the 85 attributes; support both layouts.
         int n, attrStride;
@@ -170,16 +195,24 @@ public sealed class YoloPersonDetector : IPersonDetector
 
     private void EnsureLoaded()
     {
-        if (_session is not null) return;
+        if (_session is not null || _inHouse is not null) return;
         lock (_lock)
         {
-            if (_session is not null) return;
+            if (_session is not null || _inHouse is not null) return;
 
             if (!File.Exists(_modelPath) || new FileInfo(_modelPath).Length < 1_000_000)
             {
                 Console.WriteLine("  [YOLOX] downloading object_detection_yolox (~36 MB) …");
                 Download(ModelUrl, _modelPath);
                 Console.WriteLine("  [YOLOX] model ready.");
+            }
+
+            if (_useInHouse)
+            {
+                _inHouse   = OnnxModel.Load(_modelPath);
+                _inputName = _inHouse.InputNames[0];
+                Console.WriteLine($"  [YOLOX] loaded (in-house runtime) — {_inHouse.OutputNames.Count} output(s).");
+                return;
             }
 
             _session = CreateSession(_modelPath, _useGpu);

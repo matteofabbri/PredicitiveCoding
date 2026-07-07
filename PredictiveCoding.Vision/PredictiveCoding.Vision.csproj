@@ -13,6 +13,8 @@
   <ItemGroup>
     <!-- Reuses the ONNX detector pattern, NMS/IoU and CUDA provisioning already in FaceRecognition. -->
     <ProjectReference Include="..\PredictiveCoding.FaceRecognition\PredictiveCoding.FaceRecognition.csproj" />
+    <!-- In-house ONNX executor: lets YoloPersonDetector run without ONNX Runtime (opt-in flag). -->
+    <ProjectReference Include="..\PredictiveCoding.Onnx\PredictiveCoding.Onnx.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -13,6 +13,8 @@
   <ItemGroup>
     <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
     <ProjectReference Include="..\PredictiveCoding.Expanded\PredictiveCoding.Expanded.csproj" />
+    <!-- In-house ONNX executor: lets the detectors run without ONNX Runtime (opt-in flag). -->
+    <ProjectReference Include="..\PredictiveCoding.Onnx\PredictiveCoding.Onnx.csproj" />
   </ItemGroup>
 
   <ItemGroup>

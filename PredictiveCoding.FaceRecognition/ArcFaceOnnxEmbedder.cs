@@ -1,9 +1,11 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using PredictiveCoding.FaceRecognition.FaceAlignment;
+using PredictiveCoding.Onnx;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using OnnxTensor = PredictiveCoding.Onnx.Tensor;
 
 namespace PredictiveCoding.FaceRecognition;
 
@@ -28,20 +30,27 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
     private readonly string  _cudaDir;
     private readonly float   _cropFraction;
     private readonly bool    _useAlignment;
+    private readonly bool    _useInHouse;
     private const    int     BatchSize = 64;
     private InferenceSession?  _session;
+    private OnnxModel?         _inHouse;
     private string?            _inputName;
     private string?            _provider;
     private int                _dimension = 512;
     private bool               _supportsBatch = true;
     private RetinaFaceDetector? _detector;    // null until EnsureLoaded() when _useAlignment=true
 
-    public ArcFaceOnnxEmbedder(string modelsDir, float cropFraction = 0.50f, bool useAlignment = true)
+    /// <param name="useInHouseRuntime">Run the model (and the alignment detector) on the
+    /// dependency-free <see cref="OnnxModel"/> executor instead of ONNX Runtime. CPU-only
+    /// and ~15-25× slower (≈1 s/face) — meant for offline work, not bulk benchmarking.</param>
+    public ArcFaceOnnxEmbedder(string modelsDir, float cropFraction = 0.50f, bool useAlignment = true,
+                               bool useInHouseRuntime = false)
     {
         _modelsDir    = modelsDir;
         _cudaDir      = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(modelsDir)) ?? modelsDir, ".cuda");
         _cropFraction = cropFraction;
         _useAlignment = useAlignment;
+        _useInHouse   = useInHouseRuntime;
     }
 
     public int    Dimension => _dimension;
@@ -56,11 +65,24 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
         if (!PreprocessInto(imagePath, input, 0))
             return new float[_dimension];
 
-        using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results =
-            _session!.Run([NamedOnnxValue.CreateFromTensor(_inputName!, input)]);
-        float[] embedding = results[0].AsEnumerable<float>().ToArray();
+        float[] embedding = RunFlat(input);
         Normalize(embedding);
         return embedding;
+    }
+
+    /// <summary>Runs the model on whichever backend is active; returns the first output
+    /// flattened ([n, 512] row-major, so per-image slices stay contiguous).</summary>
+    private float[] RunFlat(DenseTensor<float> input)
+    {
+        if (_inHouse is not null)
+        {
+            var tensor = new OnnxTensor(input.Dimensions.ToArray(), input.Buffer.ToArray());
+            return _inHouse.Run(new() { [_inputName!] = tensor })[_inHouse.OutputNames[0]].Data;
+        }
+
+        using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results =
+            _session!.Run([NamedOnnxValue.CreateFromTensor(_inputName!, input)]);
+        return results[0].AsEnumerable<float>().ToArray();
     }
 
     /// <summary>Runs the GPU in real batches: decode/preprocess in parallel, one <c>Run</c> per chunk.</summary>
@@ -79,9 +101,7 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
             float[] flat;
             try
             {
-                using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results =
-                    _session!.Run([NamedOnnxValue.CreateFromTensor(_inputName!, input)]);
-                flat = results[0].AsEnumerable<float>().ToArray();
+                flat = RunFlat(input);
             }
             catch
             {
@@ -120,9 +140,7 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
             {
                 if (result[start + k] is not null || prepared[k] is null)
                     continue;
-                using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> res =
-                    _session!.Run([NamedOnnxValue.CreateFromTensor(_inputName!, prepared[k]!)]);
-                float[] v = res[0].AsEnumerable<float>().ToArray();
+                float[] v = RunFlat(prepared[k]!);
                 Normalize(v);
                 result[start + k] = v;
             }
@@ -203,7 +221,7 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
 
     private void EnsureLoaded()
     {
-        if (_session is not null)
+        if (_session is not null || _inHouse is not null)
             return;
 
         Directory.CreateDirectory(_modelsDir);
@@ -211,20 +229,32 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
         if (!File.Exists(modelPath) || new FileInfo(modelPath).Length < 1_000_000)
             Download(ModelUrl, modelPath);
 
-        EnsureCudaRuntime();
-        _session = CreateSession(modelPath, out _provider);
-        _inputName = _session.InputMetadata.Keys.First();
-        int[] outDims = _session.OutputMetadata.First().Value.Dimensions;
+        int[] outDims;
+        if (_useInHouse)
+        {
+            _inHouse   = OnnxModel.Load(modelPath);
+            _inputName = _inHouse.InputNames[0];
+            _provider  = "in-house (no ONNX Runtime)";
+            outDims    = _inHouse.Graph.Outputs[0].Shape;
+        }
+        else
+        {
+            EnsureCudaRuntime();
+            _session = CreateSession(modelPath, out _provider);
+            _inputName = _session.InputMetadata.Keys.First();
+            outDims = _session.OutputMetadata.First().Value.Dimensions;
+        }
         _dimension = outDims.Length > 0 && outDims[^1] > 0 ? outDims[^1] : 512;
         // Real batches only when the model truly has a dynamic batch axis. This one is exported batch=1
         // (output {1,512}); feeding N>1 hits a slow dynamic path, so use parallel-decode + sequential runs.
         _supportsBatch = outDims.Length > 0 && outDims[0] != 1;
         Console.WriteLine($"   [ArcFace] execution provider: {_provider}  (batch: {(_supportsBatch ? "on" : "parallel per-image")})");
 
-        // Optionally initialise the RetinaFace 5-point alignment detector (lazy model download)
+        // Optionally initialise the RetinaFace 5-point alignment detector (lazy model download);
+        // it follows the same backend choice as the embedder.
         if (_useAlignment)
         {
-            _detector = new RetinaFaceDetector(_modelsDir);
+            _detector = new RetinaFaceDetector(_modelsDir, _useInHouse);
             Console.WriteLine("   [ArcFace] face alignment: RetinaFace det_10g (5-point, downloads on first use)");
         }
     }
