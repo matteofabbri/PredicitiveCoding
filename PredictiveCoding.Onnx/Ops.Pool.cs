@@ -175,8 +175,10 @@ public static partial class Ops
 
     /// <summary>
     /// Output extent along one spatial axis: floor or ceil of (size + pads − k)/stride + 1.
-    /// With ceil_mode, ONNX requires the last window to start strictly inside the padded
-    /// input; a window starting past its end is dropped (ceil overshoots by at most one).
+    /// With ceil_mode, ONNX (matching PyTorch/ONNX Runtime) ignores sliding windows that
+    /// would START in the right/bottom padded region — i.e. the last window must start
+    /// inside the input or the LEFT padding, so the drop test uses size + padLo only
+    /// (ceil overshoots by at most one).
     /// </summary>
     private static int PoolOutDim(int size, int k, int stride, int padLo, int padHi, bool ceilMode, string op)
     {
@@ -184,7 +186,7 @@ public static partial class Ops
         if (span < 0)
             throw new ArgumentException($"{op} kernel {k} exceeds padded input extent {size + padLo + padHi}.");
         int outDim = ceilMode ? (span + stride - 1) / stride + 1 : span / stride + 1;
-        if (ceilMode && (outDim - 1) * stride >= size + padLo + padHi)
+        if (ceilMode && (outDim - 1) * stride >= size + padLo)
             outDim--;
         return outDim;
     }
