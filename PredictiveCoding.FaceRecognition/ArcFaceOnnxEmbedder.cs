@@ -1,10 +1,9 @@
+using System.Drawing;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using PredictiveCoding.FaceRecognition.FaceAlignment;
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Onnx;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 using OnnxTensor = PredictiveCoding.Onnx.Tensor;
 
 namespace PredictiveCoding.FaceRecognition;
@@ -152,10 +151,10 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
     {
         try
         {
-            using Image<Rgb24> image = Image.Load<Rgb24>(imagePath);
+            using RgbImage image = RgbImage.Load(imagePath);
 
             // Preferred path: detect face → 5-point similarity-transform alignment → 112×112
-            Image<Rgb24>? aligned = null;
+            RgbImage? aligned = null;
             try
             {
                 if (_detector is not null)
@@ -173,32 +172,23 @@ public sealed class ArcFaceOnnxEmbedder : IFaceEmbedder, IDisposable
                 int side = Math.Max(1, (int)(Math.Min(image.Width, image.Height) * _cropFraction));
                 int x0   = (image.Width  - side) / 2;
                 int y0   = (image.Height - side) / 2;
-                image.Mutate(ctx => ctx.Crop(new Rectangle(x0, y0, side, side)).Resize(112, 112));
-                aligned = image;
+                aligned = image.Crop(new Rectangle(x0, y0, side, side)).Resize(112, 112);
             }
 
             // Write NCHW float tensor: (pixel - 127.5) / 127.5  →  [−1, +1]
-            bool usedAlignedCopy = !ReferenceEquals(aligned, image);
-            try
+            using (aligned)
             {
-                aligned.ProcessPixelRows(accessor =>
+                for (int y = 0; y < 112; y++)
                 {
-                    for (int y = 0; y < 112; y++)
+                    Span<Rgb24> row = aligned.GetRowSpan(y);
+                    for (int x = 0; x < 112; x++)
                     {
-                        Span<Rgb24> row = accessor.GetRowSpan(y);
-                        for (int x = 0; x < 112; x++)
-                        {
-                            Rgb24 p = row[x];
-                            tensor[batchIndex, 0, y, x] = (p.R - 127.5f) / 127.5f;
-                            tensor[batchIndex, 1, y, x] = (p.G - 127.5f) / 127.5f;
-                            tensor[batchIndex, 2, y, x] = (p.B - 127.5f) / 127.5f;
-                        }
+                        Rgb24 p = row[x];
+                        tensor[batchIndex, 0, y, x] = (p.R - 127.5f) / 127.5f;
+                        tensor[batchIndex, 1, y, x] = (p.G - 127.5f) / 127.5f;
+                        tensor[batchIndex, 2, y, x] = (p.B - 127.5f) / 127.5f;
                     }
-                });
-            }
-            finally
-            {
-                if (usedAlignedCopy) aligned.Dispose();
+                }
             }
             return true;
         }

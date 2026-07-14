@@ -1,6 +1,5 @@
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Detectors;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace PredictiveCoding.Vision.ReId;
 
@@ -23,5 +22,5 @@ public interface IAppearanceEmbedder
     /// <summary>Embeds the image region described by <paramref name="box"/> taken from
     /// <paramref name="frame"/>. The result is L2-normalised (or all-zero for an empty
     /// region).</summary>
-    float[] Embed(Image<Rgb24> frame, Detection box);
+    float[] Embed(RgbImage frame, Detection box);
 }

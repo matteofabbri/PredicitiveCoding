@@ -1,6 +1,5 @@
 using PredictiveCoding.Data.Images;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using PredictiveCoding.Imaging;
 
 namespace PredicitiveCoding.UnitTests;
 
@@ -18,10 +17,12 @@ public sealed class AnimatedImageTests : IDisposable
     private string WriteGif(int width, int height)
     {
         string path = Path.Combine(_tmp, $"{Guid.NewGuid():N}.gif");
-        using var image = new Image<Rgb24>(width, height, new Rgb24(255, 0, 0));
-        using (var second = new Image<Rgb24>(width, height, new Rgb24(0, 0, 255)))
-            image.Frames.AddFrame(second.Frames.RootFrame);
-        image.SaveAsGif(path);
+        RgbImage[] frames =
+        [
+            new RgbImage(width, height, new Rgb24(255, 0, 0)),
+            new RgbImage(width, height, new Rgb24(0, 0, 255)),
+        ];
+        RgbImage.SaveAsGif(path, frames);
         return path;
     }
 

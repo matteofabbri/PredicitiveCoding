@@ -1,7 +1,6 @@
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Detectors;
 using PredictiveCoding.Vision.Tracking;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace PredictiveCoding.Vision;
 
@@ -23,14 +22,14 @@ public static class Annotate
     ];
 
     /// <summary>Draws a green outline around every raw detection (in place).</summary>
-    public static void DrawBoxes(Image<Rgb24> image, IReadOnlyList<Detection> detections, int thickness = 2)
+    public static void DrawBoxes(RgbImage image, IReadOnlyList<Detection> detections, int thickness = 2)
     {
         foreach (Detection d in detections)
             DrawRect(image, (int)d.X1, (int)d.Y1, (int)d.X2, (int)d.Y2, thickness, DetColor);
     }
 
     /// <summary>Draws each tracked person's box in a stable per-id colour (in place).</summary>
-    public static void DrawTracks(Image<Rgb24> image, IReadOnlyList<Track> tracks, int thickness = 2)
+    public static void DrawTracks(RgbImage image, IReadOnlyList<Track> tracks, int thickness = 2)
     {
         foreach (Track t in tracks)
         {
@@ -40,7 +39,7 @@ public static class Annotate
     }
 
     /// <summary>Draws a virtual tripwire line A→B (in place).</summary>
-    public static void DrawLine(Image<Rgb24> image, float ax, float ay, float bx, float by,
+    public static void DrawLine(RgbImage image, float ax, float ay, float bx, float by,
         Rgb24? color = null, int thickness = 2)
     {
         Rgb24 c = color ?? LineColor;
@@ -57,7 +56,7 @@ public static class Annotate
     }
 
     /// <summary>Draws the outline of a polygonal zone (auto-closed, in place).</summary>
-    public static void DrawZone(Image<Rgb24> image, IReadOnlyList<(float X, float Y)> polygon,
+    public static void DrawZone(RgbImage image, IReadOnlyList<(float X, float Y)> polygon,
         Rgb24? color = null, int thickness = 2)
     {
         ArgumentNullException.ThrowIfNull(polygon);
@@ -72,7 +71,7 @@ public static class Annotate
     }
 
     // Bresenham line.
-    private static void DrawSegment(Image<Rgb24> img, int x0, int y0, int x1, int y1, Rgb24 c)
+    private static void DrawSegment(RgbImage img, int x0, int y0, int x1, int y1, Rgb24 c)
     {
         int dx = Math.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
         int dy = -Math.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
@@ -87,7 +86,7 @@ public static class Annotate
         }
     }
 
-    private static void DrawRect(Image<Rgb24> img, int x1, int y1, int x2, int y2, int t, Rgb24 c)
+    private static void DrawRect(RgbImage img, int x1, int y1, int x2, int y2, int t, Rgb24 c)
     {
         x1 = Math.Clamp(x1, 0, img.Width  - 1);
         y1 = Math.Clamp(y1, 0, img.Height - 1);
@@ -102,14 +101,14 @@ public static class Annotate
         }
     }
 
-    private static void HLine(Image<Rgb24> img, int xa, int xb, int y, Rgb24 c)
+    private static void HLine(RgbImage img, int xa, int xb, int y, Rgb24 c)
     {
         if (y < 0 || y >= img.Height) return;
         int lo = Math.Max(0, xa), hi = Math.Min(img.Width - 1, xb);
         for (int x = lo; x <= hi; x++) img[x, y] = c;
     }
 
-    private static void VLine(Image<Rgb24> img, int ya, int yb, int x, Rgb24 c)
+    private static void VLine(RgbImage img, int ya, int yb, int x, Rgb24 c)
     {
         if (x < 0 || x >= img.Width) return;
         int lo = Math.Max(0, ya), hi = Math.Min(img.Height - 1, yb);

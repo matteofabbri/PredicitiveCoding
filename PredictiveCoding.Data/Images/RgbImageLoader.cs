@@ -1,18 +1,17 @@
 using PredictiveCoding.Core;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using PredictiveCoding.Imaging;
 
 namespace PredictiveCoding.Data.Images;
 
 /// <summary>
-/// <see cref="IImageLoader"/> backed by SixLabors.ImageSharp (pure managed,
-/// cross-platform). Decodes PNG, JPEG, BMP, GIF, WebP, TGA and more.
+/// <see cref="IImageLoader"/> backed by the in-house <see cref="RgbImage"/>
+/// (StbImageSharp decode — pure managed, public domain). Decodes PNG, JPEG,
+/// BMP, GIF, TGA, PSD and Netpbm (.pgm/.ppm).
 /// </summary>
-public sealed class ImageSharpLoader : IImageLoader
+public sealed class RgbImageLoader : IImageLoader
 {
     /// <summary>Shared, stateless instance.</summary>
-    public static ImageSharpLoader Instance { get; } = new();
+    public static RgbImageLoader Instance { get; } = new();
 
     /// <inheritdoc />
     public ImageData Load(string path, ImageLoadOptions? options = null)
@@ -24,30 +23,19 @@ public sealed class ImageSharpLoader : IImageLoader
         options ??= ImageLoadOptions.Default;
         ValidateOptions(options);
 
-        using Image<Rgb24> image = Image.Load<Rgb24>(path);
+        RgbImage image = RgbImage.Load(path);
 
         if (options.TargetWidth is int tw && options.TargetHeight is int th &&
             (image.Width != tw || image.Height != th))
         {
-            image.Mutate(c => c.Resize(tw, th));
+            image = image.Resize(tw, th);
         }
 
         int width = image.Width;
         int height = image.Height;
         int channels = options.Grayscale ? 1 : 3;
 
-        byte[] bytes;
-        if (options.Grayscale)
-        {
-            using Image<L8> gray = image.CloneAs<L8>();
-            bytes = new byte[width * height];
-            gray.CopyPixelDataTo(bytes);
-        }
-        else
-        {
-            bytes = new byte[width * height * 3];
-            image.CopyPixelDataTo(bytes);
-        }
+        byte[] bytes = options.Grayscale ? image.ToGray() : image.Pixels;
 
         DenseTensor<float> tensor = ToTensor(bytes, height, width, channels, options.Normalize);
         return new ImageData(tensor, height, width, channels);
@@ -57,7 +45,7 @@ public sealed class ImageSharpLoader : IImageLoader
     public DenseTensor<float> LoadPixels(string path, ImageLoadOptions? options = null)
         => Load(path, options).Pixels;
 
-    /// <summary>Decodes every frame of an animated image (GIF/APNG/WebP) into a tensor.</summary>
+    /// <summary>Decodes every frame of an animated image (GIF) into a tensor.</summary>
     public AnimatedImage LoadAnimation(string path, ImageLoadOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
@@ -67,19 +55,19 @@ public sealed class ImageSharpLoader : IImageLoader
         options ??= ImageLoadOptions.Default;
         ValidateOptions(options);
 
-        using Image<Rgb24> image = Image.Load<Rgb24>(path);
-        int frameCount = image.Frames.Count;
+        List<RgbImage> decoded = RgbImage.LoadFrames(path);
+        int frameCount = decoded.Count;
         int channels = options.Grayscale ? 1 : 3;
         int width = 0, height = 0;
         var frames = new List<byte[]>(frameCount);
 
-        for (int i = 0; i < frameCount; i++)
+        foreach (RgbImage rawFrame in decoded)
         {
-            using Image<Rgb24> frame = image.Frames.CloneFrame(i);
+            RgbImage frame = rawFrame;
             if (options.TargetWidth is int tw && options.TargetHeight is int th &&
                 (frame.Width != tw || frame.Height != th))
             {
-                frame.Mutate(c => c.Resize(tw, th));
+                frame = frame.Resize(tw, th);
             }
 
             if (width == 0)
@@ -88,19 +76,7 @@ public sealed class ImageSharpLoader : IImageLoader
                 height = frame.Height;
             }
 
-            if (options.Grayscale)
-            {
-                using Image<L8> gray = frame.CloneAs<L8>();
-                var bytes = new byte[width * height];
-                gray.CopyPixelDataTo(bytes);
-                frames.Add(bytes);
-            }
-            else
-            {
-                var bytes = new byte[width * height * 3];
-                frame.CopyPixelDataTo(bytes);
-                frames.Add(bytes);
-            }
+            frames.Add(options.Grayscale ? frame.ToGray() : frame.Pixels);
         }
 
         long perFrame = (long)height * width * channels;

@@ -1,10 +1,8 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using PredictiveCoding.FaceRecognition;
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Onnx;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 using OnnxTensor = PredictiveCoding.Onnx.Tensor;
 
 namespace PredictiveCoding.Vision.Detectors;
@@ -70,7 +68,7 @@ public sealed class YoloPersonDetector : IPersonDetector
     // ── Detection ───────────────────────────────────────────────────────────────
 
     /// <inheritdoc />
-    public IReadOnlyList<Detection> Detect(Image<Rgb24> frame)
+    public IReadOnlyList<Detection> Detect(RgbImage frame)
     {
         EnsureLoaded();
 
@@ -83,24 +81,21 @@ public sealed class YoloPersonDetector : IPersonDetector
         var tensor = new DenseTensor<float>([1, 3, InputSize, InputSize]);
         tensor.Buffer.Span.Fill(Pad);   // letterbox padding (114) over the whole canvas first
 
-        using (Image<Rgb24> resized = frame.Clone(ctx => ctx.Resize(newW, newH)))
+        using (RgbImage resized = frame.Resize(newW, newH))
         {
             // YOLOX takes BGR pixels in raw 0–255 (no mean/std normalisation); the
             // image is pasted top-left and the rest keeps the padding value.
-            resized.ProcessPixelRows(acc =>
+            for (int y = 0; y < newH; y++)
             {
-                for (int y = 0; y < newH; y++)
+                Span<Rgb24> row = resized.GetRowSpan(y);
+                for (int x = 0; x < newW; x++)
                 {
-                    Span<Rgb24> row = acc.GetRowSpan(y);
-                    for (int x = 0; x < newW; x++)
-                    {
-                        Rgb24 p = row[x];
-                        tensor[0, 0, y, x] = p.B;   // channel 0 — B
-                        tensor[0, 1, y, x] = p.G;   // channel 1 — G
-                        tensor[0, 2, y, x] = p.R;   // channel 2 — R
-                    }
+                    Rgb24 p = row[x];
+                    tensor[0, 0, y, x] = p.B;   // channel 0 — B
+                    tensor[0, 1, y, x] = p.G;   // channel 1 — G
+                    tensor[0, 2, y, x] = p.R;   // channel 2 — R
                 }
-            });
+            }
         }
 
         (int[] dims, float[] data) = RunRaw(tensor);

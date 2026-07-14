@@ -1,7 +1,6 @@
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Detectors;
 using PredictiveCoding.Vision.Tracking;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace PredictiveCoding.Vision.ReId;
 
@@ -39,7 +38,7 @@ public sealed class ReidPeopleCounter
 
     /// <summary>Advances by one frame: tracks the detections, then embeds and
     /// re-identifies each newly confirmed track. Returns the confirmed visible tracks.</summary>
-    public IReadOnlyList<Track> Update(Image<Rgb24> frame, IReadOnlyList<Detection> detections)
+    public IReadOnlyList<Track> Update(RgbImage frame, IReadOnlyList<Detection> detections)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(detections);

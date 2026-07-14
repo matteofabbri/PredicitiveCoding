@@ -25,7 +25,7 @@
     <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260602" />
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260602" />
     <PackageReference Include="Parquet.Net" Version="6.0.3" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
     <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
     <PackageReference Include="VersOne.Epub" Version="3.3.6" />
     <PackageReference Include="YoutubeExplode" Version="6.6.0" />
@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Imaging\PredictiveCoding.Imaging.csproj" />
   </ItemGroup>
 
   <!-- Offline language-detection assets. langdetect.bin: model extracted from Catalyst

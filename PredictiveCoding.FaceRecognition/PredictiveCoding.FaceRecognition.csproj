@@ -6,8 +6,6 @@
     <Nullable>enable</Nullable>
     <RootNamespace>PredictiveCoding.FaceRecognition</RootNamespace>
     <AssemblyName>PredictiveCoding.FaceRecognition</AssemblyName>
-    <!-- NU1902: moderate ImageSharp advisory (GHSA-rxmq-m78w-7wmc) still open on the 3.1.x line; we only decode trusted dataset images. -->
-    <NoWarn>$(NoWarn);NU1902</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,11 +13,11 @@
     <ProjectReference Include="..\PredictiveCoding.Expanded\PredictiveCoding.Expanded.csproj" />
     <!-- In-house ONNX executor: lets the detectors run without ONNX Runtime (opt-in flag). -->
     <ProjectReference Include="..\PredictiveCoding.Onnx\PredictiveCoding.Onnx.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Imaging\PredictiveCoding.Imaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.26.0" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
   </ItemGroup>
 
 </Project>

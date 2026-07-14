@@ -1,8 +1,7 @@
 using System.Diagnostics;
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Detectors;
 using PredictiveCoding.Vision.Tracking;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace PredictiveCoding.Vision.Runtime;
 
@@ -60,7 +59,7 @@ public sealed class PeopleCountingPipeline : IDisposable
 
     /// <summary>Processes a single frame: detects on every N-th call, always tracks,
     /// and returns the per-frame result. The frame is not disposed.</summary>
-    public PipelineResult Process(Image<Rgb24> frame)
+    public PipelineResult Process(RgbImage frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         if (!_clock.IsRunning) _clock.Start();
@@ -82,19 +81,19 @@ public sealed class PeopleCountingPipeline : IDisposable
     /// on a background thread decoupled from inference; frames the inference loop cannot
     /// keep up with are dropped. Every consumed frame is disposed.</summary>
     public void RunBlocking(
-        IEnumerable<Image<Rgb24>> frames,
+        IEnumerable<RgbImage> frames,
         Action<PipelineResult>? onResult = null,
         CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(frames);
-        using var buffer = new LatestFrameBuffer<Image<Rgb24>>(onDrop: static f => f.Dispose());
+        using var buffer = new LatestFrameBuffer<RgbImage>(onDrop: static f => f.Dispose());
         bool producerDone = false;
 
         var producer = Task.Run(() =>
         {
             try
             {
-                foreach (Image<Rgb24> f in frames)
+                foreach (RgbImage f in frames)
                 {
                     if (cancel.IsCancellationRequested) { f.Dispose(); break; }
                     buffer.Publish(f);
@@ -105,7 +104,7 @@ public sealed class PeopleCountingPipeline : IDisposable
 
         while (!cancel.IsCancellationRequested)
         {
-            if (buffer.TryTake(out Image<Rgb24>? frame))
+            if (buffer.TryTake(out RgbImage? frame))
             {
                 PipelineResult result = Process(frame);
                 frame.Dispose();

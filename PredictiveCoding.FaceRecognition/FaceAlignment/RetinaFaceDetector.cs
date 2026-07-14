@@ -1,9 +1,7 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Onnx;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 using OnnxTensor = PredictiveCoding.Onnx.Tensor;
 
 namespace PredictiveCoding.FaceRecognition.FaceAlignment;
@@ -62,7 +60,7 @@ public sealed class RetinaFaceDetector : IDisposable
     /// </summary>
     public FaceDetection? Detect(string imagePath)
     {
-        using Image<Rgb24> img = Image.Load<Rgb24>(imagePath);
+        using RgbImage img = RgbImage.Load(imagePath);
         return Detect(img);
     }
 
@@ -70,7 +68,7 @@ public sealed class RetinaFaceDetector : IDisposable
     /// Returns the highest-confidence face in <paramref name="image"/>, or <see langword="null"/> if none found.
     /// The method does NOT dispose <paramref name="image"/>.
     /// </summary>
-    public FaceDetection? Detect(Image<Rgb24> image)
+    public FaceDetection? Detect(RgbImage image)
     {
         List<FaceDetection> all = DetectList(image);
         return all.Count > 0 ? all[0] : null;   // candidates are sorted highest-confidence first
@@ -81,9 +79,9 @@ public sealed class RetinaFaceDetector : IDisposable
     /// confidence first), after NMS — the basis for face/head people counting.
     /// The method does NOT dispose <paramref name="image"/>.
     /// </summary>
-    public IReadOnlyList<FaceDetection> DetectAll(Image<Rgb24> image) => DetectList(image);
+    public IReadOnlyList<FaceDetection> DetectAll(RgbImage image) => DetectList(image);
 
-    private List<FaceDetection> DetectList(Image<Rgb24> image)
+    private List<FaceDetection> DetectList(RgbImage image)
     {
         EnsureLoaded();
 
@@ -93,22 +91,19 @@ public sealed class RetinaFaceDetector : IDisposable
 
         // Build NCHW float32 tensor: (R−127.5)/128, (G−127.5)/128, (B−127.5)/128
         var tensor = new DenseTensor<float>([1, 3, InputSize, InputSize]);
-        using (var resized = image.Clone(ctx => ctx.Resize(InputSize, InputSize)))
+        using (RgbImage resized = image.Resize(InputSize, InputSize))
         {
-            resized.ProcessPixelRows(acc =>
+            for (int y = 0; y < InputSize; y++)
             {
-                for (int y = 0; y < InputSize; y++)
+                Span<Rgb24> row = resized.GetRowSpan(y);
+                for (int x = 0; x < InputSize; x++)
                 {
-                    Span<Rgb24> row = acc.GetRowSpan(y);
-                    for (int x = 0; x < InputSize; x++)
-                    {
-                        Rgb24 p = row[x];
-                        tensor[0, 0, y, x] = (p.R - 127.5f) / 128f;
-                        tensor[0, 1, y, x] = (p.G - 127.5f) / 128f;
-                        tensor[0, 2, y, x] = (p.B - 127.5f) / 128f;
-                    }
+                    Rgb24 p = row[x];
+                    tensor[0, 0, y, x] = (p.R - 127.5f) / 128f;
+                    tensor[0, 1, y, x] = (p.G - 127.5f) / 128f;
+                    tensor[0, 2, y, x] = (p.B - 127.5f) / 128f;
                 }
-            });
+            }
         }
 
         return ParseAndDecodeAll(RunRaw(tensor), scaleX, scaleY);

@@ -1,5 +1,4 @@
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using PredictiveCoding.Imaging;
 
 namespace PredictiveCoding.FaceRecognition.FaceAlignment;
 
@@ -34,7 +33,7 @@ public static class FaceAligner
     /// (left_eye, right_eye, nose, left_mouth, right_mouth).
     /// </param>
     /// <param name="outSize">Output side length in pixels (112 for ArcFace).</param>
-    public static Image<Rgb24> AlignFace(Image<Rgb24> image, float[] landmarks, int outSize = 112)
+    public static RgbImage AlignFace(RgbImage image, float[] landmarks, int outSize = 112)
     {
         // Source landmarks (detected, original image coords)
         float[] srcX = [landmarks[0], landmarks[2], landmarks[4], landmarks[6], landmarks[8]];
@@ -59,31 +58,25 @@ public static class FaceAligner
         int srcW = image.Width;
         int srcH = image.Height;
         var src = new Rgb24[srcH * srcW];
-        image.ProcessPixelRows(acc =>
-        {
-            for (int r = 0; r < srcH; r++)
-                acc.GetRowSpan(r).CopyTo(src.AsSpan(r * srcW, srcW));
-        });
+        for (int r = 0; r < srcH; r++)
+            image.GetRowSpan(r).CopyTo(src.AsSpan(r * srcW, srcW));
 
         // Inverse warp: for each output pixel, compute source coordinates and sample
-        var aligned = new Image<Rgb24>(outSize, outSize);
-        aligned.ProcessPixelRows(acc =>
+        var aligned = new RgbImage(outSize, outSize);
+        for (int yd = 0; yd < outSize; yd++)
         {
-            for (int yd = 0; yd < outSize; yd++)
-            {
-                // Pre-compute row constants (as xd varies linearly)
-                float xs0 = ib * yd + itx;   // xs when xd=0
-                float ys0 = ia * yd + ity;    // ys when xd=0
+            // Pre-compute row constants (as xd varies linearly)
+            float xs0 = ib * yd + itx;   // xs when xd=0
+            float ys0 = ia * yd + ity;    // ys when xd=0
 
-                Span<Rgb24> row = acc.GetRowSpan(yd);
-                for (int xd = 0; xd < outSize; xd++)
-                {
-                    float xs = ia * xd + xs0;
-                    float ys = -ib * xd + ys0;
-                    row[xd] = BilinearSample(src, srcW, srcH, xs, ys);
-                }
+            Span<Rgb24> row = aligned.GetRowSpan(yd);
+            for (int xd = 0; xd < outSize; xd++)
+            {
+                float xs = ia * xd + xs0;
+                float ys = -ib * xd + ys0;
+                row[xd] = BilinearSample(src, srcW, srcH, xs, ys);
             }
-        });
+        }
 
         return aligned;
     }

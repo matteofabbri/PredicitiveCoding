@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PredictiveCoding.Imaging</RootNamespace>
+    <AssemblyName>PredictiveCoding.Imaging</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Codec layer only: StbImageSharp/StbImageWriteSharp are pure-C# public-domain
+       ports of stb_image (no native binaries, no licence gate). Everything else
+       (pixel type, resize, crop, grayscale, GIF/Netpbm) is in-house. -->
+  <ItemGroup>
+    <PackageReference Include="StbImageSharp" Version="2.30.15" />
+    <PackageReference Include="StbImageWriteSharp" Version="1.16.7" />
+  </ItemGroup>
+
+</Project>

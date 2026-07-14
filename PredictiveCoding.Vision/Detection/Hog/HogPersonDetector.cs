@@ -1,6 +1,4 @@
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using PredictiveCoding.Imaging;
 
 namespace PredictiveCoding.Vision.Detectors;
 
@@ -48,7 +46,7 @@ public sealed class HogPersonDetector : IPersonDetector
         _nmsIou = nmsIou;
     }
 
-    public IReadOnlyList<Detection> Detect(Image<Rgb24> frame)
+    public IReadOnlyList<Detection> Detect(RgbImage frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         var raw = new List<Detection>();
@@ -59,7 +57,7 @@ public sealed class HogPersonDetector : IPersonDetector
             int sh = (int)(frame.Height / scale);
             if (sw < _hog.WindowWidth || sh < _hog.WindowHeight) break;
 
-            Image<Rgb24> work = scale == 1f ? frame : frame.Clone(c => c.Resize(sw, sh));
+            RgbImage work = scale == 1f ? frame : frame.Resize(sw, sh);
             try
             {
                 for (int y = 0; y + _hog.WindowHeight <= sh; y += _stride)

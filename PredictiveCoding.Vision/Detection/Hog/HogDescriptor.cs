@@ -1,6 +1,5 @@
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using System.Drawing;
+using PredictiveCoding.Imaging;
 
 namespace PredictiveCoding.Vision.Detectors;
 
@@ -107,7 +106,7 @@ public sealed class HogDescriptor
 
     /// <summary>HOG of the window whose top-left is (<paramref name="x0"/>,<paramref name="y0"/>)
     /// in <paramref name="image"/> (no resizing; the window must fit).</summary>
-    public float[] FromWindow(Image<Rgb24> image, int x0, int y0)
+    public float[] FromWindow(RgbImage image, int x0, int y0)
     {
         ArgumentNullException.ThrowIfNull(image);
         var gray = new float[WindowWidth * WindowHeight];
@@ -122,15 +121,13 @@ public sealed class HogDescriptor
 
     /// <summary>HOG of an arbitrary box, cropped and resized to the detection window —
     /// used to turn a teacher's detection into a training sample.</summary>
-    public float[] FromCrop(Image<Rgb24> image, Rectangle box)
+    public float[] FromCrop(RgbImage image, Rectangle box)
     {
         ArgumentNullException.ThrowIfNull(image);
         var rect = Rectangle.Intersect(box, image.Bounds);
         if (rect.Width < 1 || rect.Height < 1) return new float[Dimension];
 
-        using Image<Rgb24> crop = image.Clone(ctx => ctx
-            .Crop(rect)
-            .Resize(WindowWidth, WindowHeight));
+        using RgbImage crop = image.Crop(rect).Resize(WindowWidth, WindowHeight);
 
         var gray = new float[WindowWidth * WindowHeight];
         for (int y = 0; y < WindowHeight; y++)

@@ -1,6 +1,5 @@
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+using System.Drawing;
+using PredictiveCoding.Imaging;
 
 namespace PredictiveCoding.FaceRecognition;
 
@@ -31,25 +30,12 @@ public static class FaceDescriptor
     /// </summary>
     public static byte[] LoadPixels(string imagePath)
     {
-        using Image<L8> image = Image.Load<L8>(imagePath);
+        using RgbImage image = RgbImage.Load(imagePath);
         int side = Math.Max(1, (int)(Math.Min(image.Width, image.Height) * CropFraction));
         int x0 = (image.Width - side) / 2;
         int y0 = (image.Height - side) / 2;
-        image.Mutate(ctx => ctx
-            .Crop(new Rectangle(x0, y0, side, side))
-            .Resize(Size, Size));
-
-        var gray = new byte[Size * Size];
-        image.ProcessPixelRows(accessor =>
-        {
-            for (int y = 0; y < Size; y++)
-            {
-                Span<L8> row = accessor.GetRowSpan(y);
-                for (int x = 0; x < Size; x++)
-                    gray[(y * Size) + x] = row[x].PackedValue;
-            }
-        });
-        return gray;
+        using RgbImage face = image.Crop(new Rectangle(x0, y0, side, side)).Resize(Size, Size);
+        return face.ToGray();
     }
 
     /// <summary>

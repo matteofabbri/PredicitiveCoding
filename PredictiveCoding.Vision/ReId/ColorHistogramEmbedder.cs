@@ -1,6 +1,5 @@
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Detectors;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace PredictiveCoding.Vision.ReId;
 
@@ -32,7 +31,7 @@ public sealed class ColorHistogramEmbedder : IAppearanceEmbedder
         _centralCrop = centralCrop;
     }
 
-    public float[] Embed(Image<Rgb24> frame, Detection box)
+    public float[] Embed(RgbImage frame, Detection box)
     {
         ArgumentNullException.ThrowIfNull(frame);
         var hist = new float[_bins * 3];

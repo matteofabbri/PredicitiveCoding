@@ -14,7 +14,7 @@ public enum DataSourceKind
     Audio,
     /// <summary>Video files via OpenCvSharp.</summary>
     Video,
-    /// <summary>Still images via SixLabors.ImageSharp.</summary>
+    /// <summary>Still images via the in-house PredictiveCoding.Imaging.</summary>
     Image,
     /// <summary>Animated images (GIF/APNG) via ImageSharp.</summary>
     AnimatedImage,

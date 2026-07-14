@@ -1,6 +1,5 @@
 using PredictiveCoding.FaceRecognition.FaceAlignment;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using PredictiveCoding.Imaging;
 
 namespace PredictiveCoding.Vision.Detectors;
 
@@ -22,7 +21,7 @@ public sealed class FaceCountDetector : IPersonDetector
     public FaceCountDetector(string modelsDir) => _detector = new RetinaFaceDetector(modelsDir);
 
     /// <inheritdoc />
-    public IReadOnlyList<Detection> Detect(Image<Rgb24> frame)
+    public IReadOnlyList<Detection> Detect(RgbImage frame)
     {
         IReadOnlyList<FaceDetection> faces = _detector.DetectAll(frame);
         var result = new List<Detection>(faces.Count);

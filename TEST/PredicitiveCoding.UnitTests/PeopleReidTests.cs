@@ -1,8 +1,7 @@
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Detectors;
 using PredictiveCoding.Vision.ReId;
 using PredictiveCoding.Vision.Tracking;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace PredictiveCoding.Vision.Tests;
@@ -19,9 +18,9 @@ public class PeopleReidTests
         => new(x1, y1, x2, y2, 0.9f, "person");
 
     // A frame (black background) with each person's box filled with a solid colour.
-    private static Image<Rgb24> Frame(int w, int h, params (Rgb24 Color, Detection Box)[] people)
+    private static RgbImage Frame(int w, int h, params (Rgb24 Color, Detection Box)[] people)
     {
-        var img = new Image<Rgb24>(w, h);
+        var img = new RgbImage(w, h);
         foreach (var (color, b) in people)
             for (int y = (int)b.Y1; y < (int)b.Y2; y++)
                 for (int x = (int)b.X1; x < (int)b.X2; x++)
@@ -84,7 +83,7 @@ public class PeopleReidTests
         Assert.True(counter.CurrentCount >= 1);
 
         // Person leaves for longer than maxAge → its track retires.
-        Feed(counter, 5, () => new Image<Rgb24>(640, 480), []);
+        Feed(counter, 5, () => new RgbImage(640, 480), []);
         Assert.Equal(0, counter.CurrentCount);
 
         // Same red person reappears elsewhere → fresh track id, but re-identified.
@@ -93,7 +92,7 @@ public class PeopleReidTests
         Assert.Equal(1, counter.UniquePeople);   // still one distinct person
 
         // A genuinely different (blue) person → distinct.
-        Feed(counter, 5, () => new Image<Rgb24>(640, 480), []);
+        Feed(counter, 5, () => new RgbImage(640, 480), []);
         var blueC = Box(200, 300, 250, 400);
         Feed(counter, 4, () => Frame(640, 480, (Blue, blueC)), [blueC]);
         Assert.Equal(2, counter.UniquePeople);
@@ -115,11 +114,11 @@ public class PeopleReidTests
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static void Feed(ReidPeopleCounter counter, int frames, Func<Image<Rgb24>> makeFrame, Detection[] dets)
+    private static void Feed(ReidPeopleCounter counter, int frames, Func<RgbImage> makeFrame, Detection[] dets)
     {
         for (int i = 0; i < frames; i++)
         {
-            using Image<Rgb24> f = makeFrame();
+            using RgbImage f = makeFrame();
             counter.Update(f, dets);
         }
     }

@@ -1,12 +1,11 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Data.Images;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using PredictiveCoding.Imaging;
 
 namespace PredicitiveCoding.UnitTests;
 
 /// <summary>
-/// Round-trip tests for the ImageSharp loader: write a PNG (lossless) and decode
+/// Round-trip tests for the image loader: write a PNG (lossless) and decode
 /// it back, asserting shape, channels, value range and RGB ordering. Offline.
 /// </summary>
 public sealed class ImagesTests : IDisposable
@@ -23,7 +22,7 @@ public sealed class ImagesTests : IDisposable
     private string WritePng(int width, int height, Rgb24 color)
     {
         string path = Path.Combine(_tmp, $"{Guid.NewGuid():N}.png");
-        using var image = new Image<Rgb24>(width, height, color);
+        using var image = new RgbImage(width, height, color);
         image.SaveAsPng(path);
         return path;
     }

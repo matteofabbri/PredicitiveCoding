@@ -1,9 +1,8 @@
+using System.Drawing;
 using PredictiveCoding.FaceRecognition;
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Capture;
 using PredictiveCoding.Vision.Detectors;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DetectorDistiller
@@ -66,7 +65,7 @@ using var faceDetector = new FaceCountDetector(modelsDir);
 using var arcFace = new ArcFaceOnnxEmbedder(modelsDir, useAlignment: false);
 
 int frameNo = 0;
-foreach (Image<Rgb24> frame in Frames(source, maxFrames))
+foreach (RgbImage frame in Frames(source, maxFrames))
 {
     using (frame)
     {
@@ -132,7 +131,7 @@ return 0;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-static IReadOnlyList<Detection> SafeDetect(IPersonDetector detector, Image<Rgb24> frame)
+static IReadOnlyList<Detection> SafeDetect(IPersonDetector detector, RgbImage frame)
 {
     try { return detector.Detect(frame); }
     catch (Exception ex) { Console.WriteLine($"  [warn] {detector.Name}: {ex.Message}"); return []; }
@@ -146,7 +145,7 @@ static Rectangle ToRect(Detection d)
     return new Rectangle(x, y, w, h);
 }
 
-static float[]? EmbedFace(ArcFaceOnnxEmbedder embedder, Image<Rgb24> frame, Rectangle box, string scratchDir)
+static float[]? EmbedFace(ArcFaceOnnxEmbedder embedder, RgbImage frame, Rectangle box, string scratchDir)
 {
     Rectangle rect = Rectangle.Intersect(box, frame.Bounds);
     if (rect.Width < 4 || rect.Height < 4) return null;
@@ -154,7 +153,7 @@ static float[]? EmbedFace(ArcFaceOnnxEmbedder embedder, Image<Rgb24> frame, Rect
     string tmp = Path.Combine(scratchDir, $"_face_{Guid.NewGuid():N}.png");
     try
     {
-        using (Image<Rgb24> crop = frame.Clone(ctx => ctx.Crop(rect)))
+        using (RgbImage crop = frame.Crop(rect))
             crop.SaveAsPng(tmp);
         float[] e = embedder.Embed(tmp);
         return e.Length == embedder.Dimension ? e : null;
@@ -163,7 +162,7 @@ static float[]? EmbedFace(ArcFaceOnnxEmbedder embedder, Image<Rgb24> frame, Rect
     finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best effort */ } }
 }
 
-static IEnumerable<Image<Rgb24>> Frames(string source, int max)
+static IEnumerable<RgbImage> Frames(string source, int max)
 {
     int n = 0;
     if (Directory.Exists(source))
@@ -173,8 +172,8 @@ static IEnumerable<Image<Rgb24>> Frames(string source, int max)
         {
             if (n >= max) yield break;
             if (!exts.Contains(Path.GetExtension(file).ToLowerInvariant())) continue;
-            Image<Rgb24>? img = null;
-            try { img = Image.Load<Rgb24>(file); } catch { img = null; }
+            RgbImage? img = null;
+            try { img = RgbImage.Load(file); } catch { img = null; }
             if (img is null) continue;
             n++;
             yield return img;
@@ -182,7 +181,7 @@ static IEnumerable<Image<Rgb24>> Frames(string source, int max)
     }
     else
     {
-        foreach (Image<Rgb24> frame in FrameStream.Read(source))
+        foreach (RgbImage frame in FrameStream.Read(source))
         {
             if (n >= max) { frame.Dispose(); yield break; }
             n++;

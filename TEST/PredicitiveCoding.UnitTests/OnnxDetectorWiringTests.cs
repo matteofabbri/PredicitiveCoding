@@ -2,9 +2,8 @@ using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using PredictiveCoding.FaceRecognition;
 using PredictiveCoding.FaceRecognition.FaceAlignment;
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Detectors;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using OnnxTensor = PredictiveCoding.Onnx.Tensor;
 
 namespace PredictiveCoding.Onnx.Tests;
@@ -137,9 +136,9 @@ public class OnnxDetectorWiringTests
         }
     }
 
-    private static Image<Rgb24> Gradient(int w, int h)
+    private static RgbImage Gradient(int w, int h)
     {
-        var img = new Image<Rgb24>(w, h);
+        var img = new RgbImage(w, h);
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
                 img[x, y] = new Rgb24((byte)(x * 255 / w), (byte)(y * 255 / h), 128);

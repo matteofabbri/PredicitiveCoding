@@ -7,8 +7,7 @@ using PredictiveCoding.Data.Audio;
 using PredictiveCoding.Data.Images;
 using PredictiveCoding.Data.Sql;
 using PredictiveCoding.Data.Tabular;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using PredictiveCoding.Imaging;
 
 namespace PredicitiveCoding.UnitTests;
 
@@ -212,7 +211,7 @@ public sealed class DataIntegrationTests : IDisposable
         const int width = 3, height = 2;
 
         string path = Temp("pixels.png");
-        using (var image = new Image<Rgb24>(width, height))
+        using (var image = new RgbImage(width, height))
         {
             for (int y = 0; y < height; y++)
                 for (int x = 0; x < width; x++)
@@ -242,7 +241,7 @@ public sealed class DataIntegrationTests : IDisposable
     public void Image_DecodeModesCompose_NormalizeGrayscaleResize()
     {
         string path = Temp("solid.png");
-        using (var image = new Image<Rgb24>(16, 12, new Rgb24(128, 128, 128)))
+        using (var image = new RgbImage(16, 12, new Rgb24(128, 128, 128)))
             image.SaveAsPng(path);
 
         // Normalised RGB at native size.

@@ -1,5 +1,5 @@
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using System.Drawing;
+using PredictiveCoding.Imaging;
 
 namespace PredictiveCoding.Vision.Detectors;
 
@@ -26,14 +26,14 @@ public sealed class HogTrainer
     }
 
     /// <summary>Adds a positive sample from a teacher detection box.</summary>
-    public void AddPositive(Image<Rgb24> image, Rectangle box)
+    public void AddPositive(RgbImage image, Rectangle box)
     {
         _samples.Add((_hog.FromCrop(image, box), +1));
         PositiveCount++;
     }
 
     /// <summary>Adds a negative sample from a background box.</summary>
-    public void AddNegative(Image<Rgb24> image, Rectangle box)
+    public void AddNegative(RgbImage image, Rectangle box)
     {
         _samples.Add((_hog.FromCrop(image, box), -1));
         NegativeCount++;
@@ -52,7 +52,7 @@ public sealed class HogTrainer
     /// <summary>Samples <paramref name="count"/> random background windows from
     /// <paramref name="image"/> that do not overlap any box in <paramref name="avoid"/>
     /// (IoU ≤ <paramref name="maxIou"/>), adding them as negatives. Returns the number added.</summary>
-    public int AddRandomNegatives(Image<Rgb24> image, IReadOnlyList<Rectangle> avoid,
+    public int AddRandomNegatives(RgbImage image, IReadOnlyList<Rectangle> avoid,
         int count, Random rng, float maxIou = 0.1f, int maxAttempts = 0)
     {
         ArgumentNullException.ThrowIfNull(image);

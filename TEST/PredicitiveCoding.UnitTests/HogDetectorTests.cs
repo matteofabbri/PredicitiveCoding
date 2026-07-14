@@ -1,6 +1,6 @@
+using System.Drawing;
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Detectors;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace PredictiveCoding.Vision.Tests;
@@ -12,9 +12,9 @@ public class HogDetectorTests
     private static readonly Rgb24 Black = new(0, 0, 0);
     private static readonly Rgb24 White = new(255, 255, 255);
 
-    private static Image<Rgb24> Fill(int w, int h, Func<int, int, Rgb24> f)
+    private static RgbImage Fill(int w, int h, Func<int, int, Rgb24> f)
     {
-        var img = new Image<Rgb24>(w, h);
+        var img = new RgbImage(w, h);
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
                 img[x, y] = f(x, y);

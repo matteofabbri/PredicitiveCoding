@@ -1,8 +1,7 @@
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision.Detectors;
 using PredictiveCoding.Vision.Runtime;
 using PredictiveCoding.Vision.Tracking;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace PredictiveCoding.Vision.Tests;
@@ -18,7 +17,7 @@ public class PeoplePipelineTests
         private readonly IReadOnlyList<Detection> _dets = dets;
         public int Calls { get; private set; }
         public string Name => "fake";
-        public IReadOnlyList<Detection> Detect(Image<Rgb24> frame) { Calls++; return _dets; }
+        public IReadOnlyList<Detection> Detect(RgbImage frame) { Calls++; return _dets; }
         public void Dispose() { }
     }
 
@@ -52,7 +51,7 @@ public class PeoplePipelineTests
     {
         var detector = new FakeDetector(Person());
         using var pipe = new PeopleCountingPipeline(detector, new SortTracker(minHits: 1), detectEveryN: 3);
-        using var frame = new Image<Rgb24>(64, 48);
+        using var frame = new RgbImage(64, 48);
 
         for (int i = 0; i < 9; i++) pipe.Process(frame);
 
@@ -68,7 +67,7 @@ public class PeoplePipelineTests
     {
         var detector = new FakeDetector(Person());
         using var pipe = new PeopleCountingPipeline(detector, new SortTracker(minHits: 1), detectEveryN: 2);
-        using var frame = new Image<Rgb24>(64, 48);
+        using var frame = new RgbImage(64, 48);
 
         var r0 = pipe.Process(frame);
         var r1 = pipe.Process(frame);
@@ -94,7 +93,7 @@ public class PeoplePipelineTests
         var detector = new FakeDetector(Person());
         using var pipe = new PeopleCountingPipeline(detector, new SortTracker(minHits: 1), detectEveryN: 1);
 
-        var frames = Enumerable.Range(0, 8).Select(_ => new Image<Rgb24>(32, 24)).ToList();
+        var frames = Enumerable.Range(0, 8).Select(_ => new RgbImage(32, 24)).ToList();
         int results = 0;
         pipe.RunBlocking(frames, _ => results++);
 

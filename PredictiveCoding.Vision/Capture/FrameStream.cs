@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using OpenCvSharp;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using PredictiveCoding.Imaging;
 
 namespace PredictiveCoding.Vision.Capture;
 
@@ -14,13 +13,13 @@ namespace PredictiveCoding.Vision.Capture;
 public static class FrameStream
 {
     /// <summary>
-    /// Opens <paramref name="source"/> and streams frames as <see cref="Image{Rgb24}"/>.
+    /// Opens <paramref name="source"/> and streams frames as <see cref="RgbImage"/>.
     /// For a webcam or network camera the sequence runs until <paramref name="cancel"/>
     /// is requested or the device stops returning frames; for a file it ends at EOF.
     /// Only every <paramref name="frameStride"/>-th frame is yielded. The caller owns
     /// (and must dispose) each returned image.
     /// </summary>
-    public static IEnumerable<Image<Rgb24>> Read(
+    public static IEnumerable<RgbImage> Read(
         string source, int frameStride = 1, CancellationToken cancel = default)
     {
         if (frameStride < 1) frameStride = 1;
@@ -42,7 +41,7 @@ public static class FrameStream
     }
 
     /// <summary>Grabs a single frame from <paramref name="source"/>, or <c>null</c> if none is available.</summary>
-    public static Image<Rgb24>? GrabOne(string source)
+    public static RgbImage? GrabOne(string source)
     {
         using VideoCapture capture = OpenSource(source);
         if (!capture.IsOpened()) return null;
@@ -58,8 +57,8 @@ public static class FrameStream
             ? new VideoCapture(deviceIndex)
             : new VideoCapture(source);
 
-    // Copies a continuous 8-bit, 3-channel RGB Mat into an ImageSharp image.
-    private static Image<Rgb24> ToImage(Mat rgb)
+    // Copies a continuous 8-bit, 3-channel RGB Mat into an in-house RGB image.
+    private static RgbImage ToImage(Mat rgb)
     {
         int w = rgb.Width, h = rgb.Height;
         Mat continuous = rgb.IsContinuous() ? rgb : rgb.Clone();
@@ -68,7 +67,7 @@ public static class FrameStream
             int length = checked((int)(continuous.Total() * continuous.ElemSize())); // w*h*3
             byte[] buffer = new byte[length];
             Marshal.Copy(continuous.Data, buffer, 0, length);
-            return Image.LoadPixelData<Rgb24>(buffer, w, h);
+            return RgbImage.FromPixelData(buffer, w, h);
         }
         finally
         {

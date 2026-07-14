@@ -1,9 +1,8 @@
+using PredictiveCoding.Imaging;
 using PredictiveCoding.Vision;
 using PredictiveCoding.Vision.Capture;
 using PredictiveCoding.Vision.Detectors;
 using PredictiveCoding.Vision.Tracking;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace PredictiveCoding.Main.Demos;
 
@@ -77,7 +76,7 @@ public static class PeopleCountingDemo
 
         try
         {
-            foreach (Image<Rgb24> img in FrameStream.Read(source, stride))
+            foreach (RgbImage img in FrameStream.Read(source, stride))
             {
                 using (img)
                 {

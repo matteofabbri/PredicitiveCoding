@@ -6,8 +6,6 @@
     <Nullable>enable</Nullable>
     <RootNamespace>PredictiveCoding.Vision</RootNamespace>
     <AssemblyName>PredictiveCoding.Vision</AssemblyName>
-    <!-- NU1902: moderate ImageSharp advisory (GHSA-rxmq-m78w-7wmc) still open on the 3.1.x line; we only decode trusted camera/video frames. -->
-    <NoWarn>$(NoWarn);NU1902</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,13 +13,13 @@
     <ProjectReference Include="..\PredictiveCoding.FaceRecognition\PredictiveCoding.FaceRecognition.csproj" />
     <!-- In-house ONNX executor: lets YoloPersonDetector run without ONNX Runtime (opt-in flag). -->
     <ProjectReference Include="..\PredictiveCoding.Onnx\PredictiveCoding.Onnx.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Imaging\PredictiveCoding.Imaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.26.0" />
     <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260602" />
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260602" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
   </ItemGroup>
 
 </Project>
