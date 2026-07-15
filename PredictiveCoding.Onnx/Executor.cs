@@ -53,6 +53,12 @@ public static class Executor
         return outputs;
     }
 
+    /// <summary>Executes a single node on already-resolved inputs — the hook the save-time
+    /// constant folder (<see cref="GraphOptimizer"/>) shares with the graph walk, so folded
+    /// values are produced by exactly the kernels <see cref="Run"/> would use.</summary>
+    internal static Tensor[] ExecuteNode(OnnxNode node, Tensor[] inputs, long opset)
+        => Dispatch(node, inputs, opset);
+
     /// <summary>Look a value up in the environment, falling back to lazily converting an
     /// initializer of that name (cached in env so each weight converts once). Null if unknown.</summary>
     private static Tensor? Resolve(OnnxGraph graph, Dictionary<string, Tensor> env, string name)

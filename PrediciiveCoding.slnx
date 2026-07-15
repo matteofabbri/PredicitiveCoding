@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/tools/">
     <Project Path="tools/DetectorDistiller/DetectorDistiller.csproj" />
+    <Project Path="tools/OnnxPack/OnnxPack.csproj" />
   </Folder>
   <Project Path="PredicitiveCoding/PredictiveCoding.csproj" />
   <Project Path="PredictiveCoding.Expanded/PredictiveCoding.Expanded.csproj" />
