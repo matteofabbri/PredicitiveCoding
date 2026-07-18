@@ -54,8 +54,8 @@ public static class HtmlVisualizer
 <title>Thousand Brains</title>
 <style>
   :root {
-    --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3;
-    --dim: #8b949e; --accent: #58a6ff; --ok: #3fb950; --bad: #f85149;
+    --bg: #ffffff; --card: #f6f8fa; --border: #d0d7de; --text: #1f2328;
+    --dim: #656d76; --accent: #0969da; --ok: #1a7f37; --bad: #cf222e;
   }
   * { box-sizing: border-box; margin: 0; }
   body {
@@ -73,15 +73,15 @@ public static class HtmlVisualizer
   }
   h2 { font-size: 17px; font-weight: 600; margin-bottom: 14px; }
   .row { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
-  canvas { background: #010409; border: 1px solid var(--border); border-radius: 8px; }
+  canvas { background: #ffffff; border: 1px solid var(--border); border-radius: 8px; }
   .track { margin-bottom: 18px; }
   .track h3 { font-size: 13px; color: var(--dim); font-weight: 600; margin-bottom: 6px; }
-  .barwrap { background: #21262d; border-radius: 5px; height: 22px; width: 320px; overflow: hidden; }
+  .barwrap { background: #eaeef2; border-radius: 5px; height: 22px; width: 320px; overflow: hidden; }
   .bar { background: var(--accent); height: 100%; transition: width .25s; }
   .bar.locked { background: var(--ok); }
   .chips { margin-top: 6px; min-height: 24px; }
   .chip {
-    display: inline-block; background: #21262d; border: 1px solid var(--border);
+    display: inline-block; background: #eaeef2; border: 1px solid var(--border);
     border-radius: 999px; padding: 0 9px; margin: 2px 3px 0 0; font-size: 12px;
   }
   .chip.ok { border-color: var(--ok); color: var(--ok); }
@@ -89,7 +89,7 @@ public static class HtmlVisualizer
   .status.ok { color: var(--ok); }
   .controls { margin-top: 10px; display: flex; gap: 12px; align-items: center; }
   button {
-    background: #21262d; color: var(--text); border: 1px solid var(--border);
+    background: #f6f8fa; color: var(--text); border: 1px solid var(--border);
     border-radius: 6px; padding: 5px 14px; font-size: 14px; cursor: pointer;
   }
   button:hover { border-color: var(--accent); }
@@ -107,7 +107,7 @@ public static class HtmlVisualizer
   .mark.ok { color: var(--ok); } .mark.bad { color: var(--bad); }
   .readout { min-width: 220px; }
   .readout .lbl { color: var(--dim); font-size: 12px; margin: 10px 0 3px; }
-  .minibar { background: #21262d; border-radius: 4px; height: 12px; width: 200px; }
+  .minibar { background: #eaeef2; border-radius: 4px; height: 12px; width: 200px; }
   .minibar > div { background: var(--accent); height: 100%; border-radius: 4px; }
   .note { color: var(--dim); font-size: 13px; margin-top: 12px; }
   footer { max-width: 1100px; margin: 0 auto; color: var(--dim); font-size: 12px; }
@@ -124,7 +124,7 @@ const DATA = {{DATA_JSON}};
   document.title = DATA.title;
   document.getElementById('title').textContent = DATA.title;
   const app = document.getElementById('app');
-  const PALETTE = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff', '#39c5cf', '#ff7b72', '#7ee787'];
+  const PALETTE = ['#0969da', '#1a7f37', '#9a6700', '#cf222e', '#8250df', '#1b7c83', '#bc4c00', '#4d2d00'];
   const el = (tag, cls, parent) => {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -188,10 +188,10 @@ const DATA = {{DATA_JSON}};
         if (i === probe) {
           ctx.beginPath();
           ctx.arc(sx(p.x), sy(p.y), 14, 0, Math.PI * 2);
-          ctx.strokeStyle = '#e6edf3'; ctx.lineWidth = 2; ctx.stroke();
+          ctx.strokeStyle = '#1f2328'; ctx.lineWidth = 2; ctx.stroke();
         }
       });
-      ctx.fillStyle = '#8b949e'; ctx.font = '12px sans-serif';
+      ctx.fillStyle = '#656d76'; ctx.font = '12px sans-serif';
       ctx.fillText('landmarks of object #' + target.id + ' (colour = feature)', 12, 390);
     };
 
@@ -308,13 +308,13 @@ const DATA = {{DATA_JSON}};
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2;
+      ctx.strokeStyle = '#0969da'; ctx.lineWidth = 2;
       ctx.strokeRect(f.col * sc.stride * SCALE, f.row * sc.stride * SCALE,
         sc.patchSize * SCALE, sc.patchSize * SCALE);
 
       gctx.clearRect(0, 0, 64, 64);
       if (f.category >= sc.orientationBins) {
-        gctx.fillStyle = '#8b949e'; gctx.font = '12px sans-serif';
+        gctx.fillStyle = '#656d76'; gctx.font = '12px sans-serif';
         gctx.fillText('flat', 20, 36);
       } else {
         // The category is the dominant GRADIENT direction; the visible edge runs
@@ -323,7 +323,7 @@ const DATA = {{DATA_JSON}};
         gctx.beginPath();
         gctx.moveTo(32 - 24 * Math.cos(a), 32 - 24 * Math.sin(a));
         gctx.lineTo(32 + 24 * Math.cos(a), 32 + 24 * Math.sin(a));
-        gctx.strokeStyle = '#58a6ff'; gctx.lineWidth = 3; gctx.stroke();
+        gctx.strokeStyle = '#0969da'; gctx.lineWidth = 3; gctx.stroke();
       }
       shareBar.style.width = (100 * f.share) + '%';
       lumBar.style.width = (100 * f.luminance) + '%';
