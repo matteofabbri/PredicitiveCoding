@@ -110,11 +110,25 @@ public static class HtmlVisualizer
   .minibar { background: #eaeef2; border-radius: 4px; height: 12px; width: 200px; }
   .minibar > div { background: var(--accent); height: 100%; border-radius: 4px; }
   .note { color: var(--dim); font-size: 13px; margin-top: 12px; }
+  .explain {
+    color: var(--text); font-size: 14px; margin: 0 0 16px;
+    padding: 10px 14px; background: #ffffff; border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+  }
+  .intro { max-width: 1100px; margin: 0 auto 24px; color: var(--text); font-size: 15px; }
   footer { max-width: 1100px; margin: 0 auto; color: var(--dim); font-size: 12px; }
 </style>
 </head>
 <body>
 <header><h1 id="title"></h1><div class="subtitle">Many cortical columns, each modelling objects in its own reference frame, voting to a consensus.</div></header>
+<div class="intro">
+  The theory (Hawkins, "A Thousand Brains"): your neocortex is made of thousands of
+  near-identical <b>cortical columns</b>. Each one senses only a tiny patch of the world,
+  learns objects as little maps in its own reference frame — <i>which feature sits where</i> —
+  and they all continuously <b>vote</b> to agree on what they are looking at.
+  This page is that system actually running, in miniature: it learned a handful of toy
+  objects, and here it has to recognise one by touching it one landmark at a time.
+</div>
 <main id="app"></main>
 <footer>PredictiveCoding.Brain — Thousand Brains demo &middot; generated {{GENERATED_UTC}}</footer>
 <script>
@@ -144,6 +158,13 @@ const DATA = {{DATA_JSON}};
     const sec = el('section', null, app);
     el('h2', null, sec).textContent = 'Live episode — object #' + ep.targetId + ' presented to ' +
       '1 column vs ' + ep.columnsVoting + ' voting columns';
+    el('div', 'explain', sec).textContent =
+      'A recognition race. The dots on the left are the landmarks of the object being touched ' +
+      '(the ring is the one being sensed right now). Each touch is a clue: "feature X at place Y" ' +
+      'rules out every learned object that has no such landmark — so the green bar, the list of ' +
+      'suspects, shrinks. Top track: one column touching one landmark per step. Bottom track: ' +
+      ep.columnsVoting + ' columns touch ' + ep.columnsVoting + ' different landmarks at once and ' +
+      'keep only the suspects they ALL agree on — that vote is why they finish in a fraction of the steps.';
     const row = el('div', 'row', sec);
 
     const canvas = el('canvas', null, row);
@@ -213,11 +234,14 @@ const DATA = {{DATA_JSON}};
     };
 
     tickListeners.push(s => {
-      drawCloud(s);
-      drawTrack(tSingle, ep.singleSteps, s, 'steps');
-      drawTrack(tVoting, ep.votingRounds, s, 'rounds');
-      slider.value = s;
-      lbl.textContent = 'step ' + (s + 1) + ' / ' + maxStep;
+      // The shared clock also drives the (longer) sensor scan: this section
+      // freezes at its own last step instead of counting past it.
+      const cs = Math.min(s, maxStep - 1);
+      drawCloud(cs);
+      drawTrack(tSingle, ep.singleSteps, cs, 'steps');
+      drawTrack(tVoting, ep.votingRounds, cs, 'rounds');
+      slider.value = cs;
+      lbl.textContent = 'step ' + (cs + 1) + ' / ' + maxStep;
     });
     btn.textContent = '⏸';
   }
@@ -226,6 +250,11 @@ const DATA = {{DATA_JSON}};
   if (DATA.benchmark && DATA.benchmark.length) {
     const sec = el('section', null, app);
     el('h2', null, sec).textContent = 'Benchmark — accuracy and steps-to-recognise per condition';
+    el('div', 'explain', sec).textContent =
+      'The same race, repeated over many objects and probes, under four conditions: clean view, ' +
+      'part of the object hidden (occlusion), noisy sensors, and jittered positions. ' +
+      '"Acc" is how often the right object won; "steps" is how many touches it took. ' +
+      'The point to notice: voting does not buy accuracy — it buys SPEED (blue = fewer steps).';
     const table = el('table', null, sec);
     table.innerHTML = '<tr><th>condition</th><th>single acc</th><th>single steps</th>' +
       '<th>voting acc</th><th>voting steps</th></tr>';
@@ -252,6 +281,12 @@ const DATA = {{DATA_JSON}};
     const sec = el('section', null, app);
     el('h2', null, sec).textContent = 'Pose invariance — every object rotated ' + pi.thetaDeg +
       '° and translated (' + pi.dx + ', ' + pi.dy + ')';
+    el('div', 'explain', sec).textContent =
+      'Every learned object was rigidly moved (rotated + shifted), then shown again. ' +
+      'The recogniser that memorised absolute positions ("feature X at coordinates Y") fails: ' +
+      'all the coordinates changed. The one that memorised the DISTANCES between features still ' +
+      'wins: moving an object rigidly never changes its internal distances. That is what ' +
+      'displacement cells buy the brain.';
     const mkRow = (label, pick) => {
       el('div', 'lbl note', sec).textContent = label;
       const grid = el('div', 'posegrid', sec);
@@ -276,6 +311,12 @@ const DATA = {{DATA_JSON}};
     const sc = DATA.imageScan, SCALE = 4;
     const sec = el('section', null, app);
     el('h2', null, sec).textContent = 'Real-sensor scan — a patch sensor exploring an image';
+    el('div', 'explain', sec).textContent =
+      'The same machinery on real pixels. A small "eye" (a ' + sc.patchSize + '×' + sc.patchSize +
+      ' pixel patch, the blue square) walks across an actual image. At every stop it reports what ' +
+      'a column would receive: the dominant edge direction it sees (the glyph), how strongly ' +
+      'oriented the patch is (edge-energy share), and its brightness. This stream of ' +
+      '"feature at location" observations is exactly what the columns above consume.';
     const row = el('div', 'row', sec);
 
     const canvas = el('canvas', null, row);
