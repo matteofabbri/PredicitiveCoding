@@ -328,7 +328,14 @@ public static class ThousandBrainsDemo
 
         Console.WriteLine();
         Console.WriteLine($"  Visual demo written to  {path}");
+
+        // UseShellExecute hands the document to the shell ASYNCHRONOUSLY: if this
+        // process exits right away, the handoff can die before the browser claims
+        // the page (console apps vanish at end-of-Main). Hold the process open
+        // until the user is done looking.
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); } catch { }
+        Console.WriteLine("  Opening it in the browser — press ENTER to exit.");
+        Console.ReadLine();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
