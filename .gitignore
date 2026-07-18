@@ -364,3 +364,10 @@ FodyWeavers.xsd
 
 # Generated training-metrics output from the demo runs (TrainingConfig.CsvOutputPath)
 metrics.csv
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Downloaded datasets / model caches (fetched automatically at runtime,
+# never committed — regenerated on demand by the loaders/downloaders).
+# ─────────────────────────────────────────────────────────────────────────────
+cifar-10-data/
+*.tar.gz
