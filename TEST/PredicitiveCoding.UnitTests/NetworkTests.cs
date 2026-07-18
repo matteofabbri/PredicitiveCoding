@@ -314,4 +314,88 @@ public class NetworkTests : IDisposable
         };
         Assert.Throws<InvalidOperationException>(() => new Network(cfg, new Random(0)));
     }
+
+    // ── Mixed precision (A: inference · B: training) ──────────────────────────
+
+    [Fact]
+    public void InferGetTopMixed_MatchesFloatInference_WithinTolerance()
+    {
+        // A — after training in float, mixed-precision inference (Half weights,
+        // float accumulation) must reach essentially the same top latent.
+        using var net = Net();
+        var x = Input(0.5f, -0.2f, 0.9f, 0.1f);
+        var y = OneHot(1, size: 2);
+        for (int i = 0; i < 30; i++)
+            net.Learn(x, y, inferenceSteps: 10);
+
+        var topFloat = net.InferGetTop(x, inferenceSteps: 20, resetState: true);
+        var topMixed = net.InferGetTopMixed(x, inferenceSteps: 20, resetState: true);
+
+        Assert.Equal(topFloat.Length, topMixed.Length);
+        for (int i = 0; i < topFloat.Length; i++)
+        {
+            float tol = 5e-2f * (1f + MathF.Abs(topFloat[i]));   // entro la tolleranza di Half
+            Assert.True(MathF.Abs(topFloat[i] - topMixed[i]) <= tol,
+                $"i={i}: float={topFloat[i]}, mixed={topMixed[i]}");
+        }
+    }
+
+    [Fact]
+    public void LearnMixed_ConvergesOnSeparablePatterns()
+    {
+        // B — training with the mixed-precision forward (master weights in float32)
+        // still learns: the float predictor classifies the two patterns correctly.
+        var cfg = new NetworkConfig
+        {
+            Path               = Path.Combine(_tempDir, "mixed_converge"),
+            LayerSizes         = [4, 16, 2],
+            Activation         = ActivationType.Tanh,
+            StateLearningRate  = 0.2f,
+            WeightLearningRate = 0.05f,
+        };
+        using var net = new Network(cfg, new Random(0));
+
+        var x0 = Input(0f, 0f, 0f, 0f);
+        var x1 = Input(1f, 1f, 1f, 1f);
+        var y0 = OneHot(0, 2);
+        var y1 = OneHot(1, 2);
+
+        for (int i = 0; i < 200; i++)
+        {
+            net.LearnMixed(x0, y0, inferenceSteps: 10);
+            net.LearnMixed(x1, y1, inferenceSteps: 10);
+        }
+
+        Assert.Equal(0, net.Predict(x0, inferenceSteps: 20));
+        Assert.Equal(1, net.Predict(x1, inferenceSteps: 20));
+    }
+
+    [Fact]
+    public void PredictMixed_MatchesFloatPrediction()
+    {
+        // Phase 3 — mixed-precision classification must agree with the float
+        // classifier (and be correct) on trivially separable patterns.
+        var cfg = new NetworkConfig
+        {
+            Path               = Path.Combine(_tempDir, "predict_mixed"),
+            LayerSizes         = [4, 16, 2],
+            Activation         = ActivationType.Tanh,
+            StateLearningRate  = 0.2f,
+            WeightLearningRate = 0.05f,
+        };
+        using var net = new Network(cfg, new Random(0));
+
+        var x0 = Input(0f, 0f, 0f, 0f);
+        var x1 = Input(1f, 1f, 1f, 1f);
+        for (int i = 0; i < 200; i++)
+        {
+            net.Learn(x0, OneHot(0, 2), inferenceSteps: 10);
+            net.Learn(x1, OneHot(1, 2), inferenceSteps: 10);
+        }
+
+        Assert.Equal(net.Predict(x0, 20), net.PredictMixed(x0, 20));
+        Assert.Equal(net.Predict(x1, 20), net.PredictMixed(x1, 20));
+        Assert.Equal(0, net.PredictMixed(x0, 20));
+        Assert.Equal(1, net.PredictMixed(x1, 20));
+    }
 }

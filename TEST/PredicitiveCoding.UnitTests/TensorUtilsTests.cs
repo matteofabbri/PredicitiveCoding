@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using PredictiveCoding.Core;
 
 namespace PredicitiveCoding.UnitTests;
@@ -195,5 +196,74 @@ public class TensorUtilsTests
         Assert.Equal(0f, z[0], precision: 5);
         Assert.Equal(0.5f, z[1], precision: 5);
         Assert.Equal(1f, z[2], precision: 5);
+    }
+
+    // ── MatVecMulMixed (precisione mista: pesi Half, accumulo float) ───────────
+
+    [Fact]
+    public void MatVecMulMixed_MatchesFloatWithinTolerance()
+    {
+        // Stessi pesi in float e in Half; la versione mista deve coincidere con
+        // quella float entro la tolleranza di quantizzazione di Half (~0.1%).
+        float[] wData =
+        [
+             1.5f, -2.25f,  0.5f,  3.0f,
+            -1.0f,  0.75f,  2.5f, -0.5f,
+             0.25f, 1.25f, -3.5f,  2.0f,
+        ];
+        var wFloat = new DenseTensor<float>(wData, 3, 4);
+        var wHalf  = new DenseTensor<Half>(Array.ConvertAll(wData, x => (Half)x), 3, 4);
+        var v = new DenseTensor<float>([2f, -1f, 0.5f, 1f], 4);
+
+        var yFloat = TensorUtils.MatVecMul(wFloat, v);
+        var yMixed = TensorUtils.MatVecMulMixed(wHalf, v);
+
+        Assert.Equal(yFloat.Length, yMixed.Length);
+        for (int i = 0; i < yFloat.Length; i++)
+        {
+            float tol = 1e-2f * (1f + Math.Abs(yFloat[i]));   // ~1% relativo, robusto vicino a 0
+            Assert.True(Math.Abs(yFloat[i] - yMixed[i]) <= tol,
+                $"i={i}: float={yFloat[i]}, mixed={yMixed[i]}");
+        }
+    }
+
+    [Fact]
+    public void MatVecMulMixed_HalfWeightsUseHalfTheMemory()
+    {
+        // Il punto della precisione mista: i pesi Half occupano metà dei byte.
+        var wFloat = new DenseTensor<float>(64, 128);
+        var wHalf  = new DenseTensor<Half>(64, 128);
+
+        long floatBytes = (long)wFloat.Buffer.Length * sizeof(float);          // 4 byte/elem
+        long halfBytes  = (long)wHalf.Buffer.Length  * Unsafe.SizeOf<Half>();  // 2 byte/elem
+
+        Assert.Equal(2, Unsafe.SizeOf<Half>());
+        Assert.Equal(floatBytes / 2, halfBytes);
+    }
+
+    [Fact]
+    public void MatVecMulTMixed_MatchesFloatWithinTolerance()
+    {
+        // W^T @ v con pesi Half deve coincidere con la versione float entro Half.
+        float[] wData =
+        [
+             1.5f, -2.25f,  0.5f,  3.0f,
+            -1.0f,  0.75f,  2.5f, -0.5f,
+             0.25f, 1.25f, -3.5f,  2.0f,
+        ];
+        var wFloat = new DenseTensor<float>(wData, 3, 4);
+        var wHalf  = new DenseTensor<Half>(Array.ConvertAll(wData, x => (Half)x), 3, 4);
+        var v = new DenseTensor<float>([2f, -1f, 0.5f], 3);   // lunghezza m=3
+
+        var yFloat = TensorUtils.MatVecMulT(wFloat, v);
+        var yMixed = TensorUtils.MatVecMulTMixed(wHalf, v);
+
+        Assert.Equal(yFloat.Length, yMixed.Length);
+        for (int i = 0; i < yFloat.Length; i++)
+        {
+            float tol = 1e-2f * (1f + Math.Abs(yFloat[i]));
+            Assert.True(Math.Abs(yFloat[i] - yMixed[i]) <= tol,
+                $"i={i}: float={yFloat[i]}, mixed={yMixed[i]}");
+        }
     }
 }

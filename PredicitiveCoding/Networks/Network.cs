@@ -135,6 +135,37 @@ public sealed class Network : IDisposable
     }
 
     /// <summary>
+    /// Learning step in MIXED PRECISION ("master weights" scheme): the forward pass
+    /// uses a Half copy of the generative weights (regenerated each step), while the
+    /// Hebbian update is computed and persisted on the float32 master weights.
+    /// The Half copy is transient (never persisted and cleared before write), so no
+    /// low-precision drift accumulates across updates. Identical to <see cref="Learn"/>
+    /// apart from the mixed-precision forward.
+    /// </summary>
+    public void LearnMixed(DenseTensor<float> input, DenseTensor<float> label, int inferenceSteps)
+    {
+        _rwLock.EnterWriteLock();
+        try
+        {
+            var layers = ReadAllLayers();
+
+            // Master (float32) → Half copy used by the mixed forward.
+            for (int l = 1; l < layers.Length; l++)
+                layers[l].QuantizeWeightsToHalf();
+
+            InferCore(layers, input, inferenceSteps, clampTop: true, label: label);
+
+            for (int l = 1; l < layers.Length; l++)
+            {
+                layers[l].UpdateWeights(layers[l - 1].PredictionError, Configuration.WeightLearningRate);
+                layers[l].GenerativeWeightsHalf = null;   // don't persist the transient copy
+                _store.Write(l, layers[l]);
+            }
+        }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
+    /// <summary>
     /// Gated learning step for Mixture-of-Experts: identical to
     /// <see cref="Learn"/> but scales the effective weight learning rate by
     /// <paramref name="gateWeight"/> (the responsibility assigned to this expert
@@ -255,10 +286,39 @@ public sealed class Network : IDisposable
         finally { _rwLock.ExitWriteLock(); }
     }
 
+    /// <summary>
+    /// Minimum-energy classification run in MIXED PRECISION: the forward uses Half
+    /// weights (the float32 masters are untouched). The result matches
+    /// <see cref="Predict"/> within Half's tolerance.
+    /// </summary>
+    public int PredictMixed(DenseTensor<float> input, int inferenceSteps)
+    {
+        _rwLock.EnterWriteLock();
+        try   { return PredictCore(input, inferenceSteps, mixed: true).cls; }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
+    /// <summary>
+    /// <see cref="PredictWithEnergy"/> run in mixed precision (Half forward, float32 masters).
+    /// </summary>
+    public (int cls, float energy) PredictWithEnergyMixed(DenseTensor<float> input, int inferenceSteps)
+    {
+        _rwLock.EnterWriteLock();
+        try   { return PredictCore(input, inferenceSteps, mixed: true); }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
     // Caller must hold _rwLock (write).
-    private (int cls, float energy) PredictCore(DenseTensor<float> input, int inferenceSteps)
+    private (int cls, float energy) PredictCore(DenseTensor<float> input, int inferenceSteps, bool mixed = false)
     {
         var   layers         = ReadAllLayers();
+
+        // Mixed precision: quantise weights to Half once (in-memory copy on the
+        // transient clones); the float32 master weights in the store stay untouched.
+        if (mixed)
+            for (int l = 1; l < layers.Length; l++)
+                layers[l].QuantizeWeightsToHalf();
+
         int   numClasses     = layers[^1].Size;
         float bestEnergy     = float.MaxValue;
         int   bestClass      = 0;
@@ -289,7 +349,10 @@ public sealed class Network : IDisposable
 
         float winnerEnergy = ComputeEnergyCore(layers);
         for (int l = 0; l < layers.Length; l++)
+        {
+            if (mixed) layers[l].GenerativeWeightsHalf = null;   // never persist the transient copy
             _store.Write(l, layers[l]);
+        }
 
         return (bestClass, winnerEnergy);
     }
@@ -795,6 +858,30 @@ public sealed class Network : IDisposable
         try
         {
             var layers = ReadAllLayers();
+            if (resetState)
+                for (int l = 1; l < layers.Length; l++)
+                    Array.Clear(layers[l].Mu.Buffer);
+            InferCore(layers, input, inferenceSteps, clampTop: false, label: null);
+            return layers[^1].Mu.Clone();
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
+    /// <summary>
+    /// <see cref="InferGetTop(DenseTensor{float}, int, bool)"/> run in MIXED PRECISION:
+    /// the generative weights are quantised to Half (an in-memory copy, never persisted)
+    /// before inference, so the forward pass runs at 16-bit storage. The float32 master
+    /// weights in the store are left untouched. The result matches the float path within
+    /// Half's tolerance.
+    /// </summary>
+    public DenseTensor<float> InferGetTopMixed(DenseTensor<float> input, int inferenceSteps, bool resetState = false)
+    {
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            for (int l = 1; l < layers.Length; l++)
+                layers[l].QuantizeWeightsToHalf();
             if (resetState)
                 for (int l = 1; l < layers.Length; l++)
                     Array.Clear(layers[l].Mu.Buffer);

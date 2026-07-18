@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Numerics.Tensors;
 using PredictiveCoding.Core;
 
 namespace PredictiveCoding.LLM.Infrastructure;
@@ -16,6 +17,13 @@ namespace PredictiveCoding.LLM.Infrastructure;
 public interface IGemmProvider
 {
     float[] MatMul(float[] a, int m, int k, float[] b, int n);
+
+    /// <summary>
+    /// Mixed-precision GEMM: operands stored/rounded to 16-bit, accumulation in
+    /// float32. Default implementation falls back to the full-float <see cref="MatMul"/>;
+    /// backends with tensor-core support (e.g. CUDA) override it.
+    /// </summary>
+    float[] MatMulMixed(float[] a, int m, int k, float[] b, int n) => MatMul(a, m, k, b, n);
 }
 
 /// <summary>Multithreaded + SIMD CPU GEMM.</summary>
@@ -26,6 +34,29 @@ public sealed class CpuGemmProvider : IGemmProvider
         var c = new float[m * n];
         Parallel.For(0, m, i => Gemm.RowIkj(a, i, k, b, n, c));
         return c;
+    }
+
+    /// <summary>
+    /// CPU mixed-precision GEMM: rounds the operands to Half (16-bit storage) and
+    /// back, then accumulates in float32 — the same numerics the GPU tensor-core
+    /// path produces, so it doubles as the CUDA fallback and as a testable oracle.
+    /// </summary>
+    public float[] MatMulMixed(float[] a, int m, int k, float[] b, int n)
+    {
+        var ar = RoundToHalf(a);
+        var br = RoundToHalf(b);
+        var c  = new float[m * n];
+        Parallel.For(0, m, i => Gemm.RowIkj(ar, i, k, br, n, c));
+        return c;
+    }
+
+    private static float[] RoundToHalf(float[] x)
+    {
+        var h = new Half[x.Length];
+        TensorPrimitives.ConvertToHalf(x, h);
+        var r = new float[x.Length];
+        TensorPrimitives.ConvertToSingle(h, r);
+        return r;
     }
 }
 

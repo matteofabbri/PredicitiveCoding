@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics.Tensors;
 
 namespace PredictiveCoding.Core;
@@ -256,4 +257,115 @@ public static class TensorUtils
     /// <summary>Aggiunge bias (vettore 1D) ad ogni elemento di x (vettore 1D).</summary>
     public static DenseTensor<float> AddBias(DenseTensor<float> x, DenseTensor<float> bias)
         => ElementwiseAdd(x, bias);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Precisione mista (mixed precision)
+    //
+    // I pesi sono memorizzati in Half (16 bit → metà memoria e banda), ma i
+    // prodotti scalari si ACCUMULANO in float (32 bit) per non perdere precisione
+    // sulle somme lunghe. È lo schema "mixed precision" standard: storage leggero,
+    // accumulo pieno. Sulla CPU il guadagno è memoria/banda; su GPU (cuBLAS /
+    // tensor core) anche il throughput di calcolo.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Prodotto matrice-vettore in precisione mista  y = W @ v ─────────────
+    //
+    // W: [m, k] in Half   v: [k] in float   →  y: [m] in float
+    // y[i] = sum_j (float)W[i,j] * v[j]     (conversione SIMD + accumulo in float)
+    //
+    public static DenseTensor<float> MatVecMulMixed(DenseTensor<Half> w, DenseTensor<float> v)
+    {
+        ArgumentNullException.ThrowIfNull(w);
+        ArgumentNullException.ThrowIfNull(v);
+        if (w.Rank != 2)
+            throw new InvalidOperationException($"Matrice 'w' attesa di rank 2, trovata {w}");
+        ShapeCheck.Vector(v, w.Dimensions[1], nameof(v));
+
+        int m = w.Dimensions[0];
+        int k = w.Dimensions[1];
+
+        var y = new DenseTensor<float>(m);
+        var vSpan = v.Buffer.AsSpan();
+
+        // Buffer riusato per la riga convertita Half→float: la conversione è
+        // vettorizzata (SIMD) e il Dot accumula in float.
+        float[] rowBuffer = ArrayPool<float>.Shared.Rent(k);
+        try
+        {
+            Span<float> rowF = rowBuffer.AsSpan(0, k);
+            for (int i = 0; i < m; i++)
+            {
+                TensorPrimitives.ConvertToSingle(w.Buffer.AsSpan(i * k, k), rowF);
+                y.Buffer[i] = TensorPrimitives.Dot(rowF, vSpan);
+            }
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(rowBuffer);
+        }
+
+        return y;
+    }
+
+    // ── Prodotto matrice-trasposta-vettore in precisione mista  y = W^T @ v ──
+    //
+    // W: [m, k] in Half   v: [m] in float   →  y: [k] in float
+    // y[j] = sum_i (float)W[i,j] * v[i]     (conversione SIMD + accumulo in float)
+    //
+    // Complemento di MatVecMulMixed: entrambi consumano la matrice pesi W in Half.
+    // Usato nel gradiente di stato del predictive coding (−W^T @ δ).
+    //
+    public static DenseTensor<float> MatVecMulTMixed(DenseTensor<Half> w, DenseTensor<float> v)
+    {
+        ArgumentNullException.ThrowIfNull(w);
+        ArgumentNullException.ThrowIfNull(v);
+        if (w.Rank != 2)
+            throw new InvalidOperationException($"Matrice 'w' attesa di rank 2, trovata {w}");
+        ShapeCheck.Vector(v, w.Dimensions[0], nameof(v));
+
+        int m = w.Dimensions[0];
+        int k = w.Dimensions[1];
+
+        var y = new DenseTensor<float>(k);   // inizializzato a 0
+        var ySpan = y.Buffer.AsSpan();
+
+        // Buffer riusato per la riga convertita Half→float; l'accumulo è in float.
+        float[] rowBuffer = ArrayPool<float>.Shared.Rent(k);
+        try
+        {
+            Span<float> rowF = rowBuffer.AsSpan(0, k);
+            for (int i = 0; i < m; i++)
+            {
+                // y += W[i,:] * v[i]
+                TensorPrimitives.ConvertToSingle(w.Buffer.AsSpan(i * k, k), rowF);
+                TensorPrimitives.MultiplyAdd(rowF, v.Buffer[i], ySpan, ySpan);
+            }
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(rowBuffer);
+        }
+
+        return y;
+    }
+
+    // ── Conversioni di precisione  float ↔ Half ──────────────────────────────
+
+    /// <summary>Copia un tensore float in un nuovo tensore Half (storage 16 bit), stessa forma.</summary>
+    public static DenseTensor<Half> ToHalf(DenseTensor<float> x)
+    {
+        ArgumentNullException.ThrowIfNull(x);
+        var half = new Half[x.Buffer.Length];
+        TensorPrimitives.ConvertToHalf(x.Buffer.AsSpan(), half);
+        return new DenseTensor<Half>(half, x.Dimensions);
+    }
+
+    /// <summary>Copia un tensore Half in un nuovo tensore float, stessa forma.</summary>
+    public static DenseTensor<float> ToFloat(DenseTensor<Half> x)
+    {
+        ArgumentNullException.ThrowIfNull(x);
+        var f = new float[x.Buffer.Length];
+        TensorPrimitives.ConvertToSingle(x.Buffer.AsSpan(), f);
+        return new DenseTensor<float>(f, x.Dimensions);
+    }
 }

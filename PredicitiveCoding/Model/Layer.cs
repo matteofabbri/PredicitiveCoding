@@ -117,6 +117,18 @@ public sealed class Layer
     /// <summary>W_l : generative weights  [LowerSize × Size]</summary>
     public DenseTensor<float>? GenerativeWeights { get; internal set; }
 
+    /// <summary>
+    /// Copia dei pesi generativi in precisione a 16 bit (Half), per il forward in
+    /// PRECISIONE MISTA. Transiente: NON è persistita nel <see cref="LayerStore"/>
+    /// (come <see cref="TemporalPrior"/>); i pesi "master" restano
+    /// <see cref="GenerativeWeights"/> in float32. Null ⇒ percorso float pieno.
+    /// Popolata / ri-sincronizzata con <see cref="QuantizeWeightsToHalf"/>.
+    /// </summary>
+    internal DenseTensor<Half>? GenerativeWeightsHalf { get; set; }
+
+    /// <summary>True se è presente la copia Half dei pesi ⇒ il forward usa la precisione mista.</summary>
+    public bool UsesMixedPrecision => GenerativeWeightsHalf != null;
+
     /// <summary>b_l : generative bias  [LowerSize]</summary>
     public DenseTensor<float>? Bias { get; internal set; }
 
@@ -177,6 +189,18 @@ public sealed class Layer
         DiagonalPrecision.Fill(1f);
     }
 
+    // ── Precisione mista ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// (Ri)genera la copia Half dei pesi da <see cref="GenerativeWeights"/> (i master
+    /// float32): dopo questa chiamata il forward usa il percorso in precisione mista.
+    /// Va richiamata dopo ogni aggiornamento dei pesi (training) per ri-sincronizzare
+    /// la copia; in inferenza basta chiamarla una volta. Sui layer d'ingresso
+    /// (senza pesi) azzera la copia e non fa altro.
+    /// </summary>
+    public void QuantizeWeightsToHalf()
+        => GenerativeWeightsHalf = GenerativeWeights == null ? null : TensorUtils.ToHalf(GenerativeWeights);
+
     // ── Forward: top-down prediction ─────────────────────────────────────────
 
     /// <summary>pred_l = f(W_l μ_l + b_l)   (Rao &amp; Ballard eq. 2)</summary>
@@ -184,7 +208,9 @@ public sealed class Layer
     {
         if (GenerativeWeights == null) return;
 
-        var pre = TensorUtils.MatVecMul(GenerativeWeights, Mu);
+        var pre = GenerativeWeightsHalf != null
+            ? TensorUtils.MatVecMulMixed(GenerativeWeightsHalf, Mu)   // precisione mista
+            : TensorUtils.MatVecMul(GenerativeWeights, Mu);
         TensorUtils.InPlaceAdd(Bias!, pre);
         ActivationFn.Apply(pre, ActivationType).CopyTo(Prediction!);
     }
@@ -248,7 +274,9 @@ public sealed class Layer
         {
             var fPrime = ActivationFn.Derivative(PreActivation!, Prediction, ActivationType);
             var delta = TensorUtils.ElementwiseMul(fPrime, lowerLayerError);
-            var wTDelta = TensorUtils.MatVecMulT(GenerativeWeights, delta);
+            var wTDelta = GenerativeWeightsHalf != null
+                ? TensorUtils.MatVecMulTMixed(GenerativeWeightsHalf, delta)   // precisione mista
+                : TensorUtils.MatVecMulT(GenerativeWeights, delta);
             grad = TensorUtils.ElementwiseSub(PredictionError, wTDelta);
         }
         else
@@ -381,6 +409,7 @@ public sealed class Layer
             PredictionError = PredictionError.Clone(),
         };
         if (GenerativeWeights != null) c.GenerativeWeights = GenerativeWeights.Clone();
+        if (GenerativeWeightsHalf != null) c.GenerativeWeightsHalf = GenerativeWeightsHalf.Clone();
         if (Bias != null) c.Bias = Bias.Clone();
         if (PreActivation != null) c.PreActivation = PreActivation.Clone();
         if (Prediction != null) c.Prediction = Prediction.Clone();
