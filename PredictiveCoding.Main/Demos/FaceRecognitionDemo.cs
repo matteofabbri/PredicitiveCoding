@@ -445,7 +445,8 @@ public static class FaceRecognitionDemo
         Console.WriteLine("  3  ArcFace +align        (512-D, RetinaFace 5-pt · ~99.5% LFW)  [SOTA]");
         Console.WriteLine("  4  Enhanced LBP          (DoG + PCA 200-D, ~80%)");
         Console.WriteLine("  5  Fused LBP+HOG         (gamma + PCA 256-D, ~84%)");
-        Console.WriteLine("  A  All five              (full benchmark comparison)");
+        Console.WriteLine("  6  PC ← ArcFace          (512-D, PC network distilled from ArcFace; trains on first run)");
+        Console.WriteLine("  A  All six               (full benchmark comparison)");
         Console.Write("\n  Choice [4]: ");
         string? choice = Console.ReadLine()?.Trim().ToUpperInvariant();
         if (string.IsNullOrEmpty(choice)) choice = "4";
@@ -457,6 +458,10 @@ public static class FaceRecognitionDemo
         if (all || choice == "3") result.Add(new ArcFaceOnnxEmbedder(ModelsDir, useAlignment: true));
         if (all || choice == "4") result.Add(new EnhancedLbpEmbedder());
         if (all || choice == "5") result.Add(new FusedEmbedder());
+        if (all || choice == "6") result.Add(new PcDistilledFaceEmbedder(
+            Path.Combine(StoreDir, "pc-distilled-arcface"),
+            teacher: new ArcFaceOnnxEmbedder(ModelsDir, useAlignment: true),
+            disposeTeacher: true));   // the student owns this inline teacher
         return result;
     }
 

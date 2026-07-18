@@ -778,11 +778,26 @@ public sealed class Network : IDisposable
     /// Transient: weights are not modified.
     /// </summary>
     public DenseTensor<float> InferGetTop(DenseTensor<float> input, int inferenceSteps)
+        => InferGetTop(input, inferenceSteps, resetState: false);
+
+    /// <summary>
+    /// <see cref="InferGetTop(DenseTensor{float}, int)"/> with an explicit choice of
+    /// starting point. With <paramref name="resetState"/> the free layers start from
+    /// zero (the same convention <see cref="Generate"/> uses for the layer it infers)
+    /// instead of whatever state the previous Learn/Infer call left behind — making
+    /// the result a deterministic function of the input alone. Use this for
+    /// regression readouts on supervised networks, where the leftover top state is
+    /// the previous sample's clamped label and can dominate short inference runs.
+    /// </summary>
+    public DenseTensor<float> InferGetTop(DenseTensor<float> input, int inferenceSteps, bool resetState)
     {
         _rwLock.EnterReadLock();
         try
         {
             var layers = ReadAllLayers();
+            if (resetState)
+                for (int l = 1; l < layers.Length; l++)
+                    Array.Clear(layers[l].Mu.Buffer);
             InferCore(layers, input, inferenceSteps, clampTop: false, label: null);
             return layers[^1].Mu.Clone();
         }
