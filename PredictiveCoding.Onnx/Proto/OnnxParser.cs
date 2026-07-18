@@ -19,13 +19,17 @@ namespace PredictiveCoding.Onnx.Proto;
 public static class OnnxParser
 {
     /// <summary>Parse the bytes of a .onnx file. Throws <see cref="InvalidDataException"/>
-    /// when the input is not a well-formed ModelProto.</summary>
-    public static OnnxGraph Parse(byte[] bytes)
+    /// when the input is not a well-formed ModelProto.
+    /// <paramref name="externalDataDir"/> is the directory used to resolve tensors stored
+    /// in the "external data" format (data_location=EXTERNAL + a side file like
+    /// <c>model.onnx_data</c>); null means such tensors fail with a clear message.</summary>
+    public static OnnxGraph Parse(byte[] bytes, string? externalDataDir = null)
     {
         // ModelProto: ir_version=1 (skipped), graph=7, opset_import=8.
         var reader = new ProtoReader(bytes);
         OnnxGraph? graph = null;
         long opsetVersion = 0;
+        using var external = new ExternalDataSource(externalDataDir);
 
         while (!reader.AtEnd)
         {
@@ -33,7 +37,7 @@ public static class OnnxParser
             switch (field)
             {
                 case 7 when wire == ProtoReader.WireLengthDelimited:
-                    graph = ParseGraph(reader.ReadSubReader());
+                    graph = ParseGraph(reader.ReadSubReader(), external);
                     break;
                 case 8 when wire == ProtoReader.WireLengthDelimited:
                     var (domain, version) = ParseOpsetImport(reader.ReadSubReader());
@@ -70,7 +74,7 @@ public static class OnnxParser
     }
 
     // GraphProto: node=1, name=2, initializer=5, input=11, output=12 (value_info=13 and the rest: skipped).
-    private static OnnxGraph ParseGraph(ProtoReader r)
+    private static OnnxGraph ParseGraph(ProtoReader r, ExternalDataSource external)
     {
         var graph = new OnnxGraph();
         var declaredInputs = new List<OnnxValueInfo>();
@@ -81,13 +85,13 @@ public static class OnnxParser
             switch (field)
             {
                 case 1 when wire == ProtoReader.WireLengthDelimited:
-                    graph.Nodes.Add(ParseNode(r.ReadSubReader()));
+                    graph.Nodes.Add(ParseNode(r.ReadSubReader(), external));
                     break;
                 case 2 when wire == ProtoReader.WireLengthDelimited:
                     graph.Name = r.ReadString();
                     break;
                 case 5 when wire == ProtoReader.WireLengthDelimited:
-                    var init = ParseTensor(r.ReadSubReader());
+                    var init = ParseTensor(r.ReadSubReader(), external);
                     graph.Initializers[init.Name] = init;
                     break;
                 case 11 when wire == ProtoReader.WireLengthDelimited:
@@ -110,7 +114,7 @@ public static class OnnxParser
     }
 
     // NodeProto: input=1, output=2, name=3, op_type=4, attribute=5 (domain=7 and the rest: skipped).
-    private static OnnxNode ParseNode(ProtoReader r)
+    private static OnnxNode ParseNode(ProtoReader r, ExternalDataSource external)
     {
         var node = new OnnxNode();
         var inputs = new List<string>();
@@ -126,7 +130,7 @@ public static class OnnxParser
                 case 3 when wire == ProtoReader.WireLengthDelimited: node.Name = r.ReadString(); break;
                 case 4 when wire == ProtoReader.WireLengthDelimited: node.OpType = r.ReadString(); break;
                 case 5 when wire == ProtoReader.WireLengthDelimited:
-                    var attr = ParseAttribute(r.ReadSubReader());
+                    var attr = ParseAttribute(r.ReadSubReader(), external);
                     node.Attributes[attr.Name] = attr;
                     break;
                 default: r.SkipField(wire); break;
@@ -140,7 +144,7 @@ public static class OnnxParser
 
     // AttributeProto: name=1, f=2 (fixed32), i=3 (varint), s=4 (bytes→UTF-8), t=5 (TensorProto),
     // floats=7, ints=8, strings=9, type=20 (varint → OnnxAttributeType).
-    private static OnnxAttribute ParseAttribute(ProtoReader r)
+    private static OnnxAttribute ParseAttribute(ProtoReader r, ExternalDataSource external)
     {
         var attr = new OnnxAttribute();
         List<float>? floats = null;
@@ -156,7 +160,7 @@ public static class OnnxParser
                 case 2 when wire == ProtoReader.WireFixed32: attr.F = r.ReadFloat(); break;
                 case 3 when wire == ProtoReader.WireVarint: attr.I = unchecked((long)r.ReadVarint()); break;
                 case 4 when wire == ProtoReader.WireLengthDelimited: attr.S = r.ReadString(); break;
-                case 5 when wire == ProtoReader.WireLengthDelimited: attr.T = ParseTensor(r.ReadSubReader()); break;
+                case 5 when wire == ProtoReader.WireLengthDelimited: attr.T = ParseTensor(r.ReadSubReader(), external); break;
                 case 7: ReadRepeatedFloat(ref r, wire, floats ??= []); break;
                 case 8: ReadRepeatedVarint(ref r, wire, ints ??= []); break;
                 case 9 when wire == ProtoReader.WireLengthDelimited: (strings ??= []).Add(r.ReadString()); break;
@@ -171,8 +175,9 @@ public static class OnnxParser
         return attr;
     }
 
-    // TensorProto: dims=1, data_type=2, float_data=4, int32_data=5, int64_data=7, name=8, raw_data=9.
-    private static OnnxTensorData ParseTensor(ProtoReader r)
+    // TensorProto: dims=1, data_type=2, float_data=4, int32_data=5, int64_data=7, name=8,
+    // raw_data=9, external_data=13 (repeated StringStringEntryProto), data_location=14.
+    private static OnnxTensorData ParseTensor(ProtoReader r, ExternalDataSource external)
     {
         var tensor = new OnnxTensorData();
         var dims = new List<long>();
@@ -180,6 +185,9 @@ public static class OnnxParser
         List<long>? int32Data = null;      // varints widen to long on read
         List<long>? int64Data = null;
         byte[]? rawData = null;
+        long dataLocation = 0;             // 0=DEFAULT (inline), 1=EXTERNAL
+        string? extLocation = null;        // side-file path, relative to the model
+        long extOffset = 0, extLength = -1;
 
         while (!r.AtEnd)
         {
@@ -193,11 +201,32 @@ public static class OnnxParser
                 case 7: ReadRepeatedVarint(ref r, wire, int64Data ??= []); break;
                 case 8 when wire == ProtoReader.WireLengthDelimited: tensor.Name = r.ReadString(); break;
                 case 9 when wire == ProtoReader.WireLengthDelimited: rawData = r.ReadBytes(); break;
+                case 13 when wire == ProtoReader.WireLengthDelimited:
+                    var (key, value) = ParseStringEntry(r.ReadSubReader());
+                    switch (key)
+                    {
+                        case "location": extLocation = value; break;
+                        case "offset": extOffset = long.Parse(value); break;
+                        case "length": extLength = long.Parse(value); break;
+                        // "checksum" and unknown keys: ignored
+                    }
+                    break;
+                case 14 when wire == ProtoReader.WireVarint: dataLocation = unchecked((long)r.ReadVarint()); break;
                 default: r.SkipField(wire); break;
             }
         }
 
         tensor.Dims = dims.ToArray();
+
+        // External storage (data_location=EXTERNAL): the payload lives in a side file
+        // (e.g. model.onnx_data) at offset/length; read it straight into the final array.
+        if (dataLocation == 1)
+        {
+            if (extLocation is null)
+                throw new InvalidDataException($"Tensor '{tensor.Name}': data_location is EXTERNAL but no 'location' entry is present.");
+            external.Fill(tensor, extLocation, extOffset, extLength);
+            return tensor;
+        }
 
         // Materialise the payload: raw_data (little-endian) wins when non-empty,
         // otherwise the typed arrays. Other data types stay null — the executor
@@ -221,6 +250,23 @@ public static class OnnxParser
                 break;
         }
         return tensor;
+    }
+
+    // StringStringEntryProto: key=1, value=2.
+    private static (string Key, string Value) ParseStringEntry(ProtoReader r)
+    {
+        string key = "", value = "";
+        while (!r.AtEnd)
+        {
+            var (field, wire) = r.ReadTag();
+            switch (field)
+            {
+                case 1 when wire == ProtoReader.WireLengthDelimited: key = r.ReadString(); break;
+                case 2 when wire == ProtoReader.WireLengthDelimited: value = r.ReadString(); break;
+                default: r.SkipField(wire); break;
+            }
+        }
+        return (key, value);
     }
 
     // ValueInfoProto: name=1, type=2 (TypeProto).
@@ -357,5 +403,72 @@ public static class OnnxParser
         for (int i = 0; i < values.Length; i++)
             values[i] = BinaryPrimitives.ReadInt32LittleEndian(raw.AsSpan(i * 4, 4));
         return values;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // External data: tensors whose payload lives in a side file next to the
+    // model (data_location=EXTERNAL). Streams are opened once per side file and
+    // shared across the (potentially hundreds of) tensors that point into it;
+    // payloads decode straight into the destination array — with multi-GB
+    // weight files an intermediate byte[] copy would double peak memory.
+    // ─────────────────────────────────────────────────────────────────────────
+    private sealed class ExternalDataSource(string? baseDir) : IDisposable
+    {
+        private readonly Dictionary<string, FileStream> _files = new(StringComparer.OrdinalIgnoreCase);
+
+        public void Fill(OnnxTensorData tensor, string location, long offset, long length)
+        {
+            if (baseDir is null)
+                throw new InvalidDataException(
+                    $"Tensor '{tensor.Name}' uses external data ('{location}') but the model was parsed from bytes " +
+                    "with no directory context. Load it via OnnxModel.Load(path) so the side file can be resolved.");
+            if (!BitConverter.IsLittleEndian)
+                throw new PlatformNotSupportedException("External tensor data assumes a little-endian host.");
+
+            long count = tensor.Dims.Aggregate(1L, (a, d) => a * d);
+            switch (tensor.DataType)
+            {
+                case OnnxDataType.Float:
+                    var floats = new float[count];
+                    ReadInto(location, offset, length, System.Runtime.InteropServices.MemoryMarshal.AsBytes(floats.AsSpan()), tensor.Name);
+                    tensor.Floats = floats;
+                    break;
+                case OnnxDataType.Int64:
+                    var longs = new long[count];
+                    ReadInto(location, offset, length, System.Runtime.InteropServices.MemoryMarshal.AsBytes(longs.AsSpan()), tensor.Name);
+                    tensor.Longs = longs;
+                    break;
+                case OnnxDataType.Int32:
+                    var raw = new byte[checked(count * 4)];
+                    ReadInto(location, offset, length, raw, tensor.Name);
+                    tensor.Longs = RawInt32ToLongs(raw, tensor.Name);
+                    break;
+                // Other dtypes: leave the payload null — the executor throws only on use.
+            }
+        }
+
+        private void ReadInto(string location, long offset, long length, Span<byte> destination, string tensorName)
+        {
+            if (length >= 0 && length != destination.Length)
+                throw new InvalidDataException(
+                    $"Tensor '{tensorName}': external data length {length} does not match the declared dims ({destination.Length} bytes).");
+
+            if (!_files.TryGetValue(location, out FileStream? fs))
+            {
+                string path = Path.Combine(baseDir!, location);
+                if (!File.Exists(path))
+                    throw new InvalidDataException($"Tensor '{tensorName}': external data file '{path}' not found.");
+                fs = File.OpenRead(path);
+                _files[location] = fs;
+            }
+
+            fs.Seek(offset, SeekOrigin.Begin);
+            fs.ReadExactly(destination);
+        }
+
+        public void Dispose()
+        {
+            foreach (FileStream fs in _files.Values) fs.Dispose();
+        }
     }
 }

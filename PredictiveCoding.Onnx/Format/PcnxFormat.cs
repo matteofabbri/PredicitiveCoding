@@ -34,10 +34,23 @@ public static class PcnxFormat
 
     // ── Writing ─────────────────────────────────────────────────────────────────
 
+    // Written to a temp file and moved into place on success, so a mid-write
+    // failure (unsupported attribute, disk full) can never truncate or corrupt
+    // an existing model at the destination.
     public static void Write(string path, OnnxGraph graph)
     {
-        using FileStream fs = File.Create(path);
-        Write(fs, graph);
+        string tmp = path + ".tmp";
+        try
+        {
+            using (FileStream fs = File.Create(tmp))
+                Write(fs, graph);
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(tmp); } catch { /* best effort */ }
+            throw;
+        }
     }
 
     public static void Write(Stream stream, OnnxGraph graph)
@@ -120,7 +133,13 @@ public static class PcnxFormat
             {
                 case OnnxAttributeType.Float: w.Write(a.F); break;
                 case OnnxAttributeType.Int: w.Write(a.I); break;
-                case OnnxAttributeType.String: w.Write(a.S ?? ""); break;
+                case OnnxAttributeType.String:
+                    // Null and "" are distinct: GetString falls back only on null,
+                    // so coercing null → "" would change attribute lookups after a
+                    // round-trip. Same for the tensor payload below.
+                    w.Write(a.S is not null);
+                    if (a.S is not null) w.Write(a.S);
+                    break;
                 case OnnxAttributeType.Floats:
                     float[] floats = a.Floats ?? [];
                     w.Write(floats.Length);
@@ -137,7 +156,8 @@ public static class PcnxFormat
                     foreach (string s in strings) w.Write(s);
                     break;
                 case OnnxAttributeType.Tensor:
-                    WriteTensorData(w, a.T ?? new OnnxTensorData());
+                    w.Write(a.T is not null);
+                    if (a.T is not null) WriteTensorData(w, a.T);
                     break;
                 default:
                     throw new NotSupportedException(
@@ -157,44 +177,69 @@ public static class PcnxFormat
     public static OnnxGraph Read(Stream stream)
     {
         using var r = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
-
-        Span<byte> magic = stackalloc byte[Magic.Length];
-        if (r.Read(magic) != magic.Length || !LooksLikePcnx(magic))
-            throw new InvalidDataException("Not a PCNX model file (bad magic).");
-        int version = r.ReadInt32();
-        if (version != Version)
-            throw new InvalidDataException($"PCNX version {version} is not supported (expected {Version}).");
-
-        var graph = new OnnxGraph
+        try
         {
-            OpsetVersion = r.ReadInt64(),
-            Name = r.ReadString(),
-            Inputs = ReadValueInfos(r),
-            Outputs = ReadValueInfos(r),
-        };
+            // Read(span) may legally return fewer bytes than asked on streaming
+            // sources (pipes, decompression) — insist on all four magic bytes.
+            Span<byte> magic = stackalloc byte[Magic.Length];
+            if (stream.ReadAtLeast(magic, magic.Length, throwOnEndOfStream: false) != magic.Length ||
+                !LooksLikePcnx(magic))
+                throw new InvalidDataException("Not a PCNX model file (bad magic).");
+            int version = r.ReadInt32();
+            if (version != Version)
+                throw new InvalidDataException($"PCNX version {version} is not supported (expected {Version}).");
 
-        int initCount = r.ReadInt32();
-        for (int i = 0; i < initCount; i++)
-        {
-            string name = r.ReadString();
-            graph.Initializers[name] = ReadTensorData(r);
+            var graph = new OnnxGraph
+            {
+                OpsetVersion = r.ReadInt64(),
+                Name = r.ReadString(),
+                Inputs = ReadValueInfos(r),
+                Outputs = ReadValueInfos(r),
+            };
+
+            int initCount = ReadCount(r, "initializer");
+            for (int i = 0; i < initCount; i++)
+            {
+                string name = r.ReadString();
+                graph.Initializers[name] = ReadTensorData(r);
+            }
+
+            int nodeCount = ReadCount(r, "node");
+            graph.Nodes.Capacity = nodeCount;
+            for (int i = 0; i < nodeCount; i++)
+                graph.Nodes.Add(ReadNode(r));
+
+            return graph;
         }
+        catch (EndOfStreamException e)
+        {
+            throw new InvalidDataException("PCNX file is truncated.", e);
+        }
+    }
 
-        int nodeCount = r.ReadInt32();
-        graph.Nodes.Capacity = nodeCount;
-        for (int i = 0; i < nodeCount; i++)
-            graph.Nodes.Add(ReadNode(r));
-
-        return graph;
+    /// <summary>Reads a count field, rejecting values a valid file cannot contain:
+    /// negative, or claiming more elements than the stream has bytes left (each
+    /// element occupies at least <paramref name="elementSize"/> bytes). Keeps a
+    /// corrupt file from triggering huge allocations or confusing exceptions.</summary>
+    private static int ReadCount(BinaryReader r, string what, int elementSize = 1)
+    {
+        int count = r.ReadInt32();
+        if (count < 0)
+            throw new InvalidDataException($"Corrupt PCNX file: negative {what} count ({count}).");
+        Stream s = r.BaseStream;
+        if (s.CanSeek && (long)count * elementSize > s.Length - s.Position)
+            throw new InvalidDataException(
+                $"Corrupt PCNX file: {what} count {count} exceeds the remaining file size.");
+        return count;
     }
 
     private static List<OnnxValueInfo> ReadValueInfos(BinaryReader r)
     {
-        int count = r.ReadInt32();
+        int count = ReadCount(r, "value-info");
         var infos = new List<OnnxValueInfo>(count);
         for (int i = 0; i < count; i++)
         {
-            var info = new OnnxValueInfo { Name = r.ReadString(), Shape = new int[r.ReadInt32()] };
+            var info = new OnnxValueInfo { Name = r.ReadString(), Shape = new int[ReadCount(r, "shape", sizeof(int))] };
             for (int d = 0; d < info.Shape.Length; d++) info.Shape[d] = r.ReadInt32();
             infos.Add(info);
         }
@@ -204,14 +249,14 @@ public static class PcnxFormat
     private static OnnxTensorData ReadTensorData(BinaryReader r)
     {
         var t = new OnnxTensorData { Name = r.ReadString(), DataType = r.ReadInt32() };
-        t.Dims = new long[r.ReadInt32()];
+        t.Dims = new long[ReadCount(r, "tensor rank", sizeof(long))];
         for (int i = 0; i < t.Dims.Length; i++) t.Dims[i] = r.ReadInt64();
 
         byte payload = r.ReadByte();
         switch (payload)
         {
-            case PayloadFloats: t.Floats = ReadFloats(r, r.ReadInt32()); break;
-            case PayloadLongs: t.Longs = ReadLongs(r, r.ReadInt32()); break;
+            case PayloadFloats: t.Floats = ReadFloats(r, ReadCount(r, "float payload", sizeof(float))); break;
+            case PayloadLongs: t.Longs = ReadLongs(r, ReadCount(r, "int64 payload", sizeof(long))); break;
             case PayloadNone: break;
             default: throw new InvalidDataException($"Unknown PCNX tensor payload kind {payload}.");
         }
@@ -222,12 +267,12 @@ public static class PcnxFormat
     {
         var node = new OnnxNode { Name = r.ReadString(), OpType = r.ReadString() };
 
-        node.Inputs = new string[r.ReadInt32()];
+        node.Inputs = new string[ReadCount(r, "node input")];
         for (int i = 0; i < node.Inputs.Length; i++) node.Inputs[i] = r.ReadString();
-        node.Outputs = new string[r.ReadInt32()];
+        node.Outputs = new string[ReadCount(r, "node output")];
         for (int i = 0; i < node.Outputs.Length; i++) node.Outputs[i] = r.ReadString();
 
-        int attrCount = r.ReadInt32();
+        int attrCount = ReadCount(r, "attribute");
         for (int i = 0; i < attrCount; i++)
         {
             var a = new OnnxAttribute { Name = r.ReadString(), Type = (OnnxAttributeType)r.ReadByte() };
@@ -235,14 +280,14 @@ public static class PcnxFormat
             {
                 case OnnxAttributeType.Float: a.F = r.ReadSingle(); break;
                 case OnnxAttributeType.Int: a.I = r.ReadInt64(); break;
-                case OnnxAttributeType.String: a.S = r.ReadString(); break;
-                case OnnxAttributeType.Floats: a.Floats = ReadFloats(r, r.ReadInt32()); break;
-                case OnnxAttributeType.Ints: a.Ints = ReadLongs(r, r.ReadInt32()); break;
+                case OnnxAttributeType.String: a.S = r.ReadBoolean() ? r.ReadString() : null; break;
+                case OnnxAttributeType.Floats: a.Floats = ReadFloats(r, ReadCount(r, "floats attribute", sizeof(float))); break;
+                case OnnxAttributeType.Ints: a.Ints = ReadLongs(r, ReadCount(r, "ints attribute", sizeof(long))); break;
                 case OnnxAttributeType.Strings:
-                    a.Strings = new string[r.ReadInt32()];
+                    a.Strings = new string[ReadCount(r, "strings attribute")];
                     for (int s = 0; s < a.Strings.Length; s++) a.Strings[s] = r.ReadString();
                     break;
-                case OnnxAttributeType.Tensor: a.T = ReadTensorData(r); break;
+                case OnnxAttributeType.Tensor: a.T = r.ReadBoolean() ? ReadTensorData(r) : null; break;
                 default: throw new InvalidDataException($"Unknown PCNX attribute type {(byte)a.Type}.");
             }
             node.Attributes[a.Name] = a;

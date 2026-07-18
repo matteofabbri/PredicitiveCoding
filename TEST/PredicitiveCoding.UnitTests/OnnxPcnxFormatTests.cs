@@ -277,6 +277,150 @@ public class OnnxPcnxFormatTests
         Assert.Empty(opt.Nodes);
         Assert.Equal(new[] { 0f, 3f }, Executor.Run(opt, new())["Y"].Data);
     }
+
+    // ── Regressions from the adversarial review ───────────────────────────────
+
+    [Fact]
+    public void Read_RejectsCorruptCountsAndTruncation_WithInvalidDataException()
+    {
+        OnnxGraph g = RunnableGraph();
+        g.Name = "";                       // fixed header: inputs count sits at byte 17
+        byte[] valid;
+        using (var ms = new MemoryStream())
+        {
+            PcnxFormat.Write(ms, g);
+            valid = ms.ToArray();
+        }
+
+        byte[] negative = (byte[])valid.Clone();
+        BitConverter.GetBytes(-1).CopyTo(negative, 17);
+        Assert.Throws<InvalidDataException>(() => PcnxFormat.Read(negative));
+
+        byte[] huge = (byte[])valid.Clone();
+        BitConverter.GetBytes(int.MaxValue).CopyTo(huge, 17);   // > remaining bytes
+        Assert.Throws<InvalidDataException>(() => PcnxFormat.Read(huge));
+
+        Assert.Throws<InvalidDataException>(() => PcnxFormat.Read(valid[..(valid.Length / 2)]));
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesNullStringAndNullTensorAttributes()
+    {
+        // GetString falls back only on null, so null vs "" must survive a round-trip.
+        var g = new OnnxGraph { Name = "nulls", OpsetVersion = 13 };
+        g.Nodes.Add(Node("Fake", ["x"], ["y"],
+            ("sNull", new OnnxAttribute { Type = OnnxAttributeType.String, S = null }),
+            ("sEmpty", new OnnxAttribute { Type = OnnxAttributeType.String, S = "" }),
+            ("tNull", new OnnxAttribute { Type = OnnxAttributeType.Tensor, T = null })));
+
+        OnnxNode rn = RoundTrip(g).Nodes.Single();
+
+        Assert.Null(rn.Attributes["sNull"].S);
+        Assert.Equal("fallback", rn.GetString("sNull", "fallback"));
+        Assert.Equal("", rn.Attributes["sEmpty"].S);
+        Assert.Null(rn.Attributes["tNull"].T);
+    }
+
+    [Fact]
+    public void Optimize_ElidesDropout_OnlyWhenInferenceMode()
+    {
+        static OnnxGraph DropoutGraph(long opset, long? isTest)
+        {
+            var g = new OnnxGraph { Name = "dropout", OpsetVersion = opset };
+            g.Inputs.Add(new OnnxValueInfo { Name = "X", Shape = new[] { 2, 2 } });
+            g.Outputs.Add(new OnnxValueInfo { Name = "Y", Shape = new[] { 2, 2 } });
+            OnnxNode d = Node("Dropout", ["X"], ["mid"]);
+            if (isTest is long v)
+                d.Attributes["is_test"] = new OnnxAttribute { Name = "is_test", Type = OnnxAttributeType.Int, I = v };
+            g.Nodes.Add(d);
+            g.Nodes.Add(Node("Relu", ["mid"], ["Y"]));
+            return g;
+        }
+
+        // Opset 6, training mode (is_test absent/0): NOT a passthrough — keep it
+        // so Run keeps failing loudly instead of silently skipping the op.
+        Assert.Contains(GraphOptimizer.Optimize(DropoutGraph(6, null)).Nodes, n => n.OpType == "Dropout");
+        Assert.Contains(GraphOptimizer.Optimize(DropoutGraph(6, 0)).Nodes, n => n.OpType == "Dropout");
+
+        // Opset 6 with is_test=1, and opset ≥ 7: inference mode → elided.
+        Assert.DoesNotContain(GraphOptimizer.Optimize(DropoutGraph(6, 1)).Nodes, n => n.OpType == "Dropout");
+        Assert.DoesNotContain(GraphOptimizer.Optimize(DropoutGraph(13, null)).Nodes, n => n.OpType == "Dropout");
+    }
+
+    [Fact]
+    public void Run_InitializerBackedOutput_IsImmuneToCallerMutation()
+    {
+        var g = new OnnxGraph { Name = "allconst", OpsetVersion = 13 };
+        g.Outputs.Add(new OnnxValueInfo { Name = "Y", Shape = new[] { 2 } });
+        g.Initializers["A"] = Floats("A", [2], [-1f, 3f]);
+        g.Nodes.Add(Node("Relu", ["A"], ["Y"]));
+        OnnxGraph opt = GraphOptimizer.Optimize(g);
+
+        Executor.Run(opt, new())["Y"].Data[1] = 999f;   // caller scribbles on the result
+
+        Assert.Equal(new[] { 0f, 3f }, Executor.Run(opt, new())["Y"].Data);
+    }
+
+    [Fact]
+    public void Save_FailureLeavesExistingFileIntact()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"pcnx_{Guid.NewGuid():N}.pcnx");
+        try
+        {
+            PcnxFormat.Write(path, RunnableGraph());               // good file in place
+
+            var bad = new OnnxGraph { Name = "bad", OpsetVersion = 13 };
+            bad.Nodes.Add(Node("If", ["c"], ["y"],
+                ("then_branch", new OnnxAttribute { Type = OnnxAttributeType.Graph })));
+
+            Assert.Throws<NotSupportedException>(() => PcnxFormat.Write(path, bad));
+
+            Assert.False(File.Exists(path + ".tmp"));               // no debris
+            Assert.Equal(new[] { "Y" }, OnnxModel.Load(path).OutputNames);   // old file intact
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Run_IgnoresExtraneousInputs_BeforeAndAfterOptimize()
+    {
+        // An extra entry named like an internal value must not shadow it —
+        // neither the node-computed value nor its constant-folded replacement.
+        var g = new OnnxGraph { Name = "shadow", OpsetVersion = 13 };
+        g.Inputs.Add(new OnnxValueInfo { Name = "X", Shape = new[] { 2, 2 } });
+        g.Outputs.Add(new OnnxValueInfo { Name = "Y", Shape = new[] { 2, 2 } });
+        g.Initializers["A"] = Floats("A", [2, 2], [1f, 2f, 3f, 4f]);
+        g.Initializers["B"] = Floats("B", [2, 2], [10f, 20f, 30f, 40f]);
+        g.Nodes.Add(Node("Add", ["A", "B"], ["C"]));
+        g.Nodes.Add(Node("Mul", ["X", "C"], ["Y"]));
+        OnnxGraph opt = GraphOptimizer.Optimize(g);
+
+        var x = new Tensor([2, 2], [1f, 1f, 1f, 1f]);
+        var shadow = new Tensor([2, 2], [-9f, -9f, -9f, -9f]);
+        float[] expected = Executor.Run(g, new() { ["X"] = x })["Y"].Data;
+
+        Assert.Equal(expected, Executor.Run(g, new() { ["X"] = x, ["C"] = shadow })["Y"].Data);
+        Assert.Equal(expected, Executor.Run(opt, new() { ["X"] = x, ["C"] = shadow })["Y"].Data);
+    }
+
+    [Fact]
+    public void Optimize_SkipsFolding_WhenNodeDeclaresMoreOutputsThanKernelReturns()
+    {
+        // Relu returns one tensor; a node declaring two outputs would be
+        // half-folded, masking the loud declared-output-count error Run raises.
+        var g = new OnnxGraph { Name = "twoouts", OpsetVersion = 13 };
+        g.Outputs.Add(new OnnxValueInfo { Name = "a", Shape = new[] { 2 } });
+        g.Initializers["A"] = Floats("A", [2], [-1f, 3f]);
+        g.Nodes.Add(Node("Relu", ["A"], ["a", "b"]));
+
+        OnnxGraph opt = GraphOptimizer.Optimize(g);
+
+        Assert.Single(opt.Nodes);                       // kept, not folded
+        Assert.False(opt.Initializers.ContainsKey("a"));
+    }
 }
 
 /// <summary>

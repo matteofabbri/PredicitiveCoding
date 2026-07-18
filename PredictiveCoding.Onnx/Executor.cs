@@ -19,9 +19,15 @@ public static class Executor
     public static Dictionary<string, Tensor> Run(OnnxGraph graph, Dictionary<string, Tensor> inputs)
     {
         // Value environment: caller inputs up front; initializers (weights) join
-        // lazily via Resolve; node outputs are added as they compute.
+        // lazily via Resolve; node outputs are added as they compute. Only the
+        // DECLARED inputs are seeded — an extraneous entry that happens to share
+        // a name with an internal value or weight must not shadow it (whether
+        // that value is computed by a node or was constant-folded at save time).
+        var declared = new HashSet<string>(graph.Inputs.Select(i => i.Name), StringComparer.Ordinal);
         var env = new Dictionary<string, Tensor>(StringComparer.Ordinal);
-        foreach (var (name, tensor) in inputs) env[name] = tensor;
+        foreach (var (name, tensor) in inputs)
+            if (declared.Contains(name))
+                env[name] = tensor;
 
         foreach (var missing in graph.Inputs.Where(i => !env.ContainsKey(i.Name)))
             throw new ArgumentException($"Missing graph input '{missing.Name}'. Expected inputs: {string.Join(", ", graph.Inputs.Select(i => i.Name))}.");
@@ -48,10 +54,20 @@ public static class Executor
 
         var outputs = new Dictionary<string, Tensor>(StringComparer.Ordinal);
         foreach (var o in graph.Outputs)
-            outputs[o.Name] = Resolve(graph, env, o.Name)
+        {
+            Tensor t = Resolve(graph, env, o.Name)
                 ?? throw new InvalidOperationException($"Graph output '{o.Name}' was never produced.");
+            // An output served straight from an initializer (possible after
+            // constant folding) wraps the graph's stored array — hand the caller
+            // a copy so in-place edits cannot corrupt later Runs.
+            outputs[o.Name] = graph.Initializers.ContainsKey(o.Name) ? Copy(t) : t;
+        }
         return outputs;
     }
+
+    private static Tensor Copy(Tensor t) => t.IsInt64
+        ? new Tensor(t.Shape, (long[])t.I64!.Clone())
+        : new Tensor(t.Shape, (float[])t.Data.Clone());
 
     /// <summary>Executes a single node on already-resolved inputs — the hook the save-time
     /// constant folder (<see cref="GraphOptimizer"/>) shares with the graph walk, so folded
@@ -82,7 +98,29 @@ public static class Executor
         "PRelu"                => [Ops.PRelu(a[0], a[1])],
         "Exp"                  => [Ops.Exp(a[0])],
         "Sqrt"                 => [Ops.Sqrt(a[0])],
+        "Pow"                  => [Ops.Pow(a[0], a[1])],
+        "Erf"                  => [Ops.Erf(a[0])],
+        "Clip"                 => [Ops.Clip(a[0], a.Length > 1 ? a[1] : null, a.Length > 2 ? a[2] : null,
+                                            n.GetFloat("min", float.NegativeInfinity),
+                                            n.GetFloat("max", float.PositiveInfinity))],
         "Softmax"              => [Ops.Softmax(a[0], SoftmaxAxis(n, a[0], opset))],
+
+        // Logical / selection — ONNX bool tensors are represented as int64 0/1 here.
+        "Equal"                => [Ops.Equal(a[0], a[1])],
+        "Not"                  => [Ops.Not(a[0])],
+        "Where"                => [Ops.Where(a[0], a[1], a[2])],
+        "Expand"               => [Ops.Expand(a[0], a[1])],
+        "Cast"                 => [Ops.Cast(a[0], (int)n.GetInt("to"))],
+
+        // Reductions / scans
+        "ReduceMean"           => [Ops.ReduceMean(a[0], a.Length > 1 ? a[1] : null, n.GetInts("axes"),
+                                                  n.GetInt("keepdims", 1) != 0,
+                                                  n.GetInt("noop_with_empty_axes", 0) != 0)],
+        "ReduceL2"             => [Ops.ReduceL2(a[0], a.Length > 1 ? a[1] : null, n.GetInts("axes"),
+                                                n.GetInt("keepdims", 1) != 0,
+                                                n.GetInt("noop_with_empty_axes", 0) != 0)],
+        "CumSum"               => [Ops.CumSum(a[0], a[1], n.GetInt("exclusive", 0) != 0,
+                                              n.GetInt("reverse", 0) != 0)],
 
         // Convolution / pooling. auto_pad SAME_UPPER/SAME_LOWER is resolved to explicit
         // pads here so the kernels only ever see [top, left, bottom, right].

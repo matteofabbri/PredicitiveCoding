@@ -657,12 +657,12 @@ public class OnnxOpsTests
     {
         var graph = new OnnxGraph
         {
-            Nodes = [new OnnxNode { Name = "erf0", OpType = "Erf", Inputs = ["x"], Outputs = ["y"] }],
+            Nodes = [new OnnxNode { Name = "lstm0", OpType = "LSTM", Inputs = ["x"], Outputs = ["y"] }],
             Inputs = [new OnnxValueInfo { Name = "x", Shape = [1] }],
             Outputs = [new OnnxValueInfo { Name = "y" }],
         };
         var ex = Assert.Throws<NotSupportedException>(
             () => Executor.Run(graph, new() { ["x"] = T([1], 1) }));
-        Assert.Contains("Erf", ex.Message);
+        Assert.Contains("LSTM", ex.Message);
     }
 }

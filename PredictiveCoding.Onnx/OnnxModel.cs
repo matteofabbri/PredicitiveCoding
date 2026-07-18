@@ -24,10 +24,29 @@ public sealed class OnnxModel
     private OnnxModel(OnnxGraph graph) => Graph = graph;
 
     /// <summary>Loads a model from disk — either a .onnx protobuf or a PCNX file
-    /// (the format is detected from the content, not the extension).</summary>
-    public static OnnxModel Load(string path) => Load(File.ReadAllBytes(path));
+    /// (the format is detected from the content, not the extension). The model's own
+    /// directory resolves any external-data side files (e.g. <c>model.onnx_data</c>).
+    /// PCNX reads stream from disk, so files may exceed 2 GB; a .onnx protobuf cannot
+    /// (protobuf's own limit) — its weights land in a side file instead.</summary>
+    public static OnnxModel Load(string path)
+    {
+        using FileStream fs = File.OpenRead(path);
+        Span<byte> magic = stackalloc byte[4];
+        int got = fs.ReadAtLeast(magic, magic.Length, throwOnEndOfStream: false);
+        fs.Seek(0, SeekOrigin.Begin);
+        if (got == magic.Length && PcnxFormat.LooksLikePcnx(magic))
+            return new(PcnxFormat.Read(fs));
 
-    /// <inheritdoc cref="Load(string)"/>
+        if (fs.Length > int.MaxValue)
+            throw new InvalidDataException(
+                $"'{path}' is a {fs.Length / 1_048_576} MB .onnx protobuf — beyond the 2 GB protobuf limit, so it cannot be a valid model. (PCNX files this large are fine.)");
+        byte[] bytes = new byte[fs.Length];
+        fs.ReadExactly(bytes);
+        return new(OnnxParser.Parse(bytes, Path.GetDirectoryName(Path.GetFullPath(path))));
+    }
+
+    /// <inheritdoc cref="Load(string)"/> External-data tensors cannot be resolved from
+    /// bare bytes — use <see cref="Load(string)"/> for models with a side file.
     public static OnnxModel Load(byte[] bytes)
         => new(PcnxFormat.LooksLikePcnx(bytes) ? PcnxFormat.Read(bytes) : OnnxParser.Parse(bytes));
 

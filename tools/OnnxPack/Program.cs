@@ -12,7 +12,14 @@ using PredictiveCoding.Onnx;
 // ─────────────────────────────────────────────────────────────────────────────
 
 bool optimize = !args.Contains("--no-optimize");
+string[] unknownFlags = args.Where(a => a.StartsWith("--") && a != "--no-optimize").ToArray();
 string[] paths = args.Where(a => !a.StartsWith("--")).ToArray();
+
+if (unknownFlags.Length > 0)
+{
+    Console.Error.WriteLine($"Unknown option(s): {string.Join(", ", unknownFlags)}. Did you mean --no-optimize?");
+    return 1;
+}
 
 if (paths.Length is < 1 or > 2)
 {
@@ -30,6 +37,12 @@ string output = paths.Length == 2 ? paths[1] : Path.ChangeExtension(input, PcnxF
 if (!File.Exists(input))
 {
     Console.Error.WriteLine($"Input not found: {input}");
+    return 1;
+}
+
+if (string.Equals(Path.GetFullPath(input), Path.GetFullPath(output), StringComparison.OrdinalIgnoreCase))
+{
+    Console.Error.WriteLine("Output path equals the input path; pick a different output file.");
     return 1;
 }
 

@@ -143,9 +143,16 @@ public static class GraphOptimizer
                 continue;
             }
 
-            int declared = Math.Min(results.Length, node.Outputs.Length);
+            // A kernel returning fewer outputs than the node declares would make
+            // Run fail loudly; folding would half-populate and mask that error.
+            if (results.Length < node.Outputs.Length)
+            {
+                kept.Add(node);
+                continue;
+            }
+
             long totalElements = 0;
-            for (int i = 0; i < declared; i++)
+            for (int i = 0; i < node.Outputs.Length; i++)
                 if (node.Outputs[i].Length > 0)
                     totalElements += results[i].Count;
             if (totalElements > FoldedElementCap)
@@ -154,7 +161,7 @@ public static class GraphOptimizer
                 continue;
             }
 
-            for (int i = 0; i < declared; i++)
+            for (int i = 0; i < node.Outputs.Length; i++)
             {
                 string name = node.Outputs[i];
                 if (name.Length == 0) continue;
@@ -166,13 +173,16 @@ public static class GraphOptimizer
         g.Nodes = kept;
     }
 
+    // The payload is copied: kernels like Identity/Reshape forward their input
+    // array, so storing the result directly could make the folded initializer
+    // share memory with the source graph's weights.
     private static OnnxTensorData ToTensorData(string name, Tensor t) => new()
     {
         Name = name,
         DataType = t.IsInt64 ? OnnxDataType.Int64 : OnnxDataType.Float,
         Dims = Array.ConvertAll(t.Shape, d => (long)d),
-        Floats = t.IsInt64 ? null : t.Data,
-        Longs = t.I64,
+        Floats = t.IsInt64 ? null : (float[])t.Data.Clone(),
+        Longs = (long[]?)t.I64?.Clone(),
     };
 
     // ── Identity / inference-Dropout elision ────────────────────────────────────
@@ -186,7 +196,7 @@ public static class GraphOptimizer
         foreach (OnnxNode node in g.Nodes)
         {
             // A graph-output name is the caller's contract — keep its producer.
-            bool elidable = IsPassthrough(node) && !graphOutputs.Contains(node.Outputs[0]);
+            bool elidable = IsPassthrough(node, g.OpsetVersion) && !graphOutputs.Contains(node.Outputs[0]);
             if (!elidable)
             {
                 kept.Add(node);
@@ -207,7 +217,7 @@ public static class GraphOptimizer
 
     /// <summary>Identity, or Dropout in inference form (single used output, no
     /// training_mode input) — both forward input 0 unchanged.</summary>
-    private static bool IsPassthrough(OnnxNode node)
+    private static bool IsPassthrough(OnnxNode node, long opset)
     {
         if (node.Inputs.Length == 0 || node.Inputs[0].Length == 0 ||
             node.Outputs.Length == 0 || node.Outputs[0].Length == 0)
@@ -215,8 +225,11 @@ public static class GraphOptimizer
         return node.OpType switch
         {
             "Identity" => true,
+            // Dropout ≤ 6 signals inference via the is_test attribute (default 0
+            // = training, where the op masks and scales — NOT a passthrough).
             "Dropout" => node.Inputs.Length <= 2 &&
-                         node.Outputs.Count(o => o.Length > 0) == 1,
+                         node.Outputs.Count(o => o.Length > 0) == 1 &&
+                         (opset >= 7 || node.GetInt("is_test") != 0),
             _ => false,
         };
     }
