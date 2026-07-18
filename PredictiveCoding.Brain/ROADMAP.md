@@ -49,7 +49,12 @@ what still has to be built.
 >   are dominant-gradient-orientation SDRs, locations come from the shared
 >   `PoseEncoder` grid. The sensorimotor loop runs unchanged on real pixels.
 >
-> The only remaining open item is the optional WinUI visual front-end.
+> **2026-07-18 — visual front-end done too**: `Viz/VizData.cs` + `Viz/HtmlVisualizer.cs`
+> render the demo as a self-contained animated web page (episode player, benchmark,
+> pose-invariance, real-sensor scan — all CSS/JS inline, zero external resources);
+> demo option 9 writes `~/.predictivecoding/thousand-brains-demo.html` and opens it.
+> **The roadmap is closed** — a native WinUI shell remains possible but has no
+> outstanding claim behind it.
 
 ### Source papers — *the specification this roadmap implements*
 
