@@ -25,16 +25,31 @@ what still has to be built.
 | 🟡 | **Partial** — a reusable building block exists; needs adaptation/extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status reflects the repository as of 2026-06-06 (last updated 2026-06-06).*
+*Status reflects the repository as of 2026-06-06 (last updated 2026-07-18).*
 
 > **All phases (0–9) are implemented and every former 🟡 partial has been promoted
-> to ✅.** 71 unit tests cover the stack, and a runnable benchmark + demo ship as
+> to ✅.** 109 unit tests cover the stack, and a runnable benchmark + demo ship as
 > option 9 in `PredictiveCoding.Main`. Beyond the original roadmap we have also added
 > pose-invariant recognition (`DisplacementRecognizer` — survives SE(2) rigid
 > motion), cross-modal voting (`CrossModalSystem`), motor-driven path integration
-> (`PathIntegrator`), and object-model persistence (`ObjectModelStore`). The only
-> remaining open items are *non-algorithmic*: a WinUI visual front-end, real-sensor
-> integration, and a 3-D (SE(3)) extension.
+> (`PathIntegrator`), and object-model persistence (`ObjectModelStore`).
+>
+> **2026-07-18 — the two remaining algorithmic items are now done:**
+> - **3-D (SE(3)) extension** — `ReferenceFrames/Pose3D.cs` (quaternion rigid-pose
+>   algebra; yaw about +Z matching `Pose2D`, anchor-case-pinned conventions),
+>   `Composition/FeaturePoint3D.cs`, `ReferenceFrames/PoseEncoder3D.cs`,
+>   `ReferenceFrames/PathIntegrator3D.cs` (closed 3-D motor loops return to the
+>   start) and `ReferenceFrames/DisplacementRecognizer3D.cs` (pairwise distances
+>   are invariant under all of SE(3), so the displacement signature carries over —
+>   objects are recognised after arbitrary 3-D rotation + translation, occlusion
+>   included).
+> - **Real-sensor integration** — `System/ImageSensorEnvironment.cs`: an
+>   `IEnvironment` whose objects are real images (`float[,]` luminance — any
+>   camera frame converts trivially) scanned by a movable patch sensor; features
+>   are dominant-gradient-orientation SDRs, locations come from the shared
+>   `PoseEncoder` grid. The sensorimotor loop runs unchanged on real pixels.
+>
+> The only remaining open item is the optional WinUI visual front-end.
 
 ### Source papers — *the specification this roadmap implements*
 
