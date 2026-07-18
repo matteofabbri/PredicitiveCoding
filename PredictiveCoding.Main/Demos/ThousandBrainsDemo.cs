@@ -1,11 +1,13 @@
+using System.Diagnostics;
 using PredictiveCoding.Brain;
+using PredictiveCoding.Brain.Viz;
 
 namespace PredictiveCoding.Main.Demos;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ThousandBrainsDemo  —  Phase 9 evaluation & visual demo for PredictiveCoding.Brain.
 //
-// Two parts:
+// Four parts:
 //   1. Recognition benchmark — teaches a set of synthetic objects to a single
 //      cortical column and to a population of voting columns, then reports top-1
 //      accuracy and mean steps-to-recognise under clean / occlusion / sensor-noise
@@ -13,7 +15,13 @@ namespace PredictiveCoding.Main.Demos;
 //   2. Live sensing & voting — narrates one recognition episode step by step,
 //      showing a single column's hypothesis set narrowing over sensorimotor steps
 //      versus a voting population converging in far fewer steps.
+//   3. Pose-invariant recognition — absolute location matching vs displacement
+//      structure after a rigid transform.
+//   4. Image sensor scan — a real-image sensor patch scanning a procedural
+//      texture, recording the raw descriptor at every fixation.
 //
+// Each part also records its data into a VizData; the demo ends by writing a
+// self-contained web page (HtmlVisualizer) and opening it in the browser.
 // Together these demonstrate the central Thousand-Brains claim: many columns that
 // each model objects in their own reference frame and vote recognise objects
 // rapidly and robustly (Leadholm et al. 2025; Hawkins 2021).
@@ -29,16 +37,32 @@ public static class ThousandBrainsDemo
         Console.WriteLine("╚══════════════════════════════════════════════════════╝");
         Console.WriteLine();
 
-        RunBenchmark();
+        var benchmark = RunBenchmark();
         Console.WriteLine();
-        RunLiveRecognition();
+        var episode = RunLiveRecognition();
         Console.WriteLine();
-        RunPoseInvariance();
+        var poseInvariance = RunPoseInvariance();
+        Console.WriteLine();
+        var imageScan = RunImageScan();
+
+        var data = new VizData
+        {
+            Benchmark = benchmark.Conditions
+                .Select(c => new VizBenchmarkRow(
+                    c.Condition,
+                    c.SingleColumn.Top1Accuracy, c.SingleColumn.MeanSteps,
+                    c.MultiColumn.Top1Accuracy, c.MultiColumn.MeanSteps))
+                .ToList(),
+            Episode        = episode,
+            PoseInvariance = poseInvariance,
+            ImageScan      = imageScan,
+        };
+        SaveVisualization(data);
     }
 
     // ── Part 1: benchmark ─────────────────────────────────────────────────────
 
-    private static void RunBenchmark()
+    private static BenchmarkResult RunBenchmark()
     {
         var cfg = new BenchmarkConfig
         {
@@ -71,11 +95,12 @@ public static class ThousandBrainsDemo
         Console.WriteLine();
         Console.WriteLine("  → Voting matches single-column accuracy but converges in far fewer");
         Console.WriteLine("    sensorimotor steps: each round pools evidence from several columns.");
+        return result;
     }
 
     // ── Part 2: live sensing & voting ─────────────────────────────────────────
 
-    private static void RunLiveRecognition()
+    private static VizEpisode RunLiveRecognition()
     {
         Console.WriteLine("  ── Live recognition episode ─────────────────────────────");
         Console.WriteLine();
@@ -112,12 +137,26 @@ public static class ThousandBrainsDemo
         Console.WriteLine($"  Presenting object #{target.Id}  ({ds.ObjectCount} objects learned, {probe.Count} landmarks).");
         Console.WriteLine();
 
+        // Record the episode for the visual demo alongside the narration.
+        var episode = new VizEpisode
+        {
+            TargetId      = target.Id,
+            ObjectCount   = ds.ObjectCount,
+            ColumnsVoting = columns,
+            Objects       = ds.Objects
+                .Select(o => new VizObject(o.Id, o.Points
+                    .Select(pt => new VizPoint(pt.X, pt.Y, FeatureId(pt.Feature, ds.Vocabulary)))
+                    .ToList()))
+                .ToList(),
+        };
+
         // Single column: one landmark per step.
         Console.WriteLine("  Single column — one landmark per step:");
         var outs = single.Infer(probe);
         for (int i = 0; i < outs.Count; i++)
         {
             var o = outs[i];
+            episode.SingleSteps.Add([.. o.ObjectHypotheses]);
             Console.WriteLine($"    step {i + 1,2}: {o.ObjectHypotheses.Count,2} hypotheses {Bar(o.ObjectHypotheses.Count, ds.ObjectCount)}"
                 + (o.Converged ? $"  → recognised #{o.ObjectHypotheses[0]}" : ""));
             if (o.Converged) break;
@@ -133,6 +172,7 @@ public static class ThousandBrainsDemo
             var inputs = new (Sdr, Sdr)[columns];
             for (int c = 0; c < columns; c++) inputs[c] = probe[(round * columns + c) % p];
             var consensus = voting.VoteStep(inputs);
+            episode.VotingRounds.Add([.. consensus.Candidates]);
             Console.WriteLine($"    round {round + 1,2}: {consensus.Candidates.Count,2} candidates {Bar(consensus.Candidates.Count, ds.ObjectCount)}"
                 + (consensus.Candidates.Count == 1 ? $"  → recognised #{consensus.Candidates[0]}" : ""));
             if (consensus.Candidates.Count == 1) break;
@@ -141,11 +181,12 @@ public static class ThousandBrainsDemo
         Console.WriteLine();
         Console.WriteLine("  Same object, same evidence — the voting population settles on the");
         Console.WriteLine("  identity in a fraction of the steps. That is the Thousand Brains idea.");
+        return episode;
     }
 
     // ── Part 3: pose-invariant recognition ────────────────────────────────────
 
-    private static void RunPoseInvariance()
+    private static VizPoseInvariance RunPoseInvariance()
     {
         Console.WriteLine("  ── Pose-invariant recognition ───────────────────────────");
         Console.WriteLine();
@@ -167,15 +208,20 @@ public static class ThousandBrainsDemo
         }
 
         var move = new Pose2D(8f, -6f, 70f);   // rotate 70°, translate (8, −6)
+        var viz = new VizPoseInvariance { Dx = 8f, Dy = -6f, ThetaDeg = 70f };
         int columnCorrect = 0, displacementCorrect = 0;
         foreach (var o in ds.Objects)
         {
             var moved = o.Points.Select(p => p.Transformed(move)).ToList();
 
             var hyp = column.Infer(Encode(moved, pose))[^1].ObjectHypotheses;
-            if (hyp.Count == 1 && hyp[0] == o.Id) columnCorrect++;
+            bool columnOk = hyp.Count == 1 && hyp[0] == o.Id;
+            if (columnOk) columnCorrect++;
 
-            if (displacement.Recognize(moved) == o.Id) displacementCorrect++;
+            bool displacementOk = displacement.Recognize(moved) == o.Id;
+            if (displacementOk) displacementCorrect++;
+
+            viz.Rows.Add(new VizPoseRow(o.Id, columnOk, displacementOk));
         }
 
         int n = ds.ObjectCount;
@@ -187,9 +233,120 @@ public static class ThousandBrainsDemo
         Console.WriteLine("  Absolute location matching breaks when the object moves; recognising by");
         Console.WriteLine("  the displacement structure between features is invariant to rigid pose —");
         Console.WriteLine("  the role of displacement cells in the Thousand Brains theory.");
+        return viz;
+    }
+
+    // ── Part 4: image sensor scan ─────────────────────────────────────────────
+
+    // A procedural 96×96 texture image with three visibly different regions —
+    // left third vertical stripes, middle third flat mid-grey, right third
+    // diagonal stripes — scanned row-major by an ImageSensorEnvironment patch
+    // sensor, recording the raw descriptor (dominant orientation category,
+    // energy share, mean luminance) at every fixation for the visual demo.
+    private static VizImageScan RunImageScan()
+    {
+        Console.WriteLine("  ── Image sensor scan ────────────────────────────────────");
+        Console.WriteLine();
+        Console.WriteLine("  Scanning a procedural 96×96 texture with a 16 px sensor patch …");
+
+        const int size = 96;
+        const int patchSize = 16;
+        const int stride = 8;
+        const int orientationBins = 8;
+
+        // Left third: vertical stripes sin(x); middle: flat mid-grey; right
+        // third: diagonal stripes sin(x+y). All values in [0, 1].
+        var image = new float[size, size];
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                image[y, x] =
+                    x < size / 3     ? 0.5f + 0.5f * MathF.Sin(2f * MathF.PI * x / 8f)
+                  : x < 2 * size / 3 ? 0.5f
+                  :                    0.5f + 0.5f * MathF.Sin(2f * MathF.PI * (x + y) / 8f);
+            }
+        }
+
+        var env = new ImageSensorEnvironment(
+            patchSize: patchSize, stride: stride, orientationBins: orientationBins);
+        env.AddObject(0, image);
+        env.PresentObject(0);
+
+        // Navigate from the centre to fixation (0, 0): clamped moves, so
+        // GridWidth lefts + GridHeight ups are always enough.
+        for (int i = 0; i < env.GridWidth; i++) env.MoveTo(ImageSensorEnvironment.MoveLeft);
+        for (int i = 0; i < env.GridHeight; i++) env.MoveTo(ImageSensorEnvironment.MoveUp);
+
+        // Row-major scan: across each row with MoveRight, then MoveDown and
+        // MoveLeft back to column 0 for the next row.
+        var scan = new VizImageScan
+        {
+            Width           = size,
+            Height          = size,
+            Pixels          = new float[size * size],
+            GridCols        = env.GridWidth,
+            GridRows        = env.GridHeight,
+            PatchSize       = patchSize,
+            Stride          = stride,
+            OrientationBins = orientationBins,
+        };
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+                scan.Pixels[y * size + x] = image[y, x];
+
+        for (int row = 0; row < env.GridHeight; row++)
+        {
+            for (int col = 0; col < env.GridWidth; col++)
+            {
+                var (c, r) = env.SensorPosition;
+                var (category, share, luminance) = env.CurrentDescriptor();
+                env.Observe();
+                scan.Fixations.Add(new VizFixation(c, r, category, share, luminance));
+                if (col < env.GridWidth - 1) env.MoveTo(ImageSensorEnvironment.MoveRight);
+            }
+            if (row < env.GridHeight - 1)
+            {
+                env.MoveTo(ImageSensorEnvironment.MoveDown);
+                for (int i = 0; i < env.GridWidth - 1; i++)
+                    env.MoveTo(ImageSensorEnvironment.MoveLeft);
+            }
+        }
+
+        return scan;
+    }
+
+    // ── Web page export ───────────────────────────────────────────────────────
+
+    private static void SaveVisualization(VizData data)
+    {
+        string dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".predictivecoding");
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, "thousand-brains-demo.html");
+        HtmlVisualizer.Save(path, data);
+
+        Console.WriteLine();
+        Console.WriteLine($"  Visual demo written to  {path}");
+        try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); } catch { }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    // Maps a dataset feature Sdr to the index of its vocabulary entry. The
+    // dataset draws every feature directly from the vocabulary, so reference
+    // equality resolves it; max overlap is the (equivalent) fallback.
+    private static int FeatureId(Sdr feature, IReadOnlyList<Sdr> vocabulary)
+    {
+        int best = 0, bestOverlap = -1;
+        for (int v = 0; v < vocabulary.Count; v++)
+        {
+            if (ReferenceEquals(vocabulary[v], feature)) return v;
+            int overlap = vocabulary[v].Overlap(feature);
+            if (overlap > bestOverlap) { best = v; bestOverlap = overlap; }
+        }
+        return best;
+    }
 
     private static IReadOnlyList<(Sdr Feature, Sdr Location)> Encode(
         IReadOnlyList<FeaturePoint> points, PoseEncoder pose)

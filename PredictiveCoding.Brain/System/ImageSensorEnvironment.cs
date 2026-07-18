@@ -232,6 +232,18 @@ public sealed class ImageSensorEnvironment : IEnvironment
     /// <inheritdoc/>
     public void Reset() => (_col, _row) = (_gridWidth / 2, _gridHeight / 2);
 
+    // ── Raw descriptor access ────────────────────────────────────────────────
+
+    /// <summary>The raw descriptor at the current sensor position: the dominant-orientation
+    /// category (== orientationBins for a flat patch), its energy share and the mean luminance.</summary>
+    public (int Category, float Share, float Luminance) CurrentDescriptor()
+    {
+        if (_currentObjectId < 0)
+            throw new InvalidOperationException(
+                "Call PresentObject before CurrentDescriptor.");
+        return ComputeDescriptor(_objects[_currentObjectId]);
+    }
+
     // ── Patch descriptor ─────────────────────────────────────────────────────
 
     // Deterministic texture descriptor of the patch under the current fixation.
@@ -245,6 +257,26 @@ public sealed class ImageSensorEnvironment : IEnvironment
     //   2. the dominant bin's energy share (how "striped" the patch is);
     //   3. mean patch luminance.
     private Sdr DescribePatch(float[,] image)
+    {
+        var (category, share, meanLuminance) = ComputeDescriptor(image);
+
+        // 4. Concatenate category + share + luminance with bit offsets, as
+        //    PoseEncoder.Encode does.
+        var catSdr = _dominantEnc.Encode(category);
+        var shareSdr = _componentEnc.Encode(share);
+        var lumSdr = _componentEnc.Encode(meanLuminance);
+
+        var bits = new int[catSdr.Cardinality + shareSdr.Cardinality + lumSdr.Cardinality];
+        int idx = 0;
+        foreach (int b in catSdr.ActiveBits) bits[idx++] = b;
+        foreach (int b in shareSdr.ActiveBits) bits[idx++] = b + _dominantEnc.Size;
+        foreach (int b in lumSdr.ActiveBits) bits[idx++] = b + _dominantEnc.Size + _binBits;
+        return new Sdr(FeatureSize, bits);
+    }
+
+    // The raw (category, share, luminance) triple behind DescribePatch — shared
+    // by CurrentDescriptor so recorders can log the un-encoded descriptor.
+    private (int Category, float Share, float Luminance) ComputeDescriptor(float[,] image)
     {
         int px = _col * _stride;   // patch origin, pixel coordinates
         int py = _row * _stride;
@@ -288,17 +320,6 @@ public sealed class ImageSensorEnvironment : IEnvironment
         float share = total > 0f ? energy[dominant] / total : 0f;
         float meanLuminance = luminanceSum / (_patchSize * _patchSize);
 
-        // 4. Concatenate category + share + luminance with bit offsets, as
-        //    PoseEncoder.Encode does.
-        var catSdr = _dominantEnc.Encode(category);
-        var shareSdr = _componentEnc.Encode(share);
-        var lumSdr = _componentEnc.Encode(meanLuminance);
-
-        var bits = new int[catSdr.Cardinality + shareSdr.Cardinality + lumSdr.Cardinality];
-        int idx = 0;
-        foreach (int b in catSdr.ActiveBits) bits[idx++] = b;
-        foreach (int b in shareSdr.ActiveBits) bits[idx++] = b + _dominantEnc.Size;
-        foreach (int b in lumSdr.ActiveBits) bits[idx++] = b + _dominantEnc.Size + _binBits;
-        return new Sdr(FeatureSize, bits);
+        return (category, share, meanLuminance);
     }
 }
