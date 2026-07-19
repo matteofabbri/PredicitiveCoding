@@ -58,8 +58,8 @@ The design invariant across every phase: *storage light (Half/int8), accumulatio
 | Task | Status | Notes |
 |------|:------:|-------|
 | `PredictMixed` / `PredictWithEnergyMixed` | ✅ | minimum-energy classification with Half weights; `PredictCore(mixed:true)`. Test: `PredictMixed_MatchesFloatPrediction`. |
-| `InferMixed` (public `Infer` variant) | ❌ | transient mixed inference. |
-| `ClassEnergiesMixed` | ❌ | per-class energies under mixed forward (used by `EnsembleNetwork`). |
+| `InferMixed` (public `Infer` variant) | ✅ | transient mixed inference (Half clones, masters untouched — tested bit-identical before/after). |
+| `ClassEnergiesMixed` | ✅ | per-class energies under mixed forward; tracks the float energies within Half tolerance and agrees on the minimum-energy class (test). Phase 3 complete 2026-07-19. |
 
 Reuse the validated *quantize-clones-in-memory* pattern; the float path stays untouched.
 Makes mixed precision usable for the real use case (classify/predict with a light model).
@@ -80,7 +80,7 @@ Puts the number on the memory/bandwidth win (CPU) and, later, the GPU speedup.
 |------|:------:|-------|
 | cuBLAS mixed GEMM (`cublasGemmEx`) | ✅ | `Interop/Cublas.cs` binding + `CudaGemmProvider.MatMulMixed`/`MatMulMixedDevice`: A,B in R16F, C accumulated in Compute32F on the tensor cores; CPU fallback. |
 | Mixed on the GEMM abstraction | ✅ | `IGemmProvider.MatMulMixed` (default = float) + `CpuGemmProvider` real mixed override (doubles as the CUDA CPU fallback and test oracle). |
-| GPU verification | ⏳ | compiles + CPU-fallback + numeric parity green here (874/874); **the tensor-core run must be confirmed on CUDA hardware** — `dotnet test --filter MixedGemmTests` on a GPU box. |
+| GPU verification | ✅ | **verified 2026-07-19 on the RTX 4070 SUPER**: `cublasGemmEx` mixed GEMM vs CPU float oracle, max rel err 6.4e-3 over 256×512×256 (Half-rounding territory, as designed); 5× 1024³ mixed GEMM = **13 ms on GPU vs 2190 ms CPU-mixed** incl. transfers. The CUDA 12 runtime DLLs (`cudart64_12`/`cublas64_12`) need only be discoverable — no Toolkit install required; LM Studio's bundled copies on PATH (`~/.cache/lm-studio/extensions/backends/vendor/win-llama-cuda12-vendor-v2`) work. `DeviceRuntime.NativeLoaded` fixed to probe through the resolver's version-suffixed names. |
 | Route GEMM-heavy consumers to mixed | ✅ | `Ag.MatMulRoute` (2026-07-19): the trainable DecoderLM stack — THE GEMM-heavy consumer — routes MatMul forwards through `Gemm.Provider` (`Provider` = float, `ProviderMixed` = 16-bit operands/fp32 accumulation); backwards stay inline fp32 (master-precision gradients, same no-loss-scaling story as the core). Default `Inline` is bit-identical. Tests: `LlmGemmRouteTests` (4 — spy provider, bit-for-bit float route, mixed tolerance, mixed training). The inference `GptModel` stays unrouted by design: token-at-a-time matvec, see caveat below. |
 | Batched PC forward on GPU | ❌ | required for the predictive-coding forward to benefit from the GPU. |
 

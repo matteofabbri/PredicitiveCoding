@@ -13,10 +13,23 @@ namespace PredictiveCoding.Device;
 
 public static class DeviceRuntime
 {
-    private static readonly Lazy<int> _deviceCount = new(SafeDeviceCount);
+    private static readonly Lazy<int>  _deviceCount  = new(SafeDeviceCount);
+    private static readonly Lazy<bool> _nativeLoaded = new(SafeNativeLoaded);
 
-    /// <summary>True when the CUDA runtime library could be loaded.</summary>
-    public static bool NativeLoaded => NativeLibrary.TryLoad("cudart", typeof(DeviceRuntime).Assembly, null, out _);
+    /// <summary>
+    /// True when the CUDA runtime library could be loaded. Probes through the
+    /// actual P/Invoke (which goes through <see cref="Interop.NativeResolver"/>'s
+    /// version-suffixed names) — <c>NativeLibrary.TryLoad("cudart")</c> would miss
+    /// a perfectly loadable <c>cudart64_12.dll</c> on Windows.
+    /// </summary>
+    public static bool NativeLoaded => _nativeLoaded.Value;
+
+    private static bool SafeNativeLoaded()
+    {
+        try { Cuda.cudaGetDeviceCount(out _); return true; }
+        catch (DllNotFoundException) { return false; }
+        catch (EntryPointNotFoundException) { return false; }
+    }
 
     /// <summary>Number of CUDA devices (0 when unavailable).</summary>
     public static int CudaDeviceCount => _deviceCount.Value;

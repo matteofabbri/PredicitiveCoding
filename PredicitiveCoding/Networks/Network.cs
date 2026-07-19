@@ -52,6 +52,26 @@ public sealed class Network : IDisposable
         finally { _rwLock.ExitReadLock(); }
     }
 
+    /// <summary>
+    /// <see cref="Infer"/> run in MIXED PRECISION: the generative weights are
+    /// quantised to Half (an in-memory copy on the transient layer clones, never
+    /// persisted) before inference, so the whole settling runs at 16-bit weight
+    /// storage with float32 accumulation. The float32 master weights in the store
+    /// are left untouched.
+    /// </summary>
+    public void InferMixed(DenseTensor<float> input, int inferenceSteps, bool clampTop = false, DenseTensor<float>? label = null)
+    {
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            for (int l = 1; l < layers.Length; l++)
+                layers[l].QuantizeWeightsToHalf();
+            InferCore(layers, input, inferenceSteps, clampTop, label);
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
     private void InferCore(Layer[] layers, DenseTensor<float>  input, int inferenceSteps, bool clampTop, DenseTensor<float>? label)
     {
         ClampLayer(layers, 0, Flatten(input));
@@ -236,6 +256,43 @@ public sealed class Network : IDisposable
         try
         {
             var   layers         = ReadAllLayers();
+            int   numClasses     = layers[^1].Size;
+            var   energies       = new float[numClasses];
+            var   candidateLabel = DenseTensor<float>.Zeros(numClasses);
+            var   flatInput      = Flatten(input);
+
+            for (int c = 0; c < numClasses; c++)
+            {
+                for (int l = 1; l < layers.Length - 1; l++)
+                    layers[l].Mu.Zero();
+
+                candidateLabel.Zero();
+                candidateLabel.Buffer[c] = 1f;
+                InferCore(layers, flatInput, inferenceSteps, clampTop: true, label: candidateLabel);
+                energies[c] = ComputeEnergyCore(layers);
+            }
+
+            return energies;
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
+    /// <summary>
+    /// <see cref="ClassEnergies"/> run in MIXED PRECISION: every per-class
+    /// inference uses the Half copy of the weights (quantised once up front on the
+    /// transient clones); the float32 masters stay untouched. Energies match the
+    /// float path within Half's tolerance, so <c>EnsembleNetwork</c>-style
+    /// aggregation can run on the light forward.
+    /// </summary>
+    public float[] ClassEnergiesMixed(DenseTensor<float> input, int inferenceSteps)
+    {
+        _rwLock.EnterReadLock();
+        try
+        {
+            var   layers         = ReadAllLayers();
+            for (int l = 1; l < layers.Length; l++)
+                layers[l].QuantizeWeightsToHalf();
+
             int   numClasses     = layers[^1].Size;
             var   energies       = new float[numClasses];
             var   candidateLabel = DenseTensor<float>.Zeros(numClasses);

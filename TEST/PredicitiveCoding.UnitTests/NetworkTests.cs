@@ -398,4 +398,74 @@ public class NetworkTests : IDisposable
         Assert.Equal(0, net.PredictMixed(x0, 20));
         Assert.Equal(1, net.PredictMixed(x1, 20));
     }
+
+    [Fact]
+    public void ClassEnergiesMixed_TracksFloatEnergies_AndAgreesOnTheWinner()
+    {
+        // Phase 3 — the per-class energy landscape under the Half forward must
+        // stay close to the float one (EnsembleNetwork aggregates exactly this).
+        var cfg = new NetworkConfig
+        {
+            Path               = Path.Combine(_tempDir, "class_energies_mixed"),
+            LayerSizes         = [4, 16, 2],
+            Activation         = ActivationType.Tanh,
+            StateLearningRate  = 0.2f,
+            WeightLearningRate = 0.05f,
+        };
+        using var net = new Network(cfg, new Random(0));
+
+        var x0 = Input(0f, 0f, 0f, 0f);
+        var x1 = Input(1f, 1f, 1f, 1f);
+        for (int i = 0; i < 200; i++)
+        {
+            net.Learn(x0, OneHot(0, 2), inferenceSteps: 10);
+            net.Learn(x1, OneHot(1, 2), inferenceSteps: 10);
+        }
+
+        foreach (var x in new[] { x0, x1 })
+        {
+            var full  = net.ClassEnergies(x, inferenceSteps: 20);
+            var mixed = net.ClassEnergiesMixed(x, inferenceSteps: 20);
+
+            Assert.Equal(full.Length, mixed.Length);
+            for (int c = 0; c < full.Length; c++)
+            {
+                float tol = 5e-2f * (1f + MathF.Abs(full[c]));   // entro la tolleranza di Half
+                Assert.True(MathF.Abs(full[c] - mixed[c]) <= tol,
+                    $"class {c}: float={full[c]}, mixed={mixed[c]}");
+            }
+            Assert.Equal(Argmin(full), Argmin(mixed));           // same minimum-energy class
+        }
+
+        static int Argmin(float[] v)
+        {
+            int best = 0;
+            for (int i = 1; i < v.Length; i++) if (v[i] < v[best]) best = i;
+            return best;
+        }
+    }
+
+    [Fact]
+    public void InferMixed_LeavesTheFloatMastersUntouched()
+    {
+        // Phase 3 — transient mixed inference: runs on Half clones, never writes
+        // back, so the persisted float32 masters (and the float classifier built
+        // on them) are bit-identical before and after.
+        using var net = Net();
+        var x = Input(0.5f, -0.2f, 0.9f, 0.1f);
+        var y = OneHot(1, size: 2);
+        for (int i = 0; i < 30; i++)
+            net.Learn(x, y, inferenceSteps: 10);
+
+        float normBefore = net.AverageWeightNorm();
+        var   topBefore  = net.InferGetTop(x, inferenceSteps: 20, resetState: true);
+
+        net.InferMixed(x, inferenceSteps: 20);
+        net.InferMixed(x, inferenceSteps: 20, clampTop: true, label: y);
+
+        Assert.Equal(normBefore, net.AverageWeightNorm());
+        var topAfter = net.InferGetTop(x, inferenceSteps: 20, resetState: true);
+        for (int i = 0; i < topBefore.Length; i++)
+            Assert.Equal(topBefore[i], topAfter[i]);
+    }
 }
