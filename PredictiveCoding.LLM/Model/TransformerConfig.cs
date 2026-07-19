@@ -141,6 +141,14 @@ public sealed record TransformerConfig
     /// </summary>
     public string? BlockPattern { get; init; } = null;
 
+    // ── Sparse experts, inference side (ROADMAP-Pro Phase 1) ───────────────────
+
+    /// <summary>Experts in the feed-forward (0 = dense). Mirrors the trainable MoE for weight export.</summary>
+    public int NumExperts { get; init; } = 0;
+
+    /// <summary>Experts actually run per token (gate-weighted, unrenormalised — same semantics as training).</summary>
+    public int MoeTopK { get; init; } = 1;
+
     /// <summary>Per-head dimensionality = EmbedDim / NumHeads.</summary>
     public int HeadDim => EmbedDim / NumHeads;
 
@@ -184,6 +192,10 @@ public sealed record TransformerConfig
                 if (c != 'A' && c != 'T')
                     throw new InvalidOperationException($"BlockPattern may only contain 'A' (attention) or 'T' (temporal), found '{c}'.");
         }
+        if (NumExperts < 0)
+            throw new InvalidOperationException($"NumExperts ({NumExperts}) must be >= 0 (0 = dense feed-forward).");
+        if (NumExperts > 0 && (MoeTopK < 1 || MoeTopK > NumExperts))
+            throw new InvalidOperationException($"MoeTopK ({MoeTopK}) must be in [1, NumExperts ({NumExperts})].");
         if (NumLayers < 1)       throw new InvalidOperationException("NumLayers must be >= 1.");
         if (FeedForwardDim < 1)  throw new InvalidOperationException("FeedForwardDim must be >= 1.");
         if (LayerNormEps <= 0f)  throw new InvalidOperationException("LayerNormEps must be > 0.");

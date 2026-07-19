@@ -28,6 +28,11 @@ public sealed class GptModel
     public int VocabSize => _cfg.VocabSize;
     public int MaxSeqLen => _cfg.MaxSeqLen;
 
+    internal Embedding          EmbeddingTable => _embedding;   // serving-path import hooks
+    internal TransformerBlock[] Blocks         => _blocks;
+    internal INormLayer         FinalNorm      => _lnFinal;
+    internal Linear?            LmHead         => _lmHead;
+
     public GptModel(TransformerConfig cfg, Random rng)
     {
         cfg.Validate();

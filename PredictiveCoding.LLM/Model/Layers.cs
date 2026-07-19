@@ -78,6 +78,11 @@ public sealed class Linear
     public int InputDim  => _w.Dimensions[1];
     public int OutputDim => _w.Dimensions[0];
 
+    // Weight-import hooks for the serving path (ROADMAP-Pro Phase 1): the
+    // exporter overwrites these buffers with trained DecoderLM weights.
+    internal DenseTensor<float> WeightTensor => _w;
+    internal DenseTensor<float> BiasTensor   => _b;
+
     public Linear(int inDim, int outDim, Random rng, ActivationType init = ActivationType.Linear)
     {
         _w = RandomUtils.InitWeights(inDim, outDim, init, rng);   // → [out, in]
@@ -162,6 +167,9 @@ public sealed class LayerNorm : INormLayer
     private readonly float   _eps;
     private readonly int     _dim;
 
+    internal float[] Gamma => _gamma;   // serving-path import hooks
+    internal float[] Beta  => _beta;
+
     public LayerNorm(int dim, float eps)
     {
         _dim   = dim;
@@ -197,6 +205,8 @@ public sealed class Embedding
     private readonly DenseTensor<float> _table;   // [vocab, dim]
     private readonly int _vocab;
     private readonly int _dim;
+
+    internal DenseTensor<float> Table => _table;   // serving-path import hook
 
     public Embedding(int vocab, int dim, Random rng)
     {

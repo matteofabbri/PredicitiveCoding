@@ -218,6 +218,11 @@ public sealed class MultiHeadAttention : ISelfAttention
     private readonly Linear _q, _k, _v, _o;
     private readonly int    _numHeads, _numKvHeads, _headDim, _kvGroup;
     private readonly int    _window, _sinks;
+
+    internal Linear Q => _q;   // serving-path import hooks (ROADMAP-Pro Phase 1)
+    internal Linear K => _k;
+    internal Linear V => _v;
+    internal Linear O => _o;
     private readonly float  _scale, _softcap, _eps;
     private readonly bool   _rotary, _flash, _alibi, _qkNorm, _kvHalf;
     private readonly float[] _slopes;

@@ -39,6 +39,11 @@ public sealed class RecurrentTemporalLayer : ISelfAttention
     private readonly Linear _wa, _wi, _wu, _wo;
     private readonly int    _dim;
 
+    internal Linear Wa => _wa;   // serving-path import hooks (ROADMAP-Pro Phase 1)
+    internal Linear Wi => _wi;
+    internal Linear Wu => _wu;
+    internal Linear Wo => _wo;
+
     public RecurrentTemporalLayer(TransformerConfig cfg, Random rng)
     {
         _dim = cfg.EmbedDim;

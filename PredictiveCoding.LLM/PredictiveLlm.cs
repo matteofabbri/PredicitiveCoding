@@ -5,6 +5,7 @@ using PredictiveCoding.LLM.Autograd;
 using PredictiveCoding.LLM.Data;
 using PredictiveCoding.LLM.Eval;
 using PredictiveCoding.LLM.Generation;
+using PredictiveCoding.LLM.Serving;
 using PredictiveCoding.LLM.Tokenization;
 using PredictiveCoding.LLM.Training;
 
@@ -180,6 +181,17 @@ public sealed class PredictiveLlm
             if (savedPlan is not null) Model.SetPlan(savedPlan);
         }
     }
+
+    // ── Serve ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Exports the trained weights onto the O(n) inference stack and returns a
+    /// server that decodes incrementally through the KV cache — one forward per
+    /// token instead of a full re-forward (ROADMAP-Pro Phase 1). Requires
+    /// NumLoops = 1 (the served stack is single-pass); the export is a snapshot:
+    /// later training or Learn calls need a new server.
+    /// </summary>
+    public LlmServer CreateServer() => new(GptExporter.Export(Model), Tokenizer);
 
     // ── Evaluate ─────────────────────────────────────────────────────────────
 

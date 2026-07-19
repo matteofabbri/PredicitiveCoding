@@ -24,7 +24,8 @@ Design invariants (inherited from every previous roadmap):
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: plan drafted, nothing started.*
+*Status as of 2026-07-19: Phases 0–1 ✅ done (real BPE tokenizer travelling with the
+model + the O(n) serving path); Phases 2–8 ❌ to build.*
 
 **Where this starts from** (all ✅, see `ROADMAP.md`): `PredictiveLlm` with hybrid
 T/A blocks, looped depth, t+2 head + self-speculative decoding, FLOP-sparse MoE,
@@ -85,7 +86,7 @@ Metric delivered: `PredictiveLlm.EvaluateBitsPerByte` — non-overlapping window
 counted on the decoded scored targets, so byte and BPE models are measured on the same
 footing (per-token perplexity is incomparable across tokenizers).
 
-## Phase 1 — The serving path: train ↔ serve, unified · ❌
+## Phase 1 — The serving path: train ↔ serve, unified · ✅ done 2026-07-19
 
 *Today's structural flaw: the trainable `DecoderLM` re-runs the WHOLE sequence per
 generated token (O(n²·d)); the `GptModel` stack has the O(n·d) KV cache, sliding
@@ -94,13 +95,13 @@ talk. Train with one, serve with the other.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Weight export DecoderLM → GptModel | ❌ | map embedding/blocks/norms/head onto the inference stack; parity test: same tokens, same logits within tolerance. |
-| Supported subset, declared | ❌ | pattern (T/A) maps 1:1 (`RecurrentTemporalLayer` exists); MoE FFN needs an inference-side expert FFN in `GptModel` (same weights, no autograd — cheap); loops & plan: export unrolled/absorbed or documented out. |
-| `PredictiveLlm.Generate` on the served model | ❌ | incremental decoding with KV cache + window + sinks + Half cache; self-speculative stays (draft with t+2 head, verify incrementally). |
-| Throughput yardstick | ❌ | tokens/s toy-bench: full-reforward vs served path (expect the asymptotic win to show by ~200 tokens). |
+| Weight export DecoderLM → GptModel | ✅ | `Serving/GptExporter` — positional walk over `Parameters()` with double guards (per-tensor shape check + must-end-exactly), transposed onto the inference `Linear`s; GELU/positional formulas verified identical across the stacks beforehand. Parity: max logit drift < 1e-3 on a trained full-feature model (T/A + MoE + MTP + plan). |
+| Supported subset, declared | ✅ | T/A pattern maps 1:1 (`RecurrentTemporalLayer`); MoE got its inference twin (`MoeFeedForward` — identical unrenormalised top-k gate semantics, FLOP-sparse for free; temporal blocks keep dense FFN on both stacks); the plan is absorbed into the embedding table (it conditioned every position identically); the t+2 head is skipped; **NumLoops > 1 is refused with a clear error** (single-pass stack). |
+| `PredictiveLlm.CreateServer()` | ✅ | `Serving/LlmServer` — incremental greedy decoding, one `Step` per token through the KV cache (window/sink/Half per config); the export is a snapshot (re-create after training/Learn). Greedy text provably equal to the reforward path on a trained model. Speculative serving moves to Phase 2 with the sampling rework. |
+| Throughput yardstick | ✅ | measured in-test: served path beats the full-reforward path on the wall clock at 120 tokens (structural O(n) vs O(n²), asserted). |
 
 The highest power-per-line phase: every Phase-4 cache feature finally serves the model
-we actually train.
+we actually train. Tests: `LlmProPhase1Tests` (4).
 
 ## Phase 2 — Sampling & chat · ❌
 
