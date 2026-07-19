@@ -136,6 +136,36 @@ public class PredictiveLlmTests : IDisposable
         Assert.True(float.IsFinite(onPolicy));
     }
 
+    // ── Learn while using: the PC symmetry, weights-side ─────────────────────
+
+    [Fact]
+    public void Learn_AbsorbsNewText_AndKeepsAbsorbingAcrossCalls()
+    {
+        var llm = TinyFullFeature(seed: 13);
+        const string novel = "surprise is the bill the world sends for a bad model";
+
+        var first = llm.Learn(novel, steps: 2);
+        Assert.True(first.SurpriseAfter < first.SurpriseBefore, first.ToString());
+
+        var second = llm.Learn(novel, steps: 2);
+        Assert.True(second.SurpriseBefore < first.SurpriseBefore,
+            "weights did not persist between Learn calls");
+        Assert.True(float.IsFinite(second.SurpriseAfter) && second.SurpriseAfter > 0f);
+    }
+
+    [Fact]
+    public void Generate_WithLearnFromPrompt_MakesThePromptLessSurprising()
+    {
+        var llm = TinyFullFeature(seed: 15);
+        const string prompt = "the quick brown fox jumps";
+
+        double before = llm.Evaluate(prompt).NllPerToken;
+        llm.Generate(prompt, maxNewTokens: 4, new GenerationOptions { LearnFromPrompt = true, StopAtEos = false });
+        double after = llm.Evaluate(prompt).NllPerToken;
+
+        Assert.True(after < before, $"prompt surprise did not drop: {before:F3} → {after:F3}");
+    }
+
     // ── Report: the observatory in one file ──────────────────────────────────
 
     [Fact]

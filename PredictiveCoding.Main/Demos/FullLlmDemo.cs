@@ -14,6 +14,8 @@ namespace PredictiveCoding.Main.Demos;
 //            and after, epoch by epoch in front of you;
 //   generate self-speculative decoding (identical to greedy, fewer forwards),
 //            plus one generation with the plan settled on the prompt;
+//   learn    online, WHILE USING — the model absorbs brand-new text on the
+//            spot (the PC symmetry: states settle, weights absorb);
 //   save     config + weights round-trip, verified on the spot;
 //   report   the activation observatory as one light-theme HTML file.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +63,24 @@ public static class FullLlmDemo
         Console.WriteLine($"    » (latent plan settled on the prompt first)");
         Console.WriteLine($"      The brain is▸{OneLine(planned.Text)}\n");
 
-        // ── 4 · Save / reload ────────────────────────────────────────────────
+        // ── 4 · Learn while using (the PC symmetry) ──────────────────────────
+        Console.WriteLine("  Training while using: settling moved the STATES — now the WEIGHTS");
+        Console.WriteLine("  absorb brand-new text as the model works (observed text only,");
+        Console.WriteLine("  never its own output):");
+        string novel = string.Join('\n',
+            "Prediction is compression: a model that predicts well has understood.",
+            "Surprise is the bill the world sends for a bad model.");
+        for (int pass = 1; pass <= 3; pass++)
+        {
+            var r = llm.Learn(novel, steps: 2);
+            Console.WriteLine($"    pass {pass} · {r}");
+        }
+        var continued = llm.GenerateDetailed("Prediction is", maxNewTokens: 40,
+            new GenerationOptions { StopAtEos = false });
+        Console.WriteLine($"    » Prediction is▸{OneLine(continued.Text)}");
+        Console.WriteLine("    (GenerationOptions.LearnFromPrompt = true does this on every call)\n");
+
+        // ── 5 · Save / reload ────────────────────────────────────────────────
         string home     = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         string modelDir = Path.Combine(home, ".predictivecoding", "predictive-llm-demo");
         llm.Save(modelDir);
@@ -70,7 +89,7 @@ public static class FullLlmDemo
         Console.WriteLine($"  Saved + reloaded from {modelDir}");
         Console.WriteLine($"    reloaded model generates identically: {(identical ? "✓" : "✗")}\n");
 
-        // ── 5 · Report ───────────────────────────────────────────────────────
+        // ── 6 · Report ───────────────────────────────────────────────────────
         string reportPath = llm.Report(Path.Combine(home, ".predictivecoding", "predictive-llm-report.html"));
         Console.WriteLine($"  Observatory report (spikes · sink shares · loop passes · perplexity):");
         Console.WriteLine($"    {reportPath}");

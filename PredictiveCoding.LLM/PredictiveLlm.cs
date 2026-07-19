@@ -71,6 +71,17 @@ public sealed record GenerationOptions
     public float SettlePlanLr { get; init; } = 0.01f;
     /// <summary>Stop at the tokenizer's EOS token.</summary>
     public bool StopAtEos { get; init; } = true;
+    /// <summary>
+    /// Learn from the prompt before generating (one <see cref="PredictiveLlm.Learn"/>
+    /// step): the model absorbs the text it is being used on — training while using.
+    /// </summary>
+    public bool LearnFromPrompt { get; init; } = false;
+}
+
+/// <summary>What one online-learning step did: how surprising the text was, before and after absorbing it.</summary>
+public sealed record OnlineLearnReport(float SurpriseBefore, float SurpriseAfter, int Steps)
+{
+    public override string ToString() => $"surprise {SurpriseBefore:F3} → {SurpriseAfter:F3} ({Steps} step{(Steps == 1 ? "" : "s")})";
 }
 
 /// <summary>A generation plus its effort counters.</summary>
@@ -92,6 +103,11 @@ public sealed class PredictiveLlm
 
     /// <summary>The Step-3.5-Flash metric: parameters a token actually runs through.</summary>
     public long ActiveParameterCountPerToken => Model.ActiveParameterCountPerToken;
+
+    // Long-lived optimizer for online learning: Learn() keeps absorbing across
+    // calls with its momentum intact — the model is a lifelong learner, not a
+    // train-once artifact. (Not persisted by Save: moments restart on Load.)
+    private Adam? _onlineOptimizer;
 
     public PredictiveLlm(DecoderLmConfig config, ITokenizer? tokenizer = null, int seed = 42)
     {
@@ -199,6 +215,11 @@ public sealed class PredictiveLlm
             throw new ArgumentException(
                 $"Prompt is {ctxIds.Count} tokens; the window holds {Config.MaxSeq}. Shorten the prompt.");
 
+        // Training while using: absorb the observed prompt into the weights
+        // first, then settle the states, then predict.
+        if (opts.LearnFromPrompt && ctxIds.Count >= 2)
+            Learn(prompt);
+
         float[]? savedPlan = null;
         if (opts.SettlePlanSteps > 0 && Config.UsePlan && ctxIds.Count >= 2)
         {
@@ -223,12 +244,44 @@ public sealed class PredictiveLlm
 
     /// <summary>Perplexity of the model on <paramref name="text"/> (the Phase 0 yardstick).</summary>
     public PerplexityResult Evaluate(string text, int? maxWindows = null)
+        => PerplexityEvaluator.Evaluate(Model, TextWindows(text), maxWindows: maxWindows);
+
+    // ── Learn while using (the predictive-coding symmetry) ───────────────────
+
+    /// <summary>
+    /// Online learning: the model ABSORBS <paramref name="text"/> right now —
+    /// a few gradient steps on what was just observed, with a persistent
+    /// optimizer so successive calls keep building on each other.
+    ///
+    /// This is the other half of the predictive-coding loop the product was
+    /// missing: settling (adaptive effort, loops, the latent plan) descends the
+    /// prediction error in the STATES; Learn descends the same surprise in the
+    /// WEIGHTS — the core's <c>Network.Learn</c> does exactly these two moves.
+    /// By design it only ever learns from OBSERVED text, never from the model's
+    /// own output (self-feeding collapses). Returns how surprising the text was
+    /// before and after.
+    /// </summary>
+    public OnlineLearnReport Learn(string text, int steps = 1, float learningRate = 0.001f)
     {
-        int seqLen = Math.Min(32, Config.MaxSeq);
-        var data   = new StreamingTextDataset(text.Split('\n'), Tokenizer, seqLen, Math.Max(1, seqLen / 2));
-        var windows = data.Windows().ToList();
-        if (windows.Count == 0) windows = [WholeTextWindow(text)];
-        return PerplexityEvaluator.Evaluate(Model, windows, maxWindows: maxWindows);
+        if (steps < 1) throw new ArgumentOutOfRangeException(nameof(steps), steps, "steps must be >= 1.");
+        var windows = TextWindows(text);
+        _onlineOptimizer ??= new Adam();
+        var ps = Model.Parameters();
+
+        float before = MeanLoss(windows);
+        for (int s = 0; s < steps; s++)
+            Trainer.Step(ps, windows, LossFn, _onlineOptimizer, learningRate, clipNorm: 1f);
+        float after = MeanLoss(windows);
+        return new OnlineLearnReport(before, after, steps);
+
+        Tensor LossFn(int[] t, int[] y, bool training) => Model.Loss(t, y, ignoreIndex: -1, training);
+
+        float MeanLoss(List<(int[] input, int[] target)> ws)
+        {
+            double sum = 0d;
+            foreach (var (t, y) in ws) sum += Model.Loss(t, y, ignoreIndex: -1).Data[0];
+            return (float)(sum / ws.Count);
+        }
     }
 
     // ── Distill ──────────────────────────────────────────────────────────────
@@ -306,6 +359,17 @@ public sealed class PredictiveLlm
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    // Windows a text for evaluation/online learning; short texts fall back to
+    // one whole-text window.
+    private List<(int[] input, int[] target)> TextWindows(string text)
+    {
+        int seqLen = Math.Min(32, Config.MaxSeq);
+        var data   = new StreamingTextDataset(text.Split('\n'), Tokenizer, seqLen, Math.Max(1, seqLen / 2));
+        var windows = data.Windows().ToList();
+        if (windows.Count == 0) windows = [WholeTextWindow(text)];
+        return windows;
+    }
 
     // Fallback eval window for texts too short to fill a streaming window.
     private (int[] input, int[] target) WholeTextWindow(string text)

@@ -41,9 +41,15 @@ pattern + looped depth + t+2 head + FLOP-sparse MoE + latent plan, all on at onc
 `Generate`/`GenerateDetailed` (self-speculative decoding, optional plan settling —
 restored afterwards, so the model stays stateless between calls), `Evaluate`,
 `DistillFrom`/`DistillOnPolicy` (teacher = one delegate), `Save`/`Load` (config JSON +
-checkpoint, bit-faithful), `Report` (the Phase 0 observatory as one HTML file).
-Driven end-to-end by `PredictiveLlmTests` (8) — including train-improves-perplexity
-with every feature enabled simultaneously.
+checkpoint, bit-faithful), `Report` (the Phase 0 observatory as one HTML file), and
+`Learn(text)` — **online learning while using**: the missing half of the PC symmetry.
+Settling (adaptive effort, loops, the plan) descends the prediction error in the
+STATES; `Learn` descends the same surprise in the WEIGHTS, with a persistent optimizer
+across calls — exactly the two moves of the core's `Network.Learn`. Only ever from
+OBSERVED text, never from the model's own output (self-feeding collapses);
+`GenerationOptions.LearnFromPrompt` absorbs each prompt on the fly.
+Driven end-to-end by `PredictiveLlmTests` (10) — including train-improves-perplexity
+with every feature enabled simultaneously, and surprise dropping across `Learn` calls.
 
 ### Paper anchors → phases
 
