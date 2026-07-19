@@ -94,6 +94,67 @@ public class LlmMoeTests
         Assert.True(last < first * 0.5f, $"MoE model did not learn: {first:F3} → {last:F3}");
     }
 
+    // ── FLOP sparsity: skipped experts really cost nothing ───────────────────
+
+    [Fact]
+    public void FlopSparse_RunsOnlyTheRoutedRows()
+    {
+        var probe = new PredictiveCoding.LLM.Eval.ActivationProbe();
+        int[] tokens = [1, 5, 9, 2];
+
+        // Top-1 of 4 experts: each row runs exactly one expert FFN.
+        var k1 = new DecoderLM(Cfg(experts: 4, topK: 1), new Random(11));
+        k1.Forward(tokens, training: false, probe);
+        Assert.Equal(4, probe.MoeRowsComputed);                   // rows·K, not rows·E (16)
+
+        // k = E: every expert runs on every row — dense again, by choice.
+        probe.Reset();
+        var kAll = new DecoderLM(Cfg(experts: 4, topK: 4), new Random(11));
+        kAll.Forward(tokens, training: false, probe);
+        Assert.Equal(4 * 4, probe.MoeRowsComputed);
+
+        probe.Reset();
+        var k2 = new DecoderLM(Cfg(experts: 4, topK: 2), new Random(11));
+        k2.Forward(tokens, training: false, probe);
+        Assert.Equal(4 * 2, probe.MoeRowsComputed);
+    }
+
+    [Fact]
+    public void GatherScatter_PassNumericGradientCheck()
+    {
+        const int Rows = 4, Cols = 3;
+        int[] routed  = [2, 0, 3];                                // out of order on purpose
+        int[] targets = [0, 2, 1, 0];
+        var rng  = new Random(17);
+        var xRaw = new float[Rows * Cols];
+        for (int i = 0; i < xRaw.Length; i++) xRaw[i] = (float)(rng.NextDouble() * 2 - 1);
+
+        // loss = CE( Scatter(Gather(x, routed), routed, Rows), targets ):
+        // routed rows pass through, the rest are zeros.
+        (Tensor x, Tensor loss) Build()
+        {
+            var x = Tensor.From(xRaw, Rows, Cols);
+            var y = Ag.ScatterRows(Ag.GatherRows(x, routed), routed, Rows);
+            return (x, Ag.CrossEntropy(y, targets));
+        }
+
+        var (tx, loss) = Build();
+        loss.Backward();
+
+        for (int k = 0; k < xRaw.Length; k++)
+        {
+            const float eps = 1e-3f;
+            float keep = xRaw[k];
+            xRaw[k] = keep + eps; float up   = Build().loss.Data[0];
+            xRaw[k] = keep - eps; float down = Build().loss.Data[0];
+            xRaw[k] = keep;
+
+            float numeric = (up - down) / (2 * eps);
+            Assert.True(MathF.Abs(numeric - tx.Grad[k]) <= 1e-2f * MathF.Max(1f, MathF.Abs(numeric)),
+                $"x[{k}]: numeric {numeric:F4} vs autograd {tx.Grad[k]:F4}");
+        }
+    }
+
     // ── The router ops earn their gradients ──────────────────────────────────
 
     [Fact]
