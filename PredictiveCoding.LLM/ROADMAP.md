@@ -15,7 +15,7 @@ Design invariants across every phase:
   "exactly the old behaviour".
 - **Toy scale, real mechanisms.** We reproduce the *mechanism* with measurable ablations
   at small scale, not the frontier numbers — same stance as the rest of the repo.
-- Each phase lands with unit tests; the full suite stays green (888 today).
+- Each phase lands with unit tests; the full suite stays green (894 today).
 
 ### Legend
 
@@ -25,8 +25,10 @@ Design invariants across every phase:
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–1 ✅ done (888/888 green; Phase 0's optional HTML
-report deferred); Phases 2–8 ❌ to build.*
+*Status as of 2026-07-19: Phases 0–2 ✅ done (894/894 green; Phase 0's optional HTML
+report deferred); Phases 3–8 ❌ to build. The network-variant family (incl. the PC-level
+MoE trio) now lives in core under `PredicitiveCoding/Networks/` — the Expanded project
+was dissolved the same day.*
 
 ### Paper anchors → phases
 
@@ -96,7 +98,7 @@ almost immediately (20 steps). The step counter is an **explanation-progress met
 not a familiarity meter — the effort goes where there is structure to explain, which
 is the behaviour you actually want from adaptive compute.
 
-## Phase 2 — Looped DecoderLM (weight-tied depth) · ❌
+## Phase 2 — Looped DecoderLM (weight-tied depth) · ✅ done 2026-07-19
 
 *PC angle: reusing one tied block K times is settling toward a fixed point — the discrete
 cousin of PC's iterative inference. Depth becomes iteration, which is exactly how the
@@ -104,11 +106,11 @@ core `Network` already treats computation.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| `DecoderLmConfig.NumLoops` | ❌ | default 1 = vanilla; forward re-applies the block stack `NumLoops` times with tied weights. |
-| Tied-reuse gradient test | ❌ | explicit unit test that multi-use accumulation matches an unrolled reference (the engine already `+=`s per use). |
-| Loop-step conditioning | ❌ | cheap per-iteration bias so the block knows which pass it is on. |
-| Inference early-exit | ❌ | stop looping when `‖x_k − x_{k−1}‖ / ‖x‖ < τ` — Phase 1's adaptive effort, applied to the LM. |
-| Tests | ❌ | `NumLoops=1` bit-identical to vanilla; loss at equal *parameter count* vs deeper untied model; early-exit ≡ full loop when τ=0. |
+| `DecoderLmConfig.NumLoops` | ✅ | default 1 = vanilla (bit-identical, parameter list untouched → old checkpoints still load); forward re-applies the block stack `NumLoops` times with tied weights. |
+| Tied-reuse gradient test | ✅ | `TiedLoop_Gradients_MatchTheUnrolledSum`: a 1-block × 2-loop model reproduces, gradient for gradient, a 2-block unrolled twin with shared weights (tied grad = sum of the two uses). |
+| Loop-step conditioning | ✅ | per-loop bias `[1, dim]`, zero-initialised, allocated only when `NumLoops > 1`. |
+| Inference early-exit | ✅ | `LoopExitTau`: stop once `‖x_k − x_{k−1}‖ / ‖x_{k−1}‖ < τ` — eval only, τ=0 disables; `ActivationProbe.LoopsUsed` reports the passes actually run. |
+| Tests | ✅ | `LlmLoopedTests` (6): NumLoops=1 bit-identical, tied-grad ≡ unrolled sum, looped training halves the loss, early-exit fires at eval only / τ=0 runs the budget, per-pass probe entries, config validation. |
 
 The highest predictive-codiness-per-line item on the list.
 

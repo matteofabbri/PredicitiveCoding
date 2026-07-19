@@ -17,10 +17,15 @@ namespace PredictiveCoding.LLM.Autograd;
 //
 // Forward (pre-norm + residual, GPT-style):
 //   x  = onehot(tokens)·Wemb + positional
-//   for each block:
-//     x += Dropout( Σ_h  softmaxCausal((h1·Wq_h)(h1·Wk_h)ᵀ·scale)·(h1·Wv_h) · Wo_h )
-//     x += Dropout( gelu(LN(x)·W1 + b1)·W2 + b2 )
+//   repeat NumLoops times (weight-tied; + per-loop bias when NumLoops > 1):
+//     for each block:
+//       x += Dropout( Σ_h  softmaxCausal((h1·Wq_h)(h1·Wk_h)ᵀ·scale)·(h1·Wv_h) · Wo_h )
+//       x += Dropout( gelu(LN(x)·W1 + b1)·W2 + b2 )
 //   logits = LN_f(x)·Wout
+//
+// NumLoops > 1 is looped/weight-tied depth (roadmap Phase 2): the stack is
+// iterated toward a fixed point instead of stacked deeper, and at inference the
+// loop can exit early once a pass stops changing the state (LoopExitTau).
 // ─────────────────────────────────────────────────────────────────────────────
 
 public sealed record DecoderLmConfig(
@@ -31,7 +36,9 @@ public sealed record DecoderLmConfig(
     int FfDim,
     int MaxSeq,
     float Dropout = 0f,
-    float Eps = 1e-5f)
+    float Eps = 1e-5f,
+    int NumLoops = 1,
+    float LoopExitTau = 0f)
 {
     public int HeadDim => Dim / NumHeads;
 
@@ -41,6 +48,10 @@ public sealed record DecoderLmConfig(
             throw new ArgumentException("All DecoderLmConfig sizes must be positive.");
         if (Dim % NumHeads != 0)
             throw new ArgumentException($"Dim ({Dim}) must be divisible by NumHeads ({NumHeads}).");
+        if (NumLoops < 1)
+            throw new ArgumentException($"NumLoops ({NumLoops}) must be >= 1.");
+        if (LoopExitTau < 0f)
+            throw new ArgumentException($"LoopExitTau ({LoopExitTau}) must be >= 0 (0 disables the early exit).");
     }
 }
 
@@ -48,12 +59,13 @@ public sealed class DecoderLM
 {
     public DecoderLmConfig Config { get; }
 
-    private readonly float    _attnScale;
-    private readonly Random   _rng;
-    private readonly Tensor   _wemb;          // [vocab, dim]
-    private readonly Block[]  _blocks;
-    private readonly Tensor   _lnFG, _lnFB;   // final layer-norm
-    private readonly Tensor   _wout;          // [dim, vocab]
+    private readonly float     _attnScale;
+    private readonly Random    _rng;
+    private readonly Tensor    _wemb;          // [vocab, dim]
+    private readonly Block[]   _blocks;
+    private readonly Tensor[]? _loopBias;      // [NumLoops] × [1, dim] — loop-step conditioning; null when NumLoops == 1
+    private readonly Tensor    _lnFG, _lnFB;   // final layer-norm
+    private readonly Tensor    _wout;          // [dim, vocab]
 
     public DecoderLM(DecoderLmConfig cfg, Random rng)
     {
@@ -65,6 +77,14 @@ public sealed class DecoderLM
         _wemb   = AgInit.Randn(cfg.Vocab, cfg.Dim, rng);
         _blocks = new Block[cfg.NumBlocks];
         for (int b = 0; b < cfg.NumBlocks; b++) _blocks[b] = new Block(cfg, rng);
+        if (cfg.NumLoops > 1)
+        {
+            // Zero-initialised, so a fresh looped model starts as a pure
+            // weight-tied iteration; only allocated when looping, so the
+            // NumLoops == 1 parameter list (and old checkpoints) are untouched.
+            _loopBias = new Tensor[cfg.NumLoops];
+            for (int k = 0; k < cfg.NumLoops; k++) _loopBias[k] = new Tensor(1, cfg.Dim);
+        }
         _lnFG = AgInit.Ones(1, cfg.Dim);
         _lnFB = new Tensor(1, cfg.Dim);
         _wout = AgInit.Randn(cfg.Dim, cfg.Vocab, rng);
@@ -75,6 +95,7 @@ public sealed class DecoderLM
     {
         var ps = new List<Tensor> { _wemb };
         foreach (var b in _blocks) ps.AddRange(b.Parameters());
+        if (_loopBias is not null) ps.AddRange(_loopBias);
         ps.Add(_lnFG);
         ps.Add(_lnFB);
         ps.Add(_wout);
@@ -99,14 +120,54 @@ public sealed class DecoderLM
         var x = Ag.MatMul(oneHot, _wemb);                                  // [seq, dim]
         x = Ag.Add(x, AgPositional.Sinusoidal(seq, Config.Dim));           // + positions
 
-        for (int b = 0; b < _blocks.Length; b++)
+        // Weight-tied depth (roadmap Phase 2): the same block stack is applied
+        // NumLoops times — depth becomes iteration toward a fixed point, the
+        // discrete cousin of the core network's iterative settling. Gradients
+        // through the reused parameters accumulate once per use (the engine
+        // += s into Grad), so training the tied loop needs nothing special.
+        int      loops     = Config.NumLoops;
+        int      loopsUsed = 0;
+        float[]? previous  = null;                                          // x after the previous loop pass
+
+        for (int k = 0; k < loops; k++)
         {
-            x = _blocks[b].Forward(x, _attnScale, Config.Dropout, training, _rng, Config.Eps, probe, b);
-            probe?.RecordBlock(b, x.Data);
+            if (_loopBias is not null)
+                x = Ag.AddBias(x, _loopBias[k]);          // loop-step conditioning: which pass is this?
+
+            for (int b = 0; b < _blocks.Length; b++)
+            {
+                x = _blocks[b].Forward(x, _attnScale, Config.Dropout, training, _rng, Config.Eps, probe, b);
+                probe?.RecordBlock(b, x.Data);
+            }
+            loopsUsed = k + 1;
+
+            // Early exit (inference only): stop looping once a pass changes the
+            // hidden state by less than LoopExitTau, relative — Phase 1's
+            // adaptive effort, applied to the LM. Tau = 0 disables it.
+            if (!training && Config.LoopExitTau > 0f && k < loops - 1)
+            {
+                if (previous is not null && RelativeChange(previous, x.Data) < Config.LoopExitTau)
+                    break;
+                previous = (float[])x.Data.Clone();
+            }
         }
+        if (probe is not null) probe.LoopsUsed = loopsUsed;
 
         var xf = Ag.LayerNorm(x, _lnFG, _lnFB, Config.Eps);
         return Ag.MatMul(xf, _wout);                                       // [seq, vocab]
+    }
+
+    // ‖now − before‖ / (‖before‖ + tiny), over the flattened hidden state.
+    private static float RelativeChange(float[] before, float[] now)
+    {
+        double diff = 0d, norm = 0d;
+        for (int i = 0; i < now.Length; i++)
+        {
+            double d = now[i] - before[i];
+            diff += d * d;
+            norm += (double)before[i] * before[i];
+        }
+        return (float)(Math.Sqrt(diff) / (Math.Sqrt(norm) + 1e-12));
     }
 
     /// <summary>Masked next-token cross-entropy; rows with target == ignoreIndex are skipped.</summary>

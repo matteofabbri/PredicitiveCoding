@@ -30,11 +30,19 @@ public sealed class ActivationProbe
     public List<BlockStats> Blocks { get; } = [];
     public List<SinkStats>  Sinks  { get; } = [];
 
+    /// <summary>
+    /// Loop passes actually executed by the last looped DecoderLM forward
+    /// (≤ NumLoops when the early exit fires; 1 for a non-looped model).
+    /// On a looped forward, Blocks/Sinks receive one entry set per pass.
+    /// </summary>
+    public int LoopsUsed { get; set; }
+
     /// <summary>Clears all recordings so the probe can observe another forward pass.</summary>
     public void Reset()
     {
         Blocks.Clear();
         Sinks.Clear();
+        LoopsUsed = 0;
     }
 
     /// <summary>Records mean/max absolute activation of one block's output.</summary>
