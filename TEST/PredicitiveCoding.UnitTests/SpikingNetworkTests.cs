@@ -1,5 +1,5 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.Spiking;
+using PredictiveCoding.Networks.Spiking;
 
 namespace PredicitiveCoding.UnitTests;
 

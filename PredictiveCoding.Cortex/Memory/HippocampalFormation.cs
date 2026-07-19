@@ -1,5 +1,5 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.Hopfield;
+using PredictiveCoding.Networks.Hopfield;
 using PredictiveCoding.Networks;
 
 namespace PredictiveCoding.Cortex;

@@ -2,8 +2,9 @@ namespace PredictiveCoding.Brain;
 
 /// <summary>
 /// <c>PredictiveCoding.Brain</c> — a Thousand Brains Project implementation built
-/// on the existing predictive-coding stack (Core PCN, <c>PredictiveCoding.Expanded</c>
-/// networks, and the anatomical modules in <c>PredictiveCoding.Cortex</c>).
+/// on the existing predictive-coding stack (Core PCN, the
+/// <c>PredictiveCoding.Networks</c> family, and the anatomical modules in
+/// <c>PredictiveCoding.Cortex</c>).
 /// <para>
 /// This assembly starts as a scaffold. The full component breakdown — every task
 /// needed to realise the Thousand Brains theory and which pieces already exist in

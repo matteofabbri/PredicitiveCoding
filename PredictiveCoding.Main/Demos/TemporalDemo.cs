@@ -1,7 +1,7 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Model;
 using PredictiveCoding.Networks;
-using PredictiveCoding.Expanded.Networks;
+using PredictiveCoding.Networks.Temporal;
 
 namespace PredictiveCoding.Main.Demos;
 

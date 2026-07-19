@@ -4,7 +4,6 @@
     <Project Path="tools/OnnxPack/OnnxPack.csproj" />
   </Folder>
   <Project Path="PredicitiveCoding/PredictiveCoding.csproj" />
-  <Project Path="PredictiveCoding.Expanded/PredictiveCoding.Expanded.csproj" />
   <Project Path="PredictiveCoding.Cortex/PredictiveCoding.Cortex.csproj" />
   <Project Path="PredictiveCoding.Imaging/PredictiveCoding.Imaging.csproj" />
   <Project Path="PredictiveCoding.LLM/PredictiveCoding.LLM.csproj" />

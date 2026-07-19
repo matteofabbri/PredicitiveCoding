@@ -3,7 +3,6 @@ using PredictiveCoding.Core;
 using PredictiveCoding.Networks;
 
 [assembly: InternalsVisibleTo("PredicitiveCoding.UnitTests")]
-[assembly: InternalsVisibleTo("PredictiveCoding.Expanded")]
 
 namespace PredictiveCoding.Model;
 

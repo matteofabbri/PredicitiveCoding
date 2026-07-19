@@ -1,6 +1,6 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Cortex;
-using PredictiveCoding.Expanded.Active;
+using PredictiveCoding.Networks.Active;
 using PredictiveCoding.Networks;
 
 namespace PredictiveCoding.CortexApp.Examples;

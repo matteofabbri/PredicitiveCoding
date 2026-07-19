@@ -1,5 +1,5 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.MultiModal;
+using PredictiveCoding.Networks.MultiModal;
 
 namespace PredictiveCoding.Cortex;
 

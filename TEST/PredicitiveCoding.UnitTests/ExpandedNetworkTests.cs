@@ -1,10 +1,10 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.GenerativeNetwork;
-using PredictiveCoding.Expanded.Graph;
-using PredictiveCoding.Expanded.HierarchicalMoE;
-using PredictiveCoding.Expanded.Hopfield;
-using PredictiveCoding.Expanded.MemoryNetwork;
-using PredictiveCoding.Expanded.MultiModal;
+using PredictiveCoding.Networks.Generative;
+using PredictiveCoding.Networks.Graph;
+using PredictiveCoding.Networks.MoE;
+using PredictiveCoding.Networks.Hopfield;
+using PredictiveCoding.Networks.Memory;
+using PredictiveCoding.Networks.MultiModal;
 using PredictiveCoding.Networks;
 
 namespace PredicitiveCoding.UnitTests;

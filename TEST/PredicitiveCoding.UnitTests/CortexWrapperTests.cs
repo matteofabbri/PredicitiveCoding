@@ -1,12 +1,12 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Cortex;
-using PredictiveCoding.Expanded.Active;
-using PredictiveCoding.Expanded.DeepRecurrent;
-using PredictiveCoding.Expanded.Gated;
-using PredictiveCoding.Expanded.GenerativeNetwork;
-using PredictiveCoding.Expanded.Hierarchical;
-using PredictiveCoding.Expanded.HierarchicalMoE;
-using PredictiveCoding.Expanded.MultiModal;
+using PredictiveCoding.Networks.Active;
+using PredictiveCoding.Networks.DeepRecurrent;
+using PredictiveCoding.Networks.Gated;
+using PredictiveCoding.Networks.Generative;
+using PredictiveCoding.Networks.Hierarchical;
+using PredictiveCoding.Networks.MoE;
+using PredictiveCoding.Networks.MultiModal;
 using PredictiveCoding.Networks;
 
 namespace PredicitiveCoding.UnitTests;

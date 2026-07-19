@@ -1,8 +1,8 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Cortex;
-using PredictiveCoding.Expanded.DeepRecurrent;
-using PredictiveCoding.Expanded.GenerativeNetwork;
-using PredictiveCoding.Expanded.Graph;
+using PredictiveCoding.Networks.DeepRecurrent;
+using PredictiveCoding.Networks.Generative;
+using PredictiveCoding.Networks.Graph;
 using PredictiveCoding.Networks;
 
 namespace PredicitiveCoding.UnitTests;

@@ -1,12 +1,15 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.Networks;
-using PredictiveCoding.Expanded.RoutedNetwork;
+using PredictiveCoding.Networks.MoE;
+using PredictiveCoding.Networks.Ensemble;
+using PredictiveCoding.Networks.Attentive;
+using PredictiveCoding.Networks.Residual;
+using PredictiveCoding.Networks.Routed;
 using PredictiveCoding.Networks;
 
 namespace PredicitiveCoding.UnitTests;
 
-// Coverage for the advanced networks moved into PredictiveCoding.Expanded.Networks
-// (Ensemble / Residual / Attentive / TemporalMixtureOfExperts) and RoutedNetwork.
+// Coverage for the advanced networks living under PredictiveCoding.Networks
+// (Ensemble / Residual / Attentive / MoE.TemporalMixtureOfExperts) and Routed.
 public class MovedNetworkTests : IDisposable
 {
     private readonly string _tmp = Path.Combine(Path.GetTempPath(), $"moved_{Guid.NewGuid():N}");

@@ -1,5 +1,5 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.DeepRecurrent;
+using PredictiveCoding.Networks.DeepRecurrent;
 using PredictiveCoding.Networks;
 
 namespace PredictiveCoding.Cortex;

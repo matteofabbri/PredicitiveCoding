@@ -159,7 +159,11 @@ The heaviest phase — gated by the scan op landing cleanly. Do after 2–4.
 ## Phase 6 — Sparse experts (MoE feed-forward) · ❌
 
 *PC angle: routing as precision-weighted gating — send the token to the expert expected
-to predict it best; the conceptual sibling of `LearnGated` and of Cortex's area routing.*
+to predict it best; the conceptual sibling of `LearnGated` and of Cortex's area routing.
+The PC-level MoE family already exists and lives in core (`Networks/MoE`:
+`MixtureOfExperts`, `TemporalMixtureOfExperts`, `HierarchicalMixtureOfExperts`, plus
+`Networks/Routed.RoutedNetwork` — moved out of the dissolved Expanded project,
+2026-07-19); this phase is their FFN-level sibling inside `DecoderLM`.*
 
 | Task | Status | Notes |
 |------|:------:|-------|

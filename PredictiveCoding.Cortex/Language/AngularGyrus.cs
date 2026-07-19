@@ -1,5 +1,5 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.Graph;
+using PredictiveCoding.Networks.Graph;
 
 namespace PredictiveCoding.Cortex;
 

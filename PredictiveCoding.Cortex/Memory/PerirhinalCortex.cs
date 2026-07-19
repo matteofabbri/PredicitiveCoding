@@ -1,5 +1,5 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.MemoryNetwork;
+using PredictiveCoding.Networks.Memory;
 using PredictiveCoding.Networks;
 
 namespace PredictiveCoding.Cortex;

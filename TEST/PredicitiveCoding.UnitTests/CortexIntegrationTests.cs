@@ -1,7 +1,7 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Cortex;
-using PredictiveCoding.Expanded.MultiModal;
-using PredictiveCoding.Expanded.Networks;
+using PredictiveCoding.Networks.MultiModal;
+using PredictiveCoding.Networks.MoE;
 using PredictiveCoding.Networks;
 
 namespace PredicitiveCoding.UnitTests;

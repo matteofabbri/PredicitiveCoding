@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -26,7 +26,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\PredicitiveCoding\PredictiveCoding.csproj" />
-    <ProjectReference Include="..\..\PredictiveCoding.Expanded\PredictiveCoding.Expanded.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.Cortex\PredictiveCoding.Cortex.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.Brain\PredictiveCoding.Brain.csproj" />
     <ProjectReference Include="..\..\PredictiveCoding.LLM\PredictiveCoding.LLM.csproj" />

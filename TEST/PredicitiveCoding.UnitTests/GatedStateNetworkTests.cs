@@ -1,5 +1,5 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.Gated;
+using PredictiveCoding.Networks.Gated;
 using PredictiveCoding.Networks;
 
 namespace PredicitiveCoding.UnitTests;

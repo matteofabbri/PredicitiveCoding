@@ -1,6 +1,6 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Cortex;
-using PredictiveCoding.Expanded.MultiModal;
+using PredictiveCoding.Networks.MultiModal;
 using PredictiveCoding.Networks;
 
 namespace PredicitiveCoding.UnitTests;

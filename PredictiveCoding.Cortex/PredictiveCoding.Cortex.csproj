@@ -12,7 +12,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
-    <ProjectReference Include="..\PredictiveCoding.Expanded\PredictiveCoding.Expanded.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,5 +1,5 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.GenerativeNetwork;
+using PredictiveCoding.Networks.Generative;
 using PredictiveCoding.Networks;
 
 namespace PredictiveCoding.FaceRecognition;

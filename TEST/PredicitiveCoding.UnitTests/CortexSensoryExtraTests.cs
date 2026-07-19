@@ -1,7 +1,7 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Cortex;
-using PredictiveCoding.Expanded.DeepRecurrent;
-using PredictiveCoding.Expanded.Hopfield;
+using PredictiveCoding.Networks.DeepRecurrent;
+using PredictiveCoding.Networks.Hopfield;
 using PredictiveCoding.Networks;
 
 namespace PredicitiveCoding.UnitTests;

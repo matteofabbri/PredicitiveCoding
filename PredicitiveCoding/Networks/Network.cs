@@ -1005,7 +1005,7 @@ public sealed class Network : IDisposable
     /// <summary>
     /// Runs free inference (top layer unclamped) and returns a clone of
     /// μ_{L-1} after convergence.  Used as an encoder by
-    /// <c>Expanded.GenerativeNetwork</c> and <c>Expanded.MultiModalNetwork</c>.
+    /// <c>Networks.Generative.GenerativeNetwork</c> and <c>Networks.MultiModal.MultiModalNetwork</c>.
     /// Transient: weights are not modified.
     /// </summary>
     public DenseTensor<float> InferGetTop(DenseTensor<float> input, int inferenceSteps)
@@ -1152,7 +1152,7 @@ public sealed class Network : IDisposable
     ///
     /// This is the temporal counterpart of <see cref="LearnUnsupervised"/> and the
     /// unsupervised counterpart of <see cref="LearnTemporal"/>.  It is the building
-    /// block for <c>Expanded.DeepRecurrent.DeepRecurrentNetwork</c>, where each stage
+    /// block for <c>Networks.DeepRecurrent.DeepRecurrentNetwork</c>, where each stage
     /// must (a) learn to encode its input, (b) carry temporal context across steps,
     /// and (c) emit a top latent that feeds the stage above.
     /// </summary>
@@ -1187,7 +1187,7 @@ public sealed class Network : IDisposable
     /// temporal priors, runs free inference (top layer unclamped) and returns the
     /// converged top latent μ_{L-1} together with the new hidden states.
     /// Transient — no weights are modified.  Used by
-    /// <c>Expanded.DeepRecurrent.DeepRecurrentNetwork</c> during evaluation to roll
+    /// <c>Networks.DeepRecurrent.DeepRecurrentNetwork</c> during evaluation to roll
     /// the temporal context forward while feeding latents up the cascade.
     /// </summary>
     public (DenseTensor<float> topLatent, DenseTensor<float>[] hiddenStates) InferGetTopTemporal(
@@ -1212,7 +1212,7 @@ public sealed class Network : IDisposable
     /// Sets (or clears) the <see cref="Model.Layer.PriorMean"/> and
     /// <see cref="Model.Layer.Precision"/> of the top layer.
     /// Pass <c>null</c> to restore a flat (uninformative) prior.
-    /// Used by <c>Expanded.MemoryNetwork</c> to inject memory-retrieved priors
+    /// Used by <c>Networks.Memory.MemoryNetwork</c> to inject memory-retrieved priors
     /// before inference without re-creating the network.
     /// </summary>
     public void SetTopLayerPrior(DenseTensor<float>? prior, float precision = 1f)

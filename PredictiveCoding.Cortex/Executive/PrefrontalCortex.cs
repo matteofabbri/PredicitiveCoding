@@ -1,6 +1,6 @@
 using PredictiveCoding.Core;
-using PredictiveCoding.Expanded.Gated;
-using PredictiveCoding.Expanded.HierarchicalMoE;
+using PredictiveCoding.Networks.Gated;
+using PredictiveCoding.Networks.MoE;
 
 namespace PredictiveCoding.Cortex;
 

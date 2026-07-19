@@ -1,6 +1,6 @@
 using PredictiveCoding.Core;
 using PredictiveCoding.Networks;
-using PredictiveCoding.Expanded.Networks;
+using PredictiveCoding.Networks.MoE;
 
 namespace PredicitiveCoding.UnitTests;
 
