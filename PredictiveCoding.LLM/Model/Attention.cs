@@ -19,6 +19,8 @@ namespace PredictiveCoding.LLM.Model;
 public interface ILayerCache
 {
     int Length { get; }
+    /// <summary>Bytes of cached state held right now — the fixed-budget number long-context work optimises against (roadmap Phase 4).</summary>
+    long BytesUsed { get; }
     ILayerCache Clone();
 }
 
@@ -29,34 +31,127 @@ public interface ISelfAttention
     ILayerCache CreateCache();
 }
 
-/// <summary>Per-layer key/value cache: one growing list of K and V vectors per KV head.</summary>
+/// <summary>
+/// Per-layer key/value cache: one list of K and V vectors per KV head, plus the
+/// absolute position of every cached entry (so ALiBi distances stay correct
+/// after eviction). Storage is float32 by default or Half when constructed with
+/// <c>half: true</c> (compute always happens in float — roadmap Phase 4).
+/// </summary>
 public sealed class KvCacheLayer : ILayerCache
 {
-    private readonly List<float[]>[] _k;
-    private readonly List<float[]>[] _v;
+    private readonly List<float[]>[]  _k,  _v;    // float storage (empty lists when half)
+    private readonly List<Half[]>[]?  _hk, _hv;   // Half storage (null when float)
+    private readonly List<int>        _pos = [];
+    private readonly bool             _half;
 
-    public KvCacheLayer(int numKvHeads)
+    public KvCacheLayer(int numKvHeads, bool half = false)
     {
+        _half = half;
         _k = new List<float[]>[numKvHeads];
         _v = new List<float[]>[numKvHeads];
         for (int h = 0; h < numKvHeads; h++) { _k[h] = []; _v[h] = []; }
+        if (half)
+        {
+            _hk = new List<Half[]>[numKvHeads];
+            _hv = new List<Half[]>[numKvHeads];
+            for (int h = 0; h < numKvHeads; h++) { _hk[h] = []; _hv[h] = []; }
+        }
     }
 
-    public int Length => _k[0].Count;
+    public int  Length => _pos.Count;
+    public bool IsHalf => _half;
 
-    public void Append(int head, float[] k, float[] v) { _k[head].Add(k); _v[head].Add(v); }
-    public float[] Key(int head, int pos)   => _k[head][pos];
-    public float[] Value(int head, int pos) => _v[head][pos];
+    /// <summary>Absolute position of the cached entry at <paramref name="idx"/>.</summary>
+    public int Position(int idx) => _pos[idx];
+
+    /// <summary>Appends one K/V pair; the entry's absolute position is recorded once (on head 0).</summary>
+    public void Append(int head, float[] k, float[] v, int position)
+    {
+        if (head == 0) _pos.Add(position);
+        if (_half)
+        {
+            _hk![head].Add(ToHalf(k));
+            _hv![head].Add(ToHalf(v));
+        }
+        else
+        {
+            _k[head].Add(k);
+            _v[head].Add(v);
+        }
+    }
+
+    /// <summary>
+    /// The entry's key as float: the stored array directly in float mode (no
+    /// copy), or <paramref name="scratch"/> filled from the Half storage.
+    /// </summary>
+    public float[] KeyAsFloat(int head, int idx, float[]? scratch)
+        => _half ? ToFloat(_hk![head][idx], scratch!) : _k[head][idx];
+
+    public float[] ValueAsFloat(int head, int idx, float[]? scratch)
+        => _half ? ToFloat(_hv![head][idx], scratch!) : _v[head][idx];
+
+    /// <summary>
+    /// Sliding-window eviction: drops the oldest entries after the sinks until
+    /// at most <paramref name="sinks"/> + <paramref name="window"/> remain. The
+    /// first <paramref name="sinks"/> positions are never evicted.
+    /// </summary>
+    public void Evict(int sinks, int window)
+    {
+        while (_pos.Count > sinks + window)
+        {
+            _pos.RemoveAt(sinks);
+            for (int h = 0; h < _k.Length; h++)
+            {
+                if (_half) { _hk![h].RemoveAt(sinks); _hv![h].RemoveAt(sinks); }
+                else       { _k[h].RemoveAt(sinks);   _v[h].RemoveAt(sinks); }
+            }
+        }
+    }
+
+    public long BytesUsed
+    {
+        get
+        {
+            if (_pos.Count == 0) return 0;
+            int heads   = _k.Length;
+            int kLen    = _half ? _hk![0][0].Length : _k[0][0].Length;
+            int vLen    = _half ? _hv![0][0].Length : _v[0][0].Length;
+            int size    = _half ? 2 : 4;
+            return (long)_pos.Count * heads * (kLen + vLen) * size;
+        }
+    }
 
     public ILayerCache Clone()
     {
-        var c = new KvCacheLayer(_k.Length);
+        var c = new KvCacheLayer(_k.Length, _half);
+        c._pos.AddRange(_pos);
         for (int h = 0; h < _k.Length; h++)
         {
-            foreach (var k in _k[h]) c._k[h].Add((float[])k.Clone());
-            foreach (var v in _v[h]) c._v[h].Add((float[])v.Clone());
+            if (_half)
+            {
+                foreach (var k in _hk![h]) c._hk![h].Add((Half[])k.Clone());
+                foreach (var v in _hv![h]) c._hv![h].Add((Half[])v.Clone());
+            }
+            else
+            {
+                foreach (var k in _k[h]) c._k[h].Add((float[])k.Clone());
+                foreach (var v in _v[h]) c._v[h].Add((float[])v.Clone());
+            }
         }
         return c;
+    }
+
+    private static Half[] ToHalf(float[] src)
+    {
+        var dst = new Half[src.Length];
+        for (int i = 0; i < src.Length; i++) dst[i] = (Half)src[i];
+        return dst;
+    }
+
+    private static float[] ToFloat(Half[] src, float[] dst)
+    {
+        for (int i = 0; i < src.Length; i++) dst[i] = (float)src[i];
+        return dst;
     }
 }
 
@@ -67,6 +162,10 @@ public sealed class LatentKvCacheLayer : ILayerCache
     private readonly List<float[]> _kr  = [];   // decoupled-RoPE key k_R [dr]
 
     public int Length => _ckv.Count;
+
+    public long BytesUsed => _ckv.Count == 0
+        ? 0
+        : (long)_ckv.Count * (_ckv[0].Length + _kr[0].Length) * sizeof(float);
 
     public void Append(float[] ckv, float[] kr) { _ckv.Add(ckv); _kr.Add(kr); }
     public float[] Ckv(int pos) => _ckv[pos];
@@ -91,6 +190,17 @@ public sealed class KvCache
     /// <summary>Number of positions currently cached.</summary>
     public int Length => Layers.Length == 0 ? 0 : Layers[0].Length;
 
+    /// <summary>Total cached bytes across all layers.</summary>
+    public long BytesUsed
+    {
+        get
+        {
+            long total = 0;
+            foreach (var l in Layers) total += l.BytesUsed;
+            return total;
+        }
+    }
+
     public KvCache Clone()
     {
         var layers = new ILayerCache[Layers.Length];
@@ -107,8 +217,9 @@ public sealed class MultiHeadAttention : ISelfAttention
 {
     private readonly Linear _q, _k, _v, _o;
     private readonly int    _numHeads, _numKvHeads, _headDim, _kvGroup;
+    private readonly int    _window, _sinks;
     private readonly float  _scale, _softcap, _eps;
-    private readonly bool   _rotary, _flash, _alibi, _qkNorm;
+    private readonly bool   _rotary, _flash, _alibi, _qkNorm, _kvHalf;
     private readonly float[] _slopes;
 
     public MultiHeadAttention(TransformerConfig cfg, Random rng)
@@ -124,6 +235,9 @@ public sealed class MultiHeadAttention : ISelfAttention
         _qkNorm     = cfg.UseQkNorm;
         _softcap    = cfg.AttnLogitSoftcap;
         _eps        = cfg.LayerNormEps;
+        _window     = cfg.WindowSize;
+        _sinks      = cfg.NumSinkTokens;
+        _kvHalf     = cfg.KvCacheHalf;
 
         _slopes = new float[_numHeads];
         for (int h = 0; h < _numHeads; h++)
@@ -137,7 +251,7 @@ public sealed class MultiHeadAttention : ISelfAttention
         _o = new Linear(qDim, cfg.EmbedDim,  rng);
     }
 
-    public ILayerCache CreateCache() => new KvCacheLayer(_numKvHeads);
+    public ILayerCache CreateCache() => new KvCacheLayer(_numKvHeads, _kvHalf);
 
     public DenseTensor<float> Forward(DenseTensor<float> x, ILayerCache cacheBase, int position)
     {
@@ -163,58 +277,71 @@ public sealed class MultiHeadAttention : ISelfAttention
             var vh = new float[_headDim];
             Array.Copy(k, g * _headDim, kh, 0, _headDim);
             Array.Copy(v, g * _headDim, vh, 0, _headDim);
-            cache.Append(g, kh, vh);
+            cache.Append(g, kh, vh, position);
         }
+
+        // Sliding window (roadmap Phase 4): evict beyond sinks + window. RoPE
+        // keys carry their rotation and ALiBi uses stored absolute positions,
+        // so eviction never bends the geometry.
+        if (_window > 0) cache.Evict(_sinks, _window);
 
         var ctx  = new DenseTensor<float>(_numHeads * _headDim);
         var ctxB = ctx.Buffer;
         int n    = cache.Length;
 
+        // Scratch for the Half-storage path (one conversion per access, no allocs
+        // in the hot loop); unused (null) when the cache stores float.
+        float[]? kScratch = cache.IsHalf ? new float[_headDim] : null;
+        float[]? vScratch = cache.IsHalf ? new float[_headDim] : null;
+
         for (int h = 0; h < _numHeads; h++)
         {
             int off = h * _headDim;
             int g   = h / _kvGroup;
-            if (_flash) AttendOnline(q, off, cache, g, n, ctxB, off, h);
-            else        AttendStandard(q, off, cache, g, n, ctxB, off, h);
+            if (_flash) AttendOnline(q, off, cache, g, n, ctxB, off, h, position, kScratch, vScratch);
+            else        AttendStandard(q, off, cache, g, n, ctxB, off, h, position, kScratch, vScratch);
         }
         return _o.Forward(ctx);
     }
 
-    private float Score(float[] q, int qoff, float[] key, int n, int p, int head)
+    private float Score(float[] q, int qoff, float[] key, int distance, int head)
     {
         float s = LlmMath.Dot(q, qoff, key, 0, _headDim) * _scale;
-        if (_alibi)        s -= _slopes[head] * (n - 1 - p);
+        if (_alibi)        s -= _slopes[head] * distance;
         if (_softcap > 0f) s = _softcap * MathF.Tanh(s / _softcap);
         return s;
     }
 
-    private void AttendStandard(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff, int head)
+    private void AttendStandard(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff, int head,
+                                int position, float[]? kScratch, float[]? vScratch)
     {
         var scores = new float[n];
-        for (int p = 0; p < n; p++) scores[p] = Score(q, qoff, cache.Key(g, p), n, p, head);
+        for (int p = 0; p < n; p++)
+            scores[p] = Score(q, qoff, cache.KeyAsFloat(g, p, kScratch), position - cache.Position(p), head);
         LlmMath.SoftmaxInPlace(scores, n);
         for (int p = 0; p < n; p++)
         {
             float w  = scores[p];
-            var   vp = cache.Value(g, p);
+            var   vp = cache.ValueAsFloat(g, p, vScratch);
             for (int i = 0; i < _headDim; i++) outB[outOff + i] += w * vp[i];
         }
     }
 
     // Flash-style online softmax (single pass, no full score vector).
-    private void AttendOnline(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff, int head)
+    private void AttendOnline(float[] q, int qoff, KvCacheLayer cache, int g, int n, float[] outB, int outOff, int head,
+                              int position, float[]? kScratch, float[]? vScratch)
     {
         float m = float.NegativeInfinity, l = 0f;
         Span<float> acc = stackalloc float[_headDim];
         acc.Clear();
         for (int p = 0; p < n; p++)
         {
-            float s     = Score(q, qoff, cache.Key(g, p), n, p, head);
+            float s     = Score(q, qoff, cache.KeyAsFloat(g, p, kScratch), position - cache.Position(p), head);
             float mNew  = MathF.Max(m, s);
             float scale = MathF.Exp(m - mNew);
             float pExp  = MathF.Exp(s - mNew);
             l = l * scale + pExp;
-            var vp = cache.Value(g, p);
+            var vp = cache.ValueAsFloat(g, p, vScratch);
             for (int i = 0; i < _headDim; i++) acc[i] = acc[i] * scale + pExp * vp[i];
             m = mNew;
         }

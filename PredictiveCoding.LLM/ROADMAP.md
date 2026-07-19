@@ -114,7 +114,7 @@ core `Network` already treats computation.*
 
 The highest predictive-codiness-per-line item on the list.
 
-## Phase 3 — Multi-token prediction · ❌
+## Phase 3 — Multi-token prediction · ✅ done 2026-07-19
 
 *PC angle: predicting further into the future at multiple horizons is what the core's
 temporal path (`LearnTemporal`) already does; an auxiliary t+2 head is the same idea one
@@ -122,25 +122,25 @@ level up.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Aux prediction head | ❌ | `MtpHorizon`/`MtpWeight` in `DecoderLmConfig` (0 = off); extra head predicts t+2 (optionally t+3), loss = CE + λ·CE₂. |
-| Masked-target plumbing | ❌ | reuse the existing `ignoreIndex` masking for the shifted targets. |
-| Self-speculative decoding | ❌ | optional, in `TextGenerator`: draft with the t+2 head, verify with the main head; report acceptance rate. |
-| Tests | ❌ | λ=0 ≡ vanilla; both losses decrease on the toy corpus; generation identical when speculation is off. |
+| Aux prediction head | ✅ | `MtpWeight`/`MtpHorizon` in `DecoderLmConfig` (weight 0 = off, head not even allocated → old checkpoints load); aux head predicts t+MtpHorizon off the shared trunk, loss = CE + λ·CE_h. |
+| Masked-target plumbing | ✅ | `MtpTargets` shifts the target stream MtpHorizon−1 further and masks the tail with `ignoreIndex`; all-masked short sequences skip the aux term. |
+| Self-speculative decoding | ✅ | `Generation/SelfSpeculative.cs` — the t+2 head drafts, the next forward verifies; output identical to plain greedy **by construction**, acceptance/forwards counters reported. Pays off precisely because DecoderLM has no KV cache: every accepted draft saves a whole re-forward. |
+| Tests | ✅ | `LlmMtpTests` (6): λ=0 ≡ vanilla (params + loss), one extra tensor when on, target shift/mask, both heads improve in training, speculative ≡ greedy with fewer forwards on a cyclic corpus, clean fallback without the head. |
 
-## Phase 4 — Long-context cache efficiency · ❌
+## Phase 4 — Long-context cache efficiency · ✅ done 2026-07-19
 
 *PC angle: bounded state — keep only what still helps prediction. The core's temporal
 state is O(1) already; the KV cache should move toward it, not away.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Sliding-window attention | ❌ | `TransformerConfig.WindowSize` (0 = full); applies to `KvCacheLayer` eviction. |
-| Attention sinks | ❌ | `NumSinkTokens` always retained alongside the window — per the Spike/Sink findings and Phase 0's meter. |
-| Half-precision KV cache | ❌ | `KvCacheLayer` stores Half, computes float — reuses `ToHalf`/`ToFloat`; the first concrete landing of Mixed-Precision Phase 5's "route the LLM to mixed". |
-| Cache accounting | ❌ | `KvCache.BytesUsed` — the fixed-budget number LongStraw-style work optimises against. |
-| Tests | ❌ | `WindowSize=MaxSeq` ≡ full attention; sinks survive eviction; Half-cache perplexity delta within tolerance; bytes halved. |
+| Sliding-window attention | ✅ | `TransformerConfig.WindowSize` (0 = full); `KvCacheLayer.Evict` drops the oldest post-sink entries; every entry carries its **absolute position**, so ALiBi distances and RoPE geometry survive eviction (window-never-filled ≡ full attention, bit for bit — tested). Standard MHA/GQA path; MLA + window is rejected at validation. |
+| Attention sinks | ✅ | `NumSinkTokens` retained forever alongside the window — per the Spike/Sink findings and Phase 0's meter. |
+| Half-precision KV cache | ✅ | `KvCacheHalf`: `KvCacheLayer` stores `Half[]`, attention computes in float via per-forward scratch (no hot-loop allocs) — the first concrete landing of Mixed-Precision Phase 5's "route the LLM to mixed". |
+| Cache accounting | ✅ | `ILayerCache.BytesUsed` (KV and MLA latent) + `KvCache.BytesUsed` — the fixed-budget number LongStraw-style work optimises against; plateaus once the window fills (tested). |
+| Tests | ✅ | `LlmKvCacheTests` (6): bit-identical when the window never fills, sink/window positions after eviction, bytes exactly halved + logits within tolerance on Half, plateau under budget, MLA byte accounting, config validation. |
 
-MLA (compressed cache) already exists; this phase completes the efficiency menu.
+MLA (compressed cache) already existed; this phase completes the efficiency menu.
 
 ## Phase 5 — Hybrid temporal-state blocks (attention + SSM) · ❌
 

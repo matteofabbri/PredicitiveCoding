@@ -108,6 +108,30 @@ public sealed record TransformerConfig
     /// <summary>MLA: dimensionality of the decoupled-RoPE key/query per head.</summary>
     public int RopeHeadDim { get; init; } = 16;
 
+    // ── Long-context cache efficiency (roadmap Phase 4) ─────────────────────────
+
+    /// <summary>
+    /// Sliding-window attention: the KV cache keeps only the last WindowSize
+    /// positions (plus the sinks). 0 = unbounded (full attention, the default).
+    /// Standard multi-head/GQA attention only.
+    /// </summary>
+    public int WindowSize { get; init; } = 0;
+
+    /// <summary>
+    /// Attention sinks: the first NumSinkTokens positions are retained forever
+    /// alongside the sliding window ("The Spike, the Sparse and the Sink" —
+    /// early positions soak up attention mass; evicting them hurts).
+    /// Only meaningful with WindowSize &gt; 0.
+    /// </summary>
+    public int NumSinkTokens { get; init; } = 0;
+
+    /// <summary>
+    /// Store the KV cache in Half precision (compute stays float32): halves the
+    /// cache memory — the same storage-light/accumulate-full scheme as the
+    /// mixed-precision core.
+    /// </summary>
+    public bool KvCacheHalf { get; init; } = false;
+
     /// <summary>Per-head dimensionality = EmbedDim / NumHeads.</summary>
     public int HeadDim => EmbedDim / NumHeads;
 
@@ -137,6 +161,12 @@ public sealed record TransformerConfig
         }
         if (AttnLogitSoftcap < 0f || FinalLogitSoftcap < 0f)
             throw new InvalidOperationException("Soft-cap values must be >= 0 (0 disables).");
+        if (WindowSize < 0 || NumSinkTokens < 0)
+            throw new InvalidOperationException("WindowSize and NumSinkTokens must be >= 0.");
+        if (NumSinkTokens > 0 && WindowSize == 0)
+            throw new InvalidOperationException("NumSinkTokens needs WindowSize > 0 (sinks only matter when the window evicts).");
+        if (WindowSize > 0 && Attention == AttentionKind.Latent)
+            throw new InvalidOperationException("Sliding-window attention applies to the standard KV path; MLA already compresses its cache.");
         if (NumLayers < 1)       throw new InvalidOperationException("NumLayers must be >= 1.");
         if (FeedForwardDim < 1)  throw new InvalidOperationException("FeedForwardDim must be >= 1.");
         if (LayerNormEps <= 0f)  throw new InvalidOperationException("LayerNormEps must be > 0.");
