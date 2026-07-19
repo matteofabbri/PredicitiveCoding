@@ -183,7 +183,7 @@ experts), but at toy scale every expert still computes — whole-tensor autograd
 gather. The saving is in *active parameters*, the metric; FLOP-sparse execution belongs
 with the perf work.
 
-## Phase 7 — On-policy distillation from the local teacher · ❌
+## Phase 7 — On-policy distillation from the local teacher · ✅ done 2026-07-19
 
 *PC angle: the training signal is the mismatch between the student's own generation and
 the teacher's correction — prediction error on the student's own trajectory (on-policy),
@@ -191,10 +191,10 @@ the generative sequel to `PcDistilledFaceEmbedder`.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| `LmDistiller` — offline KD | ❌ | prompt set → teacher completions via `LmStudioSource.ChatAsync` + `ChatTemplate` → student fine-tune with masked CE on completion tokens (sequence-level KD; the endpoint is text-level, logit-matching only if it ever exposes logprobs). |
-| On-policy round (SEED-style) | ❌ | student generates a draft prefix → teacher continues/corrects from that prefix → student trains on the correction *from its own prefix*; iterate. |
-| Dataset cache | ❌ | teacher transcripts cached under `~/.predictivecoding/` (runtime data — stays out of git, house rule). |
-| Tests | ❌ | offline round-trip on a canned transcript (no network in CI); live LM Studio behind a manual flag. |
+| `LmDistiller` — offline KD | ✅ | `Training/LmDistiller.cs` — teacher is any `Func<string,string>` so the LLM project stays dependency-free; the LM Studio hookup is a one-line delegate in app code (`p => lm.ChatAsync(p)…`). `ChatTemplate` context + masked CE on completion tokens + EOS (sequence-level KD; logit-matching only if the endpoint ever exposes logprobs). |
+| On-policy round (SEED-style) | ✅ | `OnPolicyRound`: student greedy-drafts → `teacherCorrect(prompt, draft)` sees the student's own trajectory → student trains on the correction from its own prefix. |
+| Dataset cache | ✅ | one file per prompt (SHA-256 key) under `~/.predictivecoding/lm-distill` (runtime data, out of git); delete a file to re-ask the teacher. |
+| Tests | ✅ | `LlmDistillTests` (4, canned teacher — zero network in CI): cache hit/miss counting, context-mask/completion-target layout, offline KD halves the loss, on-policy rounds converge and the teacher provably receives the draft. |
 
 ## Phase 8 — Latent planning before decoding · ❌ (ambitious)
 
