@@ -681,6 +681,174 @@ public sealed class Network : IDisposable
         return energies;
     }
 
+    // ── Adaptive inference (effort) ──────────────────────────────────────────
+
+    /// <summary>
+    /// Free inference (top layer unclamped) with an energy-based early exit:
+    /// settling stops as soon as one step improves the free energy by less than
+    /// the RELATIVE threshold <paramref name="epsilon"/> (a fraction of the
+    /// current energy — e.g. 1e-3 stops once a step gains less than 0.1%).
+    /// "Reasoning effort" in the predictive-coding formulation is simply the
+    /// number of settling steps, and the energy trajectory is the native stop
+    /// signal: the network keeps settling while the descent is productive and
+    /// stops when nothing more can be explained, up to <paramref name="maxSteps"/>.
+    ///
+    /// The free layers start from zero (the
+    /// <see cref="InferGetTop(DenseTensor{float}, int, bool)"/> resetState
+    /// convention), so the result is a deterministic function of the input alone.
+    /// epsilon &lt;= 0 disables the early exit entirely: the run is then
+    /// step-for-step identical to <c>InferGetTop(input, maxSteps, resetState: true)</c>.
+    /// Transient: weights are not modified.
+    /// </summary>
+    public (DenseTensor<float> topLatent, int stepsUsed, float energy) InferAdaptive(
+        DenseTensor<float> input, int maxSteps, float epsilon)
+    {
+        if (maxSteps < 1) throw new ArgumentOutOfRangeException(nameof(maxSteps), maxSteps, "maxSteps must be >= 1.");
+
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            for (int l = 1; l < layers.Length; l++)
+                Array.Clear(layers[l].Mu.Buffer);
+
+            ClampLayer(layers, 0, Flatten(input));
+            layers[^1].IsClamped = false;
+
+            if (Configuration.UseFeedforwardGistInit)
+                FeedforwardGistInit(layers);
+
+            var (stepsUsed, energy) = SettleAdaptive(layers, maxSteps, epsilon);
+            return (layers[^1].Mu.Clone(), stepsUsed, energy);
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
+    /// <summary><see cref="InferAdaptive(DenseTensor{float}, int, float)"/> with a named effort preset.</summary>
+    public (DenseTensor<float> topLatent, int stepsUsed, float energy) InferAdaptive(
+        DenseTensor<float> input, EffortLevel effort)
+    {
+        var (maxSteps, epsilon) = EffortPresets.For(effort);
+        return InferAdaptive(input, maxSteps, epsilon);
+    }
+
+    /// <summary>
+    /// Minimum-energy classification with the adaptive settling of
+    /// <see cref="InferAdaptive(DenseTensor{float}, int, float)"/> applied to
+    /// every class candidate: each candidate stops early once its per-step energy
+    /// improvement falls below the relative threshold <paramref name="epsilon"/>
+    /// (a fraction of the current energy). Returns the class, the
+    /// winning energy and the total settling steps actually spent (all candidates
+    /// plus the winner re-run). With epsilon &lt;= 0 the classification matches
+    /// <see cref="PredictWithEnergy"/> exactly and stepsUsed is
+    /// maxSteps · (numClasses + 1).
+    /// </summary>
+    public (int cls, float energy, int stepsUsed) PredictAdaptive(
+        DenseTensor<float> input, int maxSteps, float epsilon)
+    {
+        if (maxSteps < 1) throw new ArgumentOutOfRangeException(nameof(maxSteps), maxSteps, "maxSteps must be >= 1.");
+
+        _rwLock.EnterWriteLock();
+        try
+        {
+            var layers         = ReadAllLayers();
+            int numClasses     = layers[^1].Size;
+            var candidateLabel = DenseTensor<float>.Zeros(numClasses);
+            var flatInput      = Flatten(input);
+
+            float bestEnergy = float.MaxValue;
+            int   bestClass  = 0;
+            int   totalSteps = 0;
+
+            for (int c = 0; c < numClasses; c++)
+            {
+                var (steps, energy) = SettleCandidate(layers, flatInput, candidateLabel, c, maxSteps, epsilon);
+                totalSteps += steps;
+                if (energy < bestEnergy) { bestEnergy = energy; bestClass = c; }
+            }
+
+            // Re-run the winner so the persisted state reflects the best
+            // explanation, not whichever candidate happened to run last
+            // (same convention as PredictCore).
+            var (winnerSteps, winnerEnergy) = SettleCandidate(layers, flatInput, candidateLabel, bestClass, maxSteps, epsilon);
+            totalSteps += winnerSteps;
+
+            for (int l = 0; l < layers.Length; l++)
+                _store.Write(l, layers[l]);
+
+            return (bestClass, winnerEnergy, totalSteps);
+        }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
+    /// <summary><see cref="PredictAdaptive(DenseTensor{float}, int, float)"/> with a named effort preset.</summary>
+    public (int cls, float energy, int stepsUsed) PredictAdaptive(DenseTensor<float> input, EffortLevel effort)
+    {
+        var (maxSteps, epsilon) = EffortPresets.For(effort);
+        return PredictAdaptive(input, maxSteps, epsilon);
+    }
+
+    // Prepares one class candidate (zeroed hidden state, clamped input + one-hot
+    // top) and settles it adaptively. Caller must hold _rwLock.
+    private (int stepsUsed, float energy) SettleCandidate(
+        Layer[] layers, DenseTensor<float> flatInput, DenseTensor<float> candidateLabel,
+        int cls, int maxSteps, float epsilon)
+    {
+        for (int l = 1; l < layers.Length - 1; l++)
+            layers[l].Mu.Zero();
+
+        candidateLabel.Zero();
+        candidateLabel.Buffer[cls] = 1f;
+
+        ClampLayer(layers, 0, flatInput);
+        ClampLayer(layers, layers.Length - 1, FlattenLabel(candidateLabel));
+
+        if (Configuration.UseFeedforwardGistInit)
+            FeedforwardGistInit(layers);
+
+        return SettleAdaptive(layers, maxSteps, epsilon);
+    }
+
+    // The InferCore step loop with a per-step energy check: exits once the
+    // improvement drops below epsilon · currentEnergy — a RELATIVE criterion, so
+    // the same epsilon means the same thing on a 4-unit toy net and a 784-unit
+    // image net. The first step never exits (there is no previous energy yet).
+    // epsilon <= 0 → never exits, so the state trajectory is bit-identical to
+    // the fixed-step path (the energy reads do not mutate anything).
+    // Caller must hold _rwLock; maxSteps >= 1.
+    private (int stepsUsed, float energy) SettleAdaptive(Layer[] layers, int maxSteps, float epsilon)
+    {
+        float actReg   = Configuration.ActivityRegularization;
+        float previous = float.MaxValue;
+        float energy   = 0f;
+        int   step     = 0;
+
+        while (step < maxSteps)
+        {
+            for (int l = layers.Length - 1; l >= 1; l--)
+                layers[l].ComputePrediction();
+
+            for (int l = 1; l < layers.Length; l++)
+                layers[l - 1].SetPredictionError(layers[l].Prediction);
+
+            layers[^1].SetPredictionError(null);
+
+            for (int l = 1; l < layers.Length; l++)
+            {
+                if (layers[l].IsClamped) continue;
+                layers[l].UpdateState(layers[l - 1].PredictionError, Configuration.StateLearningRate, actReg);
+            }
+
+            step++;
+            energy = ComputeEnergyCore(layers);
+            if (epsilon > 0f && previous != float.MaxValue &&
+                previous - energy < epsilon * MathF.Max(previous, 1e-12f))
+                break;
+            previous = energy;
+        }
+        return (step, energy);
+    }
+
     // ── Energy ───────────────────────────────────────────────────────────────
 
     /// <summary>Global network energy F = ½ Σ_{l=0}^{L-2} ||ε_l||² loaded from store.</summary>
