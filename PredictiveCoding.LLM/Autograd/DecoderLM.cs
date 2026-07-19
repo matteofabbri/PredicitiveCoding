@@ -38,7 +38,9 @@ public sealed record DecoderLmConfig(
     float Dropout = 0f,
     float Eps = 1e-5f,
     int NumLoops = 1,
-    float LoopExitTau = 0f)
+    float LoopExitTau = 0f,
+    float MtpWeight = 0f,
+    int MtpHorizon = 2)
 {
     public int HeadDim => Dim / NumHeads;
 
@@ -52,6 +54,10 @@ public sealed record DecoderLmConfig(
             throw new ArgumentException($"NumLoops ({NumLoops}) must be >= 1.");
         if (LoopExitTau < 0f)
             throw new ArgumentException($"LoopExitTau ({LoopExitTau}) must be >= 0 (0 disables the early exit).");
+        if (MtpWeight < 0f)
+            throw new ArgumentException($"MtpWeight ({MtpWeight}) must be >= 0 (0 disables multi-token prediction).");
+        if (MtpWeight > 0f && MtpHorizon < 2)
+            throw new ArgumentException($"MtpHorizon ({MtpHorizon}) must be >= 2 when MtpWeight is on (2 = predict t+2).");
     }
 }
 
@@ -66,6 +72,7 @@ public sealed class DecoderLM
     private readonly Tensor[]? _loopBias;      // [NumLoops] × [1, dim] — loop-step conditioning; null when NumLoops == 1
     private readonly Tensor    _lnFG, _lnFB;   // final layer-norm
     private readonly Tensor    _wout;          // [dim, vocab]
+    private readonly Tensor?   _woutMtp;       // [dim, vocab] — aux head predicting t+MtpHorizon; null when MtpWeight == 0
 
     public DecoderLM(DecoderLmConfig cfg, Random rng)
     {
@@ -88,6 +95,10 @@ public sealed class DecoderLM
         _lnFG = AgInit.Ones(1, cfg.Dim);
         _lnFB = new Tensor(1, cfg.Dim);
         _wout = AgInit.Randn(cfg.Dim, cfg.Vocab, rng);
+        // Multi-token prediction head (roadmap Phase 3), only allocated when on
+        // so the vanilla parameter list (and old checkpoints) are untouched.
+        if (cfg.MtpWeight > 0f)
+            _woutMtp = AgInit.Randn(cfg.Dim, cfg.Vocab, rng);
     }
 
     /// <summary>All trainable tensors in a fixed order (must match for Checkpoint save/load).</summary>
@@ -99,6 +110,7 @@ public sealed class DecoderLM
         ps.Add(_lnFG);
         ps.Add(_lnFB);
         ps.Add(_wout);
+        if (_woutMtp is not null) ps.Add(_woutMtp);
         return [.. ps];
     }
 
@@ -109,6 +121,24 @@ public sealed class DecoderLM
     /// default) leaves the pass untouched.
     /// </summary>
     public Tensor Forward(int[] tokens, bool training = false, ActivationProbe? probe = null)
+        => Ag.MatMul(Hidden(tokens, training, probe), _wout);              // [seq, vocab]
+
+    /// <summary>
+    /// Forward pass returning both heads (roadmap Phase 3): the main next-token
+    /// logits and, when <c>MtpWeight &gt; 0</c>, the auxiliary logits predicting
+    /// the token at t+MtpHorizon from the same final hidden state (null when
+    /// multi-token prediction is off). Predicting further into the future is
+    /// the same idea as the core's temporal path, one level up.
+    /// </summary>
+    public (Tensor main, Tensor? mtp) ForwardMtp(int[] tokens, bool training = false, ActivationProbe? probe = null)
+    {
+        var xf = Hidden(tokens, training, probe);
+        return (Ag.MatMul(xf, _wout), _woutMtp is null ? null : Ag.MatMul(xf, _woutMtp));
+    }
+
+    // Embedding → looped block stack → final layer-norm: the shared trunk under
+    // every head.
+    private Tensor Hidden(int[] tokens, bool training, ActivationProbe? probe)
     {
         int seq = tokens.Length;
         if (seq > Config.MaxSeq)
@@ -153,8 +183,7 @@ public sealed class DecoderLM
         }
         if (probe is not null) probe.LoopsUsed = loopsUsed;
 
-        var xf = Ag.LayerNorm(x, _lnFG, _lnFB, Config.Eps);
-        return Ag.MatMul(xf, _wout);                                       // [seq, vocab]
+        return Ag.LayerNorm(x, _lnFG, _lnFB, Config.Eps);
     }
 
     // ‖now − before‖ / (‖before‖ + tiny), over the flattened hidden state.
@@ -170,9 +199,42 @@ public sealed class DecoderLM
         return (float)(Math.Sqrt(diff) / (Math.Sqrt(norm) + 1e-12));
     }
 
-    /// <summary>Masked next-token cross-entropy; rows with target == ignoreIndex are skipped.</summary>
+    /// <summary>
+    /// Masked next-token cross-entropy; rows with target == ignoreIndex are
+    /// skipped. With <c>MtpWeight &gt; 0</c> the auxiliary multi-token head is
+    /// trained too: total = CE(main, t+1) + MtpWeight · CE(aux, t+MtpHorizon),
+    /// where the aux targets are the same target stream shifted MtpHorizon − 1
+    /// further into the future (missing tail rows are masked out).
+    /// </summary>
     public Tensor Loss(int[] tokens, int[] targets, int ignoreIndex, bool training = false)
-        => Ag.CrossEntropy(Forward(tokens, training), targets, ignoreIndex);
+    {
+        if (_woutMtp is null)
+            return Ag.CrossEntropy(Forward(tokens, training), targets, ignoreIndex);
+
+        var (main, mtp) = ForwardMtp(tokens, training);
+        var loss = Ag.CrossEntropy(main, targets, ignoreIndex);
+
+        var auxTargets = MtpTargets(targets, ignoreIndex);
+        bool anyValid  = false;
+        foreach (int t in auxTargets) if (t != ignoreIndex) { anyValid = true; break; }
+        if (!anyValid) return loss;                       // sequence too short for the horizon
+
+        return Ag.Add(loss, Ag.Scale(Ag.CrossEntropy(mtp!, auxTargets, ignoreIndex), Config.MtpWeight));
+    }
+
+    /// <summary>
+    /// The aux-head target stream: the main targets shifted MtpHorizon − 1
+    /// further into the future; rows whose future falls past the window are
+    /// masked with <paramref name="ignoreIndex"/>.
+    /// </summary>
+    public int[] MtpTargets(int[] targets, int ignoreIndex)
+    {
+        int shift = Config.MtpHorizon - 1;
+        var aux   = new int[targets.Length];
+        for (int i = 0; i < targets.Length; i++)
+            aux[i] = i + shift < targets.Length ? targets[i + shift] : ignoreIndex;
+        return aux;
+    }
 
     // ── one transformer block ────────────────────────────────────────────────────
 
