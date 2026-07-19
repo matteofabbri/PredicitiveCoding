@@ -15,7 +15,7 @@ Design invariants across every phase:
   "exactly the old behaviour".
 - **Toy scale, real mechanisms.** We reproduce the *mechanism* with measurable ablations
   at small scale, not the frontier numbers — same stance as the rest of the repo.
-- Each phase lands with unit tests; the full suite stays green (912 today).
+- Each phase lands with unit tests; the full suite stays green (927 at close).
 
 ### Legend
 
@@ -25,10 +25,12 @@ Design invariants across every phase:
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–5 ✅ done (912/912 green; Phase 0's optional HTML
-report deferred); Phases 6–8 ❌ to build. The network-variant family (incl. the PC-level
-MoE trio) now lives in core under `PredicitiveCoding/Networks/` — the Expanded project
-was dissolved the same day.*
+*Status as of 2026-07-19: **ROADMAP CLOSED** — Phases 0–8 all ✅ (927/927 green), HTML
+report included. The network-variant family (incl. the PC-level MoE trio) now lives in
+core under `PredicitiveCoding/Networks/` — the Expanded project was dissolved the same
+day. What stays open beyond this roadmap: FLOP-sparse MoE execution and GEMM routing to
+mixed precision (see `PredicitiveCoding/ROADMAP-MixedPrecision.md`, Phase 5), and a real
+LM Studio distillation run (the wiring is a one-line delegate).*
 
 ### Paper anchors → phases
 
@@ -73,8 +75,8 @@ was dissolved the same day.*
 | Perplexity eval harness | ✅ | `Eval/PerplexityEvaluator.cs` — token-weighted NLL → perplexity, `ignoreIndex` masking, `maxWindows` cap; deterministic `HeldOut`/`TrainingSplit` partitions of a window stream; all-zero-weights model measures exactly vocab-size ppl (test). |
 | Tiny in-repo eval text | ✅ | `Eval/EvalCorpus.cs` (~1 KB, committed) — the fixed yardstick every phase quotes against. |
 | Activation-stats probe | ✅ | `Eval/ActivationProbe.cs` — per-block mean/max abs + `SpikeRatio`; opt-in `probe` parameter on `DecoderLM.Forward` and `GptModel.Step` (null = untouched pass, bit-identical, tested). |
-| Attention-sink meter | ✅ | per-(block, head) share of attention mass on position 0, on the trainable stack (`SoftmaxRowsCausal` probs); the inference-stack meter lands with Phase 4's sink handling. |
-| Self-contained HTML report | ❌ | optional, deferred; reuse the `HtmlVisualizer` pattern from the Brain project (one file, no server). |
+| Attention-sink meter | ✅ | per-(block, head) share of attention mass on position 0, on the trainable stack (`SoftmaxRowsCausal` probs); the inference-side sink POLICY is exercised structurally by Phase 4's eviction tests (a per-head inference meter was judged not worth the interface churn). |
+| Self-contained HTML report | ✅ | `Eval/HtmlReport.cs` — one file, inline CSS, light theme, zero external references (the Brain `HtmlVisualizer` philosophy): perplexity cards + spike table + sink shares + loop passes. |
 
 Every later phase quotes its before/after from this harness. Tests: `LlmEvalTests` (7).
 
@@ -196,7 +198,7 @@ the generative sequel to `PcDistilledFaceEmbedder`.*
 | Dataset cache | ✅ | one file per prompt (SHA-256 key) under `~/.predictivecoding/lm-distill` (runtime data, out of git); delete a file to re-ask the teacher. |
 | Tests | ✅ | `LlmDistillTests` (4, canned teacher — zero network in CI): cache hit/miss counting, context-mask/completion-target layout, offline KD halves the loss, on-policy rounds converge and the teacher provably receives the draft. |
 
-## Phase 8 — Latent planning before decoding · ❌ (ambitious)
+## Phase 8 — Latent planning before decoding · ✅ done 2026-07-19
 
 *PC angle: the most PC-native idea in the 2026 crop. "Plan in a continuous latent, then
 decode" is literally a PC generative model: infer a top-down latent from the evidence
@@ -204,11 +206,14 @@ decode" is literally a PC generative model: infer a top-down latent from the evi
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Plan-token conditioning | ❌ | a learned `plan` vector prepended as a soft position; trained end-to-end. |
-| Prefix-energy settling | ❌ | at inference: freeze weights, run K gradient steps on `plan` alone to minimise the prompt's CE (settle the latent on the evidence), then decode. Reuses the autograd engine as the inner loop. |
-| Ablation | ❌ | held-out continuation perplexity with settled plan vs no plan vs random plan. |
+| Plan conditioning | ✅ | `UsePlan`: a learned `[1, dim]` plan vector, zero-initialised and trained end-to-end (off = bit-identical, old checkpoints load). Implemented as ADDITIVE conditioning on every position rather than a prepended soft token — same degrees of freedom at toy scale, zero shape churn (deliberate deviation). |
+| Prefix-energy settling | ✅ | `SettlePlan(prompt, steps, lr)`: weights frozen, plain gradient steps on the plan alone against the prompt's CE, per-step trace returned (the settling curve); `GetPlan`/`SetPlan` for save/restore and ablations. |
+| Ablation | ✅ | settled plan vs random-noise plan on the continuation of a cyclic corpus: settled wins (`LlmPlanTests`). |
 
-Exploratory: success = a measurable gain, not a promise. Park it if the ablation is flat.
+**Finding.** Settling must be *gentle*: an aggressive settle (lr 0.05 × 20 steps on a
+4-token prompt) demonstrably overfits the evidence and wrecks the continuation — worse
+than a noise plan. Small steps, few of them: the latent should fit the evidence, not
+memorise it. Very predictive-coding: inference is settling, not optimisation to the death.
 
 ---
 

@@ -44,7 +44,8 @@ public sealed record DecoderLmConfig(
     string? BlockPattern = null,
     int NumExperts = 0,
     int MoeTopK = 1,
-    float MoeBalanceWeight = 0.01f)
+    float MoeBalanceWeight = 0.01f,
+    bool UsePlan = false)
 {
     public int HeadDim => Dim / NumHeads;
 
@@ -91,6 +92,7 @@ public sealed class DecoderLM
     private readonly Tensor    _lnFG, _lnFB;   // final layer-norm
     private readonly Tensor    _wout;          // [dim, vocab]
     private readonly Tensor?   _woutMtp;       // [dim, vocab] — aux head predicting t+MtpHorizon; null when MtpWeight == 0
+    private readonly Tensor?   _plan;          // [1, dim] — latent plan conditioning (roadmap Phase 8); null when UsePlan == false
 
     public DecoderLM(DecoderLmConfig cfg, Random rng)
     {
@@ -120,6 +122,10 @@ public sealed class DecoderLM
         // so the vanilla parameter list (and old checkpoints) are untouched.
         if (cfg.MtpWeight > 0f)
             _woutMtp = AgInit.Randn(cfg.Dim, cfg.Vocab, rng);
+        // Latent plan vector (roadmap Phase 8): zero-initialised, so a fresh
+        // plan model starts exactly as the unconditioned one.
+        if (cfg.UsePlan)
+            _plan = new Tensor(1, cfg.Dim);
     }
 
     /// <summary>All trainable tensors in a fixed order (must match for Checkpoint save/load).</summary>
@@ -132,6 +138,7 @@ public sealed class DecoderLM
         ps.Add(_lnFB);
         ps.Add(_wout);
         if (_woutMtp is not null) ps.Add(_woutMtp);
+        if (_plan is not null) ps.Add(_plan);
         return [.. ps];
     }
 
@@ -173,6 +180,8 @@ public sealed class DecoderLM
 
         var x = Ag.MatMul(oneHot, _wemb);                                  // [seq, dim]
         x = Ag.Add(x, AgPositional.Sinusoidal(seq, Config.Dim));           // + positions
+        if (_plan is not null)
+            x = Ag.AddBias(x, _plan);                                      // latent plan conditioning (Phase 8)
 
         // Weight-tied depth (roadmap Phase 2): the same block stack is applied
         // NumLoops times — depth becomes iteration toward a fixed point, the
@@ -283,6 +292,53 @@ public sealed class DecoderLM
             int attentionBlocks = Config.BlockPattern is { } p ? p.Count(c => c == 'A') : Config.NumBlocks;
             return ParameterCount - attentionBlocks * (Config.NumExperts - Config.MoeTopK) * perExpert;
         }
+    }
+
+    // ── Latent planning (roadmap Phase 8) ───────────────────────────────────
+
+    /// <summary>
+    /// Test-time settling of the latent plan on the evidence: freezes every
+    /// weight and runs <paramref name="steps"/> plain gradient steps on the
+    /// plan vector ALONE, minimising the next-token cross-entropy of the
+    /// prompt — infer the latent from what was observed, then decode under it.
+    /// This is the predictive-coding reading of "plan in latent space, then
+    /// generate". Returns the per-step loss trace (the settling curve).
+    /// </summary>
+    public float[] SettlePlan(int[] promptTokens, int steps, float learningRate)
+    {
+        if (_plan is null)
+            throw new InvalidOperationException("SettlePlan needs a model built with UsePlan = true.");
+        if (promptTokens.Length < 2)
+            throw new ArgumentException("Settling needs a prompt of at least 2 tokens (one prediction).");
+        if (steps < 1)
+            throw new ArgumentOutOfRangeException(nameof(steps), steps, "steps must be >= 1.");
+
+        var tokens  = promptTokens[..^1];
+        var targets = promptTokens[1..];
+
+        var trace = new float[steps];
+        for (int k = 0; k < steps; k++)
+        {
+            var loss = Ag.CrossEntropy(Forward(tokens), targets);
+            loss.Backward();                                  // fills every Grad; only the plan moves
+            for (int i = 0; i < _plan.Data.Length; i++)
+                _plan.Data[i] -= learningRate * _plan.Grad[i];
+            trace[k] = loss.Data[0];
+        }
+        return trace;
+    }
+
+    /// <summary>Snapshot of the current plan vector (empty when UsePlan is off).</summary>
+    public float[] GetPlan() => _plan is null ? [] : (float[])_plan.Data.Clone();
+
+    /// <summary>Overwrites the plan vector (length must match Dim) — for save/restore and ablations.</summary>
+    public void SetPlan(float[] plan)
+    {
+        if (_plan is null)
+            throw new InvalidOperationException("SetPlan needs a model built with UsePlan = true.");
+        if (plan.Length != _plan.Data.Length)
+            throw new ArgumentException($"Plan length ({plan.Length}) must equal Dim ({_plan.Data.Length}).");
+        Array.Copy(plan, _plan.Data, plan.Length);
     }
 
     /// <summary>
