@@ -161,6 +161,13 @@ public sealed class DecoderLM
     public (Tensor main, Tensor? mtp) ForwardMtp(int[] tokens, bool training = false, ActivationProbe? probe = null)
         => Heads(tokens, training, probe, auxLosses: null);
 
+    /// <summary>
+    /// The shared trunk's final hidden state [seq, Dim] — the representation the
+    /// output heads read from. Used as the retrieval key for episodic memory
+    /// (roadmap-Pro Phase 7); no gradient is needed by the caller.
+    /// </summary>
+    public Tensor HiddenStates(int[] tokens) => Hidden(tokens, training: false, probe: null, auxLosses: null);
+
     private (Tensor main, Tensor? mtp) Heads(int[] tokens, bool training, ActivationProbe? probe, List<Tensor>? auxLosses)
     {
         var xf = Hidden(tokens, training, probe, auxLosses);

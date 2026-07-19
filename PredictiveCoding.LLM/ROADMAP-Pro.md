@@ -24,11 +24,11 @@ Design invariants (inherited from every previous roadmap):
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–6 ✅ done (real BPE tokenizer travelling with the
+*Status as of 2026-07-19: Phases 0–7 ✅ done (real BPE tokenizer travelling with the
 model, the O(n) serving path, real sampling + chat, parallel training + adaptive GEMM
 routing, streaming data pipeline with mixing/hygiene/hashed split, professional
 checkpointing with true resume + quantized weights, robust continual learning with
-replay + surprise-lr + forgetting guardrail); Phases 7–8 ❌ to build.*
+replay + surprise-lr + forgetting guardrail, episodic memory graft); Phase 8 ❌ to build.*
 
 *Architecture map: **`ARCHITECTURE.html`** — the layered diagram from `PredictiveLlm`
 down to FasterKV (product subsystems → shared tensor foundations → the PC branch),
@@ -166,16 +166,21 @@ quietly destroy the model. `Training/ContinualLearner` wraps a model with the an
 | Forgetting guardrail | ✅ | a fixed yardstick's ppl is re-measured every `GuardrailEvery` absorbs; relative drift past `DriftThreshold` fires `OnDrift(ContinualDrift)` (warn/rollback hook). Baseline measured at construction. |
 | Tests | ✅ | `LlmProPhase6Tests` (4): the ablation — absorbing domain B degrades domain-A ppl markedly less WITH replay than without (and without visibly degrades); surprising text draws a higher (bounded) lr than familiar; the guardrail fires on drift; `Absorb` lowers the text's own loss and counts. |
 
-## Phase 7 — Episodic memory (the cortical graft) · ❌
+## Phase 7 — Episodic memory (the cortical graft) · ✅ done 2026-07-19
 
-*The YES answer to the Brain/Cortex question, as a phase.*
+*The YES answer to the Brain/Cortex question, as a phase — the one sanctioned reuse.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Embedding hook | ❌ | `PredictiveLlm.Embed(text)` — mean/last final-hidden state as the retrieval key (already computed by every forward). |
-| Hippocampal store | ❌ | `EpisodicMemory` wrapping `Networks/Hopfield.HopfieldMemory` / `Memory.MemoryBank`: `Remember(text)` (embed → store with the text as payload), `Recall(query, k)` (similarity → texts). Persistence with the model. |
-| Recall into generation | ❌ | `GenerationOptions.UseMemory`: recall top-k for the prompt, prepend as context (window permitting) or absorb as a plan prior (Phase-8 machinery) — measured, both ways. |
-| The PC story, tested | ❌ | ablation on a two-session task: facts stated in session 1, recalled in session 2 — with memory ≥ hit-rate target, without ≈ chance. Chat's `Remember` opt-in per turn. |
+| Embedding hook | ✅ | `PredictiveLlm.Embed(text)` — mean-pool of the final hidden state over the content positions (BOS skipped, as it carries no content and only dilutes the key); `DecoderLM.HiddenStates` exposes the trunk output. |
+| Hippocampal store | ✅ | `Training/EpisodicMemory` on the core's `Networks.Memory.MemoryBank` (cosine kNN, FIFO eviction — the hippocampus): `Remember(key, text)` / `Recall(query, k)`; the bank holds the payload slot id, a parallel ring keeps keys+texts as the durable trace. `Save`/`Load` (age-ordered replay reproduces the ring). `PredictiveLlm.Remember(text)` + `Memory` property; persisted with the model (`memory.bin`). |
+| Recall into generation | ✅ | `GenerationOptions.UseMemory`/`MemoryTopK`: the nearest remembered texts are prepended to the prompt (most-similar first, kept while they fit the window) before decoding. No-op without a memory. |
+| The PC story, tested | ✅ | `LlmProPhase7Tests` (5): the two-session test — store 6 facts, then recall each by its SETUP (all but the answer word); nearest = the full fact ≥ 66% (vs 17% chance); a matched cue outscores an unrelated query; recall-into-generation stays within the window; memory survives save/load; controlled-key FIFO eviction. **Lesson:** recall quality tracks embedding quality — an *undertrained* model's hidden states are near-degenerate and recall collapses; once the model actually fits the facts, byte-level mean-pool recall is clean (measured 6/6). |
+
+**Scope note (per the memory verdict).** This is the ONLY Brain/Cortex graft into the LM: the
+hippocampal `MemoryBank` as episodic store. No SE(3)/Thousand-Brains (no pose structure in
+language) and no Cortex areas inside the forward (different compute regime); the useful cortical
+ideas are already carried natively (MoE = gating, T-blocks = temporal state, effort = settling).
 
 ## Phase 8 — Pro evaluation & observability · ❌
 

@@ -34,4 +34,15 @@ public sealed record GenerationOptions
     /// saves the remaining forwards; the greedy path trims after decoding.
     /// </summary>
     public string[]? StopSequences { get; init; } = null;
+
+    /// <summary>
+    /// Recall from the attached <see cref="PredictiveLlm.Memory"/> (roadmap-Pro
+    /// Phase 7): the top-<see cref="MemoryTopK"/> remembered texts nearest the
+    /// prompt are prepended as context (window permitting) before decoding.
+    /// No-op when the model has no memory. Off by default.
+    /// </summary>
+    public bool UseMemory { get; init; } = false;
+
+    /// <summary>How many memories to recall when <see cref="UseMemory"/> is on.</summary>
+    public int MemoryTopK { get; init; } = 3;
 }

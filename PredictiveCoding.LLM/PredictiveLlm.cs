@@ -224,6 +224,50 @@ public sealed class PredictiveLlm
         Tensor Loss(int[] t, int[] y, bool training) => Model.Loss(t, y, ignoreIndex: -1, training);
     }
 
+    // ── Episodic memory (roadmap-Pro Phase 7) ────────────────────────────────
+
+    /// <summary>
+    /// The optional hippocampal store. Attach one (dim = <see cref="Config"/>.Dim)
+    /// to enable <see cref="Remember"/> and <see cref="GenerationOptions.UseMemory"/>.
+    /// Persisted with the model when present.
+    /// </summary>
+    public EpisodicMemory? Memory { get; set; }
+
+    /// <summary>
+    /// Mean-pooled final hidden state of <paramref name="text"/> [Dim] — the
+    /// retrieval key for episodic memory. Every forward already computes this
+    /// representation; here it is pooled over the sequence into one vector.
+    /// </summary>
+    public float[] Embed(string text)
+    {
+        var ids = Tokenizer.Encode(text, addBos: true);
+        if (ids.Count == 0) ids = [Tokenizer.Bos];
+        var h   = Model.HiddenStates([.. ids]);          // [seq, Dim]
+        int dim = h.Cols, seq = h.Rows;
+
+        // Pool over the CONTENT positions, skipping BOS at position 0 (it carries
+        // no content and is common to every text, so it only dilutes the key).
+        int from  = seq > 1 ? 1 : 0;
+        int count = seq - from;
+        var pooled = new float[dim];
+        for (int r = from; r < seq; r++)
+            for (int c = 0; c < dim; c++) pooled[c] += h.Data[r * dim + c];
+        float inv = count > 0 ? 1f / count : 1f;
+        for (int c = 0; c < dim; c++) pooled[c] *= inv;
+        return pooled;
+    }
+
+    /// <summary>
+    /// Stores <paramref name="text"/> in episodic memory under its embedding key
+    /// (creates the store on first use). The hippocampal half of the loop:
+    /// facts observed now become retrievable later, across sessions.
+    /// </summary>
+    public void Remember(string text)
+    {
+        Memory ??= new EpisodicMemory(Config.Dim);
+        Memory.Remember(Embed(text), text);
+    }
+
     // ── Generate ─────────────────────────────────────────────────────────────
 
     /// <summary>Greedy generation (self-speculative when the t+2 head is on). Returns the new text only.</summary>
@@ -239,7 +283,13 @@ public sealed class PredictiveLlm
     /// </summary>
     public GenerationResult GenerateDetailed(string prompt, int maxNewTokens = 64, GenerationOptions? options = null)
     {
-        var opts   = options ?? new GenerationOptions();
+        var opts = options ?? new GenerationOptions();
+
+        // Recall into generation (Phase 7): prepend the nearest remembered texts
+        // as context, newest-first, while they fit the window alongside the prompt.
+        if (opts.UseMemory && Memory is { Count: > 0 })
+            prompt = PrependRecalled(prompt, opts.MemoryTopK);
+
         var ctxIds = Tokenizer.Encode(prompt, addBos: true);
         if (ctxIds.Count >= Config.MaxSeq)
             throw new ArgumentException(
@@ -473,6 +523,11 @@ public sealed class PredictiveLlm
         }
         File.WriteAllText(Path.Combine(directory, "tokenizer.json"),
             JsonSerializer.Serialize(new TokenizerManifest(kind, Tokenizer.VocabSize, hash)));
+
+        // Episodic memory travels with the model when present (Phase 7).
+        string memPath = Path.Combine(directory, "memory.bin");
+        if (Memory is not null) Memory.Save(memPath);
+        else if (File.Exists(memPath)) File.Delete(memPath);
     }
 
     /// <summary>
@@ -525,6 +580,9 @@ public sealed class PredictiveLlm
 
         var llm = new PredictiveLlm(cfg, tokenizer, seed);
         Checkpoint.Load(Path.Combine(directory, "weights"), llm.Model.Parameters());
+
+        string memPath = Path.Combine(directory, "memory.bin");
+        if (File.Exists(memPath)) llm.Memory = EpisodicMemory.Load(memPath, cfg.Dim);
         return llm;
     }
 
@@ -600,5 +658,22 @@ public sealed class PredictiveLlm
         var target = new int[n - 1];
         for (int i = 0; i < n - 1; i++) { input[i] = ids[i]; target[i] = ids[i + 1]; }
         return (input, target);
+    }
+
+    // Prepends the nearest remembered texts (most-similar first) to the prompt,
+    // keeping as many as fit the window alongside it (Phase 7 recall-into-generation).
+    private string PrependRecalled(string prompt, int topK)
+    {
+        var hits = Memory!.Recall(Embed(prompt), topK);
+        if (hits.Count == 0) return prompt;
+
+        var kept = new List<string>();
+        foreach (var (text, _) in hits)
+        {
+            string candidate = string.Join("\n", kept.Append(text)) + "\n" + prompt;
+            if (Tokenizer.Encode(candidate, addBos: true).Count < Config.MaxSeq) kept.Add(text);
+            else break;
+        }
+        return kept.Count == 0 ? prompt : string.Join("\n", kept) + "\n" + prompt;
     }
 }
