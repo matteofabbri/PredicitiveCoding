@@ -24,10 +24,11 @@ Design invariants (inherited from every previous roadmap):
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–5 ✅ done (real BPE tokenizer travelling with the
+*Status as of 2026-07-19: Phases 0–6 ✅ done (real BPE tokenizer travelling with the
 model, the O(n) serving path, real sampling + chat, parallel training + adaptive GEMM
 routing, streaming data pipeline with mixing/hygiene/hashed split, professional
-checkpointing with true resume + quantized weights); Phases 6–8 ❌ to build.*
+checkpointing with true resume + quantized weights, robust continual learning with
+replay + surprise-lr + forgetting guardrail); Phases 7–8 ❌ to build.*
 
 *Architecture map: **`ARCHITECTURE.html`** — the layered diagram from `PredictiveLlm`
 down to FasterKV (product subsystems → shared tensor foundations → the PC branch),
@@ -153,17 +154,17 @@ we actually train. Tests: `LlmProPhase1Tests` (4).
 | Quantized checkpoints | ✅ | `Checkpoint.Save(dir, params, WeightStoragePrecision)` consumes the mixed-precision enum: Half/BFloat16 halve the file, Int8 (per-row min+scale affine — anchored to [min,max] so near-constant rows far from zero survive) quarters it; `Load` widens back to fp32. `PredictiveLlm.Save(dir, precision)` exposes it. |
 | Tests | ✅ | `LlmProPhase5Tests` (7): resume ≡ uninterrupted 20-step run to 4 decimals, control that a FRESH optimizer diverges (so the equivalence is really carried by the moments), quantized reload within format tolerance (Half/bf16 5e-2, int8 1e-1), Half file < Float32, Train writes best-on-val + `LoadWithOptimizer` restores step count. |
 
-## Phase 6 — Continual learning, robustly · ❌
+## Phase 6 — Continual learning, robustly · ✅ done 2026-07-19
 
 *`Learn(text)` is the PC symmetry made real — and naked. Professional means it cannot
-quietly destroy the model.*
+quietly destroy the model. `Training/ContinualLearner` wraps a model with the antidotes.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Replay mixing | ❌ | each `Learn` step mixes k replay windows from a rolling buffer of past text — the standard forgetting antidote, cheap at our scale. |
-| Surprise-proportional lr | ❌ | the PC move: scale the step by how surprising the text was (bounded) — learn hard from the unexpected, barely from the known. Precision-weighting, weight-side. |
-| Forgetting guardrail | ❌ | automatic probe: held-out yardstick ppl re-measured after every N `Learn` calls; drift beyond a threshold → warn/rollback hook. |
-| Tests | ❌ | absorb a new domain WITHOUT the yardstick ppl degrading beyond ε (with replay) vs degrading (without) — the ablation that proves the guardrail. |
+| Replay mixing | ✅ | rolling ring of past windows (`ReplayCapacity`); each `Absorb` mixes `ReplayPerStep` of them into the step via a deterministic moving cursor (no RNG). Sampled BEFORE the fresh windows are pushed, so replay is always past text. |
+| Surprise-proportional lr | ✅ | `lr = BaseLr · clamp(surprise / EMA(surprise), MinLrScale, MaxLrScale)` — learn hard from the unexpected, barely from the already-predicted; the weight-side twin of the core's precision-weighting. EMA seeds from the first absorb (scale 1); `SurpriseEmaDecay = 0` disables it. |
+| Forgetting guardrail | ✅ | a fixed yardstick's ppl is re-measured every `GuardrailEvery` absorbs; relative drift past `DriftThreshold` fires `OnDrift(ContinualDrift)` (warn/rollback hook). Baseline measured at construction. |
+| Tests | ✅ | `LlmProPhase6Tests` (4): the ablation — absorbing domain B degrades domain-A ppl markedly less WITH replay than without (and without visibly degrades); surprising text draws a higher (bounded) lr than familiar; the guardrail fires on drift; `Absorb` lowers the text's own loss and counts. |
 
 ## Phase 7 — Episodic memory (the cortical graft) · ❌
 
