@@ -1285,6 +1285,46 @@ public sealed class Network : IDisposable
         finally { _rwLock.ExitWriteLock(); }
     }
 
+    // ── Export ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Exports a read-only copy of the generative model (weights, biases, scalar
+    /// precisions, inference hyper-parameters) for out-of-core consumers — the
+    /// batched GEMM forward in <c>PredictiveCoding.Device</c> in particular.
+    /// Throws when the network uses features the batched path does not reproduce
+    /// (diagonal precision, informative priors): silently dropping them would
+    /// change the dynamics.
+    /// </summary>
+    public GenerativeSnapshot ExportGenerativeSnapshot()
+    {
+        _rwLock.EnterReadLock();
+        try
+        {
+            var layers = ReadAllLayers();
+            foreach (var layer in layers)
+                if (layer.DiagonalPrecision is not null || layer.PriorMean is not null)
+                    throw new NotSupportedException(
+                        "ExportGenerativeSnapshot does not support diagonal precision or informative priors — " +
+                        "the batched forward would not reproduce the network's dynamics.");
+
+            var weights    = new DenseTensor<float>[layers.Length - 1];
+            var biases     = new DenseTensor<float>[layers.Length - 1];
+            var precisions = new float[layers.Length];
+            for (int l = 0; l < layers.Length; l++) precisions[l] = layers[l].Precision;
+            for (int l = 1; l < layers.Length; l++)
+            {
+                weights[l - 1] = layers[l].GenerativeWeights!;   // ReadAllLayers already returns private copies
+                biases[l - 1]  = layers[l].Bias!;
+            }
+
+            return new GenerativeSnapshot(
+                [.. Configuration.LayerSizes], Configuration.Activation,
+                Configuration.StateLearningRate, Configuration.ActivityRegularization,
+                Configuration.UseFeedforwardGistInit, weights, biases, precisions);
+        }
+        finally { _rwLock.ExitReadLock(); }
+    }
+
     // ── Disposal ─────────────────────────────────────────────────────────────
 
     public void Dispose()

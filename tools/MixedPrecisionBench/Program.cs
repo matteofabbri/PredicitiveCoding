@@ -72,6 +72,64 @@ finally
     try { Directory.Delete(tmp, recursive: true); } catch { }
 }
 
+// ── 2b. Batched PC forward: B settlings as GEMMs (Phase 5) ───────────────────
+string tmpB = Path.Combine(Path.GetTempPath(), $"mixedbench_batch_{Guid.NewGuid():N}");
+try
+{
+    var cfg = new NetworkConfig
+    {
+        Path              = tmpB,
+        LayerSizes        = [3072, 512, 128, 10],
+        Activation        = ActivationType.Tanh,
+        StateLearningRate = 0.05f,
+        LazyPersistence   = true,
+    };
+    using var net = new Network(cfg, new Random(0));
+    var snapshot  = net.ExportGenerativeSnapshot();
+
+    const int B = 64;
+    var rng    = new Random(4);
+    var inputs = new DenseTensor<float>[B];
+    for (int i = 0; i < B; i++)
+        inputs[i] = RandomUtils.SampleNormal([3072], 0f, 1f, rng);
+
+    double loop = MedianMs(() =>
+    {
+        foreach (var x in inputs) net.InferGetTop(x, inferenceSteps: 20, resetState: true);
+    }, reps: 3, warmup: 1);
+    double cpuBatch = MedianMs(() =>
+        BatchedPcForward.InferGetTopBatch(snapshot, inputs, inferenceSteps: 20), reps: 3, warmup: 1);
+
+    Console.WriteLine($"\n| PC forward, {B} samples, 20 steps | total |");
+    Console.WriteLine($"|---|-----:|");
+    Console.WriteLine($"| per-sample loop (InferGetTop ×{B}) | {loop:F0} ms |");
+    Console.WriteLine($"| BatchedPcForward, CPU float | {cpuBatch:F0} ms |");
+
+    if (DeviceRuntime.CudaAvailable)
+    {
+        var keep = Gemm.Provider;
+        Gemm.Provider = new CudaGemmProvider();
+        try
+        {
+            double gpuBatch = MedianMs(() =>
+                BatchedPcForward.InferGetTopBatch(snapshot, inputs, inferenceSteps: 20), reps: 3, warmup: 1);
+            double gpuMixed = MedianMs(() =>
+                BatchedPcForward.InferGetTopBatch(snapshot, inputs, inferenceSteps: 20, mixed: true), reps: 3, warmup: 1);
+            Console.WriteLine($"| BatchedPcForward, CUDA float | {gpuBatch:F0} ms |");
+            Console.WriteLine($"| BatchedPcForward, CUDA mixed (tensor cores) | {gpuMixed:F0} ms |");
+        }
+        finally { Gemm.Provider = keep; }
+    }
+    else
+    {
+        Console.WriteLine("| BatchedPcForward, CUDA | (CUDA runtime not discoverable — skipped) |");
+    }
+}
+finally
+{
+    try { Directory.Delete(tmpB, recursive: true); } catch { }
+}
+
 // ── 3. GEMM 1024³: where the tensor cores live ───────────────────────────────
 {
     const int n = 1024;

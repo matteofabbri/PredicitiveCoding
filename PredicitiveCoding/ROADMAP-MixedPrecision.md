@@ -87,7 +87,7 @@ Measured numbers (Release, Ryzen-class CPU + RTX 4070 SUPER, 2026-07-19):
 footprint flips it to **1.6× faster** — the bandwidth win the roadmap predicted, showing up
 exactly where the working set outgrows the cache. The GPU speedup lives in the GEMMs.
 
-## Phase 5 — GPU: mixed forward on tensor cores · 🟡 in progress (the real speed win)
+## Phase 5 — GPU: mixed forward on tensor cores · ✅ done 2026-07-19 (the real speed win)
 
 | Task | Status | Notes |
 |------|:------:|-------|
@@ -95,7 +95,7 @@ exactly where the working set outgrows the cache. The GPU speedup lives in the G
 | Mixed on the GEMM abstraction | ✅ | `IGemmProvider.MatMulMixed` (default = float) + `CpuGemmProvider` real mixed override (doubles as the CUDA CPU fallback and test oracle). |
 | GPU verification | ✅ | **verified 2026-07-19 on the RTX 4070 SUPER**: `cublasGemmEx` mixed GEMM vs CPU float oracle, max rel err 6.4e-3 over 256×512×256 (Half-rounding territory, as designed). Release-build timing (Phase 4 harness): 1024³ GEMM = **1.9 ms on the tensor cores vs 14 ms CPU float / 16 ms CPU mixed**, transfers included (~7×). The CUDA 12 runtime DLLs (`cudart64_12`/`cublas64_12`) need only be discoverable — no Toolkit install required; LM Studio's bundled copies on PATH (`~/.cache/lm-studio/extensions/backends/vendor/win-llama-cuda12-vendor-v2`) work. `DeviceRuntime.NativeLoaded` fixed to probe through the resolver's version-suffixed names. |
 | Route GEMM-heavy consumers to mixed | ✅ | `Ag.MatMulRoute` (2026-07-19): the trainable DecoderLM stack — THE GEMM-heavy consumer — routes MatMul forwards through `Gemm.Provider` (`Provider` = float, `ProviderMixed` = 16-bit operands/fp32 accumulation); backwards stay inline fp32 (master-precision gradients, same no-loss-scaling story as the core). Default `Inline` is bit-identical. Tests: `LlmGemmRouteTests` (4 — spy provider, bit-for-bit float route, mixed tolerance, mixed training). The inference `GptModel` stays unrouted by design: token-at-a-time matvec, see caveat below. |
-| Batched PC forward on GPU | ❌ | required for the predictive-coding forward to benefit from the GPU. |
+| Batched PC forward on GPU | ✅ | `Network.ExportGenerativeSnapshot()` (rejects diag-precision/priors — would not be reproduced) + `Device/BatchedPcForward.InferGetTopBatch`: B settlings as two GEMMs per layer per step, routed through `Gemm.Provider`. Parity with per-sample `InferGetTop(resetState: true)` tested (incl. FFG warm-start; mixed within Half tolerance). Measured (64×[3072,512,128,10], 20 steps): per-sample loop 574 ms → **batched CPU 158 ms → batched CUDA 75 ms**. CUDA *mixed* is 94 ms here — B=64 GEMMs are too small to repay the Half conversion; mixed pays on big GEMMs, exactly the Phase 4 finding. |
 
 **Caveat — why batching matters.** The predictive-coding forward is many small
 matrix×vector products (batch = 1); a single small MatVec on the GPU is dominated by
