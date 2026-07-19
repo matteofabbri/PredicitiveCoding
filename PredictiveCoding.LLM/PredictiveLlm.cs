@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using PredictiveCoding.LLM.Autograd;
 using PredictiveCoding.LLM.Data;
@@ -45,17 +47,38 @@ public sealed class PredictiveLlm
         int dim = 64, int blocks = 4, int heads = 4, int ffDim = 128, int maxSeq = 128, int seed = 42)
     {
         var tok = new ByteTokenizer();
+        return new PredictiveLlm(Config2026(tok.VocabSize, dim, blocks, heads, ffDim, maxSeq), tok, seed);
+    }
+
+    /// <summary>
+    /// The 2026 preset on a REAL tokenizer (Pro roadmap Phase 0): trains a
+    /// byte-level BPE vocabulary on <paramref name="tokenizerCorpus"/> first,
+    /// then builds the model on it. Sequences shrink (~2-4× fewer tokens per
+    /// text), so every window sees more context; compare models across
+    /// tokenizers with <see cref="EvaluateBitsPerByte"/>, never with
+    /// per-token perplexity.
+    /// </summary>
+    public static PredictiveLlm Create2026(
+        string tokenizerCorpus, int merges = 512,
+        int dim = 64, int blocks = 4, int heads = 4, int ffDim = 128, int maxSeq = 128, int seed = 42)
+    {
+        var tok = new BpeTokenizer();
+        tok.Train(tokenizerCorpus, merges);
+        return new PredictiveLlm(Config2026(tok.VocabSize, dim, blocks, heads, ffDim, maxSeq), tok, seed);
+    }
+
+    private static DecoderLmConfig Config2026(int vocab, int dim, int blocks, int heads, int ffDim, int maxSeq)
+    {
         var pattern = new char[blocks];
         for (int b = 0; b < blocks; b++) pattern[b] = b % 2 == 0 ? 'T' : 'A';   // T A T A …
 
-        var cfg = new DecoderLmConfig(
-            tok.VocabSize, dim, blocks, heads, ffDim, maxSeq,
+        return new DecoderLmConfig(
+            vocab, dim, blocks, heads, ffDim, maxSeq,
             NumLoops: 2, LoopExitTau: 0.05f,
             MtpWeight: 0.3f,
             BlockPattern: new string(pattern),
             NumExperts: 4, MoeTopK: 1,
             UsePlan: true);
-        return new PredictiveLlm(cfg, tok, seed);
     }
 
     // ── Train ────────────────────────────────────────────────────────────────
@@ -164,6 +187,28 @@ public sealed class PredictiveLlm
     public PerplexityResult Evaluate(string text, int? maxWindows = null)
         => PerplexityEvaluator.Evaluate(Model, TextWindows(text), maxWindows: maxWindows);
 
+    /// <summary>
+    /// Bits per byte of <paramref name="text"/> — the tokenizer-independent
+    /// yardstick (Pro roadmap Phase 0): per-token perplexity cannot compare a
+    /// byte model against a BPE model, bits spent per byte of text can.
+    /// Non-overlapping windows; bytes counted on the decoded scored targets.
+    /// </summary>
+    public BitsPerByteResult EvaluateBitsPerByte(string text)
+    {
+        int seqLen  = Math.Min(32, Config.MaxSeq);
+        var data    = new StreamingTextDataset(text.Split('\n'), Tokenizer, seqLen, stride: seqLen);
+        var windows = data.Windows().ToList();
+        if (windows.Count == 0) windows = [WholeTextWindow(text)];
+
+        var ppl = PerplexityEvaluator.Evaluate(Model, windows);
+        long bytes = 0;
+        foreach (var (_, target) in windows)
+            bytes += Encoding.UTF8.GetByteCount(Tokenizer.Decode(target));
+
+        double totalBits = ppl.NllPerToken * ppl.Tokens / Math.Log(2);
+        return new BitsPerByteResult(totalBits / Math.Max(1, bytes), bytes, ppl.Tokens);
+    }
+
     // ── Learn while using (the predictive-coding symmetry) ───────────────────
 
     /// <summary>
@@ -233,28 +278,92 @@ public sealed class PredictiveLlm
 
     // ── Save / Load ──────────────────────────────────────────────────────────
 
-    /// <summary>Saves config + weights under <paramref name="directory"/> (created if missing).</summary>
+    /// <summary>
+    /// Saves config + weights + TOKENIZER under <paramref name="directory"/>
+    /// (created if missing). The tokenizer travels with the model (Pro roadmap
+    /// Phase 0): a BPE vocab is written next to the weights and fingerprinted,
+    /// so <see cref="Load"/> reconstructs exactly the vocabulary the weights
+    /// were trained on — or fails loudly.
+    /// </summary>
     public void Save(string directory)
     {
         Directory.CreateDirectory(directory);
         File.WriteAllText(Path.Combine(directory, "config.json"),
             JsonSerializer.Serialize(Config, new JsonSerializerOptions { WriteIndented = true }));
         Checkpoint.Save(Path.Combine(directory, "weights"), Model.Parameters());
+
+        string kind = Tokenizer switch
+        {
+            BpeTokenizer  => "bpe",
+            ByteTokenizer => "byte",
+            _             => Tokenizer.GetType().Name,   // custom: caller re-supplies it at Load
+        };
+        string hash = "";
+        if (Tokenizer is BpeTokenizer bpe)
+        {
+            string vocabPath = Path.Combine(directory, "tokenizer.bpe");
+            bpe.Save(vocabPath);
+            hash = Fingerprint(File.ReadAllBytes(vocabPath));
+        }
+        File.WriteAllText(Path.Combine(directory, "tokenizer.json"),
+            JsonSerializer.Serialize(new TokenizerManifest(kind, Tokenizer.VocabSize, hash)));
     }
 
     /// <summary>
-    /// Reloads a saved model. Pass the same non-default tokenizer used at save
-    /// time (the byte tokenizer is stateless and needs nothing).
+    /// Reloads a saved model, tokenizer included: "byte" needs nothing, "bpe"
+    /// is reloaded from the persisted vocab (fingerprint-verified), a custom
+    /// tokenizer must be re-supplied via <paramref name="tokenizer"/> and match
+    /// the recorded vocab size. Any mismatch fails loudly.
     /// </summary>
     public static PredictiveLlm Load(string directory, ITokenizer? tokenizer = null, int seed = 42)
     {
         var cfg = JsonSerializer.Deserialize<DecoderLmConfig>(
                       File.ReadAllText(Path.Combine(directory, "config.json")))
                   ?? throw new InvalidDataException($"Unreadable config in {directory}.");
+
+        string manifestPath = Path.Combine(directory, "tokenizer.json");
+        if (File.Exists(manifestPath))
+        {
+            var manifest = JsonSerializer.Deserialize<TokenizerManifest>(File.ReadAllText(manifestPath))
+                           ?? throw new InvalidDataException($"Unreadable tokenizer manifest in {directory}.");
+            switch (manifest.Kind)
+            {
+                case "byte":
+                    tokenizer ??= new ByteTokenizer();
+                    break;
+                case "bpe":
+                {
+                    if (tokenizer is not null)
+                        throw new ArgumentException(
+                            "This model carries its own BPE tokenizer — do not pass one to Load.", nameof(tokenizer));
+                    string vocabPath = Path.Combine(directory, "tokenizer.bpe");
+                    string actual    = Fingerprint(File.ReadAllBytes(vocabPath));
+                    if (actual != manifest.Hash)
+                        throw new InvalidDataException(
+                            $"Tokenizer vocab in {directory} does not match the model's fingerprint " +
+                            $"(expected {manifest.Hash}, found {actual}) — the file was modified or corrupted.");
+                    tokenizer = BpeTokenizer.Load(vocabPath);
+                    break;
+                }
+                default:
+                    if (tokenizer is null)
+                        throw new ArgumentException(
+                            $"This model was saved with a custom tokenizer ({manifest.Kind}) — pass the same one to Load.",
+                            nameof(tokenizer));
+                    break;
+            }
+            if (tokenizer.VocabSize != manifest.VocabSize)
+                throw new InvalidDataException(
+                    $"Tokenizer vocab size {tokenizer.VocabSize} does not match the saved model's {manifest.VocabSize}.");
+        }
+
         var llm = new PredictiveLlm(cfg, tokenizer, seed);
         Checkpoint.Load(Path.Combine(directory, "weights"), llm.Model.Parameters());
         return llm;
     }
+
+    private static string Fingerprint(byte[] bytes)
+        => Convert.ToHexStringLower(SHA256.HashData(bytes))[..16];
 
     // ── Report ───────────────────────────────────────────────────────────────
 

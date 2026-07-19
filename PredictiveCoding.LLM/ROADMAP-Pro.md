@@ -68,7 +68,7 @@ Matteo's question: *should the LLM use the Brain and Cortex we built?*
 
 ---
 
-## Phase 0 — A real tokenizer · ❌
+## Phase 0 — A real tokenizer · ✅ done 2026-07-19
 
 *Today: raw bytes (vocab 260) — honest but weak: ~4× longer sequences than needed and
 no lexical structure. A trained subword vocabulary is the single cheapest capability
@@ -76,13 +76,14 @@ jump.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| BPE training pipeline | ❌ | `BpeTokenizer` exists — give it a corpus-in/vocab-out trainer (target 4k–16k merges), deterministic. |
-| Vocab persistence | ❌ | tokenizer saved WITH the model (`Save`/`Load` round-trips it; `config.json` records the tokenizer kind + vocab hash so a mismatch fails loudly). |
-| `Create2026` on BPE | ❌ | preset flips from bytes to a trained vocab once ppl/byte beats the byte baseline on the yardstick. |
-| Tests | ❌ | encode/decode round-trip lossless; ppl **per byte** (not per token) beats byte-level on the yardstick corpus; save/load mismatch detection. |
+| BPE training pipeline | ✅ | `BpeTokenizer.Train` already existed (byte-level merges, deterministic — tested: two trainings agree token-for-token); wired into the product via `Create2026(tokenizerCorpus, merges)`. |
+| Vocab persistence | ✅ | the tokenizer TRAVELS with the model: `Save` writes `tokenizer.bpe` + `tokenizer.json` (kind, vocab size, SHA-256 fingerprint); `Load` reconstructs it — tampered vocab, wrong vocab size, or passing a tokenizer to a BPE model all fail loudly. Legacy dirs (no manifest) fall back to bytes. |
+| `Create2026` on BPE | ✅ | overload `Create2026(corpus, merges = 512, …)` trains the vocab and builds the model on it (the parameterless preset stays byte — it has no corpus to learn from). |
+| Tests | ✅ | `LlmProPhase0Tests` (5): lossless round-trip incl. Unicode, determinism, >2× compression, save/load with fingerprint verification, and **bits/byte: the BPE model beats the byte model after identical training** on the yardstick corpus. |
 
-Metric note: with a new tokenizer, perplexity-per-token is incomparable — the yardstick
-becomes **bits per byte**, which the eval harness must learn to report.
+Metric delivered: `PredictiveLlm.EvaluateBitsPerByte` — non-overlapping windows, bytes
+counted on the decoded scored targets, so byte and BPE models are measured on the same
+footing (per-token perplexity is incomparable across tokenizers).
 
 ## Phase 1 — The serving path: train ↔ serve, unified · ❌
 
