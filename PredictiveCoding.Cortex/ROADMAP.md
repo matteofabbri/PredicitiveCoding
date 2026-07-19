@@ -188,3 +188,16 @@ and Group G's `CortexSubcorticalTests` (3), `CortexRewardTests` (3), `CortexAsso
 > Note: unlike `PredictiveCoding.Brain/ROADMAP.md` (bound to the Thousand-Brains
 > papers P1–P9), this roadmap is grounded in general systems-neuroscience and
 > predictive-coding references. Keep the two roadmaps separate.
+
+---
+
+## Opening (2026-07-19) — the language area could become real
+
+`PredictiveLlm` (PredictiveCoding.LLM) is now a finished product: trainable hybrid
+LLM with online learning. Today `Language/WernickeArea` and `Language/BrocaArea`
+wrap toy recurrent/generative nets; an opening — deliberately NOT scheduled — is to
+let the real LM stand in as the cortical language area (comprehension = its
+perplexity/surprise signal, production = its generation), keeping the anatomical
+routing intact. This improves the Cortex, not the LLM, which is why it lives here
+and not in `PredictiveCoding.LLM/ROADMAP-Pro.md` (whose Phase 7 covers the reverse
+graft: hippocampal episodic memory FOR the LM).

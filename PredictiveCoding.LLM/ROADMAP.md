@@ -1,5 +1,9 @@
 # PredictiveCoding.LLM — 2026 research roadmap (predictive-coding edition)
 
+> This roadmap is **closed**. The sequel — taking `PredictiveLlm` from toy to
+> professional (real tokenizer, O(n) serving path, sampling/chat, throughput, robust
+> continual learning, cortical episodic memory) — lives in **`ROADMAP-Pro.md`**.
+
 > **Mission — one mandate:** fold the 2026 LLM research directions — adaptive reasoning
 > effort, looped/weight-tied depth, multi-token prediction, long-context cache efficiency,
 > hybrid attention+SSM, sparse experts, on-policy distillation, latent planning — into the
