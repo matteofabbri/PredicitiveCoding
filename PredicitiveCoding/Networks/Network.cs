@@ -1117,6 +1117,32 @@ public sealed class Network : IDisposable
     }
 
     /// <summary>
+    /// Quantizes the PERSISTED model to 16-bit weights (mixed-precision roadmap
+    /// Phase 6): every layer's generative weights are rounded to Half and the
+    /// store records are rewritten at half the weight size, with the Half copy
+    /// shipping inside the record — so a reopened network is mixed-ready and
+    /// the *Mixed methods skip re-quantizing. The in-memory masters are rounded
+    /// too, making behaviour identical before and after a reopen. One-shot and
+    /// explicit: any later training step writes ordinary float records again.
+    /// </summary>
+    public void PersistWeightsAsHalf()
+    {
+        _rwLock.EnterWriteLock();
+        try
+        {
+            for (int l = 0; l < LayerCount; l++)
+            {
+                var layer = _store.ReadLayer(l);
+                layer.QuantizeWeightsToHalf(force: true);
+                if (layer.GenerativeWeightsHalf is { } half)
+                    TensorUtils.ToFloat(half).Buffer.AsSpan().CopyTo(layer.GenerativeWeights!.Buffer.AsSpan());
+                _store.WriteQuantized(l, layer);
+            }
+        }
+        finally { _rwLock.ExitWriteLock(); }
+    }
+
+    /// <summary>
     /// Clamps the TOP layer to <paramref name="latent"/> and runs inference with
     /// layer[0] unconstrained, returning layer[0].Mu as the generated sample.
     /// This is the generative (decoding) direction of the PC network:

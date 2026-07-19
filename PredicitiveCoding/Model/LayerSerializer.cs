@@ -18,12 +18,16 @@ namespace PredictiveCoding.Model;
 //  16      4      StateLearningRate
 //  20      4      WeightLearningRate
 //  24      1      IsClamped  (0/1)
-//  25      1      flags      bit0=hasDiagPrec  bit1=hasPriorMean
+//  25      1      flags      bit0=hasDiagPrec  bit1=hasPriorMean  bit2=halfWeights
 //  26      2      (padding, align to 4)
 //  28      Size*4             Mu
 //  +       Size*4             PredictionError
 //  if LowerSize > 0:
-//    +     LowerSize*Size*4   GenerativeWeights  (row-major)
+//    +     LowerSize*Size*4   GenerativeWeights  (row-major, float32)
+//          — or, when bit2 (halfWeights) is set —
+//    +     LowerSize*Size*2   GenerativeWeights  (row-major, Half — roadmap
+//          Phase 6: the record stores the weights at half size, and on load the
+//          Half copy is populated too, so mixed inference skips re-quantizing)
 //    +     LowerSize*4        Bias
 //    +     LowerSize*4        PreActivation
 //    +     LowerSize*4        Prediction
@@ -66,12 +70,18 @@ internal static class LayerSerializer
 
     // ── Serialize ─────────────────────────────────────────────────────────────
 
-    public static byte[] Serialize(Layer layer)
+    /// <summary>
+    /// Serializes the layer. With <paramref name="halfWeights"/> the generative
+    /// weights are stored as Half (2 bytes each — roadmap Phase 6), rounded
+    /// from the float32 masters; everything else stays float32.
+    /// </summary>
+    public static byte[] Serialize(Layer layer, bool halfWeights = false)
     {
         bool hasDiag  = layer.DiagonalPrecision != null;
         bool hasPrior = layer.PriorMean         != null;
+        bool half     = halfWeights && layer.LowerSize > 0;
 
-        int totalBytes = ComputeByteLength(layer.Size, layer.LowerSize, hasDiag, hasPrior);
+        int totalBytes = ComputeByteLength(layer.Size, layer.LowerSize, hasDiag, hasPrior, half);
         var buf = new byte[totalBytes];
         var span = buf.AsSpan();
         int pos = 0;
@@ -83,7 +93,7 @@ internal static class LayerSerializer
         WriteFloat(span, ref pos, layer.StateLearningRate);
         WriteFloat(span, ref pos, layer.WeightLearningRate);
         span[pos++] = layer.IsClamped ? (byte)1 : (byte)0;
-        span[pos++] = (byte)((hasDiag ? 1 : 0) | (hasPrior ? 2 : 0));
+        span[pos++] = (byte)((hasDiag ? 1 : 0) | (hasPrior ? 2 : 0) | (half ? 4 : 0));
         pos += 2; // padding
 
         WriteFloats(span, ref pos, layer.Mu.Buffer.AsSpan());
@@ -91,7 +101,10 @@ internal static class LayerSerializer
 
         if (layer.LowerSize > 0)
         {
-            WriteFloats(span, ref pos, layer.GenerativeWeights!.Buffer.AsSpan());
+            if (half)
+                WriteHalves(span, ref pos, TensorUtils.ToHalf(layer.GenerativeWeights!).Buffer.AsSpan());
+            else
+                WriteFloats(span, ref pos, layer.GenerativeWeights!.Buffer.AsSpan());
             WriteFloats(span, ref pos, layer.Bias!.Buffer.AsSpan());
             WriteFloats(span, ref pos, layer.PreActivation!.Buffer.AsSpan());
             WriteFloats(span, ref pos, layer.Prediction!.Buffer.AsSpan());
@@ -127,13 +140,27 @@ internal static class LayerSerializer
 
         bool hasDiag  = (flags & 1) != 0;
         bool hasPrior = (flags & 2) != 0;
+        bool half     = (flags & 4) != 0;
 
         ReadFloats(span, ref pos, target.Mu.Buffer.AsSpan());
         ReadFloats(span, ref pos, target.PredictionError.Buffer.AsSpan());
 
         if (lowerSize > 0)
         {
-            ReadFloats(span, ref pos, target.GenerativeWeights!.Buffer.AsSpan());
+            if (half)
+            {
+                // Half-persisted record (roadmap Phase 6): the stored Half
+                // weights become BOTH the mixed-ready copy and — widened —
+                // the float masters, so behaviour matches a live-quantized net.
+                var halfWeights = TensorUtils.ToHalf(target.GenerativeWeights!);   // right shape; values overwritten next
+                ReadHalves(span, ref pos, halfWeights.Buffer.AsSpan());
+                target.GenerativeWeightsHalf = halfWeights;
+                TensorUtils.ToFloat(halfWeights).Buffer.AsSpan().CopyTo(target.GenerativeWeights!.Buffer.AsSpan());
+            }
+            else
+            {
+                ReadFloats(span, ref pos, target.GenerativeWeights!.Buffer.AsSpan());
+            }
             ReadFloats(span, ref pos, target.Bias!.Buffer.AsSpan());
             ReadFloats(span, ref pos, target.PreActivation!.Buffer.AsSpan());
             ReadFloats(span, ref pos, target.Prediction!.Buffer.AsSpan());
@@ -145,12 +172,12 @@ internal static class LayerSerializer
 
     // ── Byte-length calculation ───────────────────────────────────────────────
 
-    public static int ComputeByteLength(int size, int lowerSize, bool hasDiag, bool hasPrior)
+    public static int ComputeByteLength(int size, int lowerSize, bool hasDiag, bool hasPrior, bool halfWeights = false)
     {
         int n = FixedHeaderBytes;
         n += size * 4 * 2; // Mu + PredictionError
         if (lowerSize > 0)
-            n += (lowerSize * size + lowerSize * 3) * 4; // W + b + preAct + pred
+            n += lowerSize * size * (halfWeights ? 2 : 4) + lowerSize * 3 * 4; // W + b + preAct + pred
         if (hasDiag)  n += size * 4;
         if (hasPrior) n += size * 4;
         return n;
@@ -177,6 +204,13 @@ internal static class LayerSerializer
         pos += bytes.Length;
     }
 
+    private static void WriteHalves(Span<byte> span, ref int pos, Span<Half> halves)
+    {
+        var bytes = MemoryMarshal.Cast<Half, byte>(halves);
+        bytes.CopyTo(span.Slice(pos));
+        pos += bytes.Length;
+    }
+
     // ── Primitive readers ─────────────────────────────────────────────────────
 
     private static int ReadInt(ReadOnlySpan<byte> span, ref int pos)
@@ -197,6 +231,13 @@ internal static class LayerSerializer
     private static void ReadFloats(ReadOnlySpan<byte> span, ref int pos, Span<float> target)
     {
         var dst = MemoryMarshal.Cast<float, byte>(target);
+        span.Slice(pos, dst.Length).CopyTo(dst);
+        pos += dst.Length;
+    }
+
+    private static void ReadHalves(ReadOnlySpan<byte> span, ref int pos, Span<Half> target)
+    {
+        var dst = MemoryMarshal.Cast<Half, byte>(target);
         span.Slice(pos, dst.Length).CopyTo(dst);
         pos += dst.Length;
     }

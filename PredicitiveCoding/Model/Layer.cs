@@ -197,8 +197,14 @@ public sealed class Layer
     /// la copia; in inferenza basta chiamarla una volta. Sui layer d'ingresso
     /// (senza pesi) azzera la copia e non fa altro.
     /// </summary>
-    public void QuantizeWeightsToHalf()
-        => GenerativeWeightsHalf = GenerativeWeights == null ? null : TensorUtils.ToHalf(GenerativeWeights);
+    public void QuantizeWeightsToHalf(bool force = false)
+    {
+        // Skip when a copy is already present (e.g. loaded from a Half-persisted
+        // record — roadmap Phase 6: no re-quantizing on every mixed call). Pass
+        // force: true to re-sync after the float masters changed.
+        if (!force && GenerativeWeightsHalf != null) return;
+        GenerativeWeightsHalf = GenerativeWeights == null ? null : TensorUtils.ToHalf(GenerativeWeights);
+    }
 
     // ── Forward: top-down prediction ─────────────────────────────────────────
 

@@ -287,6 +287,23 @@ internal sealed class LayerStore : IDisposable
     }
 
     /// <summary>
+    /// Persists <paramref name="layer"/> with 16-bit weights (roadmap Phase 6):
+    /// serializes with the halfWeights flag and upserts IMMEDIATELY, in both
+    /// modes. In lazy mode the resident entry is replaced and marked clean, so
+    /// a later Flush does not overwrite the compact record with a float one.
+    /// One-shot by design: ordinary <see cref="Write"/> calls keep storing float.
+    /// </summary>
+    public void WriteQuantized(int index, Layer layer)
+    {
+        PersistToStore(index, LayerSerializer.Serialize(layer, halfWeights: true));
+        if (_lazyPersistence)
+        {
+            _resident![index] = layer;
+            _dirtyKeys.Remove(index);
+        }
+    }
+
+    /// <summary>
     /// Flushes dirty resident layers to FasterKV (no-op in eager mode), then
     /// forces the device log. Call once per epoch when
     /// <see cref="NetworkConfig.LazyPersistence"/> is true.

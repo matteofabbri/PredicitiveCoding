@@ -103,12 +103,12 @@ host↔device transfer, so it does **not** benefit. The tensor-core win is on la
 matrix×matrix GEMMs (the LLM stack, or a batched PC forward) — that is what this
 primitive accelerates. On CPU mixed precision still saves **memory/bandwidth**.
 
-## Phase 6 — Mixed-precision model I/O · ❌
+## Phase 6 — Mixed-precision model I/O · ✅ done 2026-07-19
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Persist Half weights | ❌ | `LayerStore`/serializer flag, or a dedicated quantized-model format. |
-| Load at half size, mixed-ready | ❌ | avoids re-quantizing on every mixed inference call. |
+| Persist Half weights | ✅ | `LayerSerializer` flags bit2: generative weights stored as Half (2 bytes each, everything else float32); `LayerStore.WriteQuantized` upserts immediately in both modes (lazy resident replaced + marked clean, so a later Flush cannot fatten the record back); `Network.PersistWeightsAsHalf()` — one-shot and explicit, later training writes float again. In-RAM masters are rounded at persist time so behaviour is identical before/after a reopen. |
+| Load at half size, mixed-ready | ✅ | on deserialize the stored Half bits become BOTH `GenerativeWeightsHalf` (bit-exact) and the widened float masters; `QuantizeWeightsToHalf()` now skips when the copy is present (`force: true` re-syncs) — the *Mixed methods stop re-quantizing on every call. Tests: `MixedPersistenceTests` (5) — record shrinks by exactly 2 bytes/weight, round-trip bit checks, skip/force, reopen (eager AND lazy) keeps both float and mixed classifications. |
 
 ## Phase 7 — Sub-16-bit quantization · ❌ (ambitious)
 
