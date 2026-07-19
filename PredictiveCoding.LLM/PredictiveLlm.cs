@@ -31,11 +31,17 @@ public sealed class PredictiveLlm
     // train-once artifact. (Not persisted by Save: moments restart on Load.)
     private Adam? _onlineOptimizer;
 
+    // Seed of the primary model — reused (offset per worker) to build the
+    // structural replicas of the parallel trainer, then overwritten by the
+    // synced weights anyway.
+    private readonly int _seed;
+
     public PredictiveLlm(DecoderLmConfig config, ITokenizer? tokenizer = null, int seed = 42)
     {
         Tokenizer = tokenizer ?? new ByteTokenizer();
         if (config.Vocab != Tokenizer.VocabSize)
             throw new ArgumentException($"Config vocab ({config.Vocab}) must match the tokenizer ({Tokenizer.VocabSize}).");
+        _seed = seed;
         Model = new DecoderLM(config, new Random(seed));
     }
 
@@ -116,20 +122,47 @@ public sealed class PredictiveLlm
         var optimizer = new Adam();
         var ps        = Model.Parameters();
 
+        // Parallel micro-batch (Pro Phase 3): 0 = auto, else the requested count,
+        // capped at the batch size (no idle workers). 1 ⇒ the serial path.
+        int workers = opts.Workers == 0 ? Environment.ProcessorCount : opts.Workers;
+        workers = Math.Max(1, Math.Min(workers, opts.BatchWindows));
+
+        // Structural replicas share the primary's shapes; StepParallel syncs their
+        // weights in each step, so their initial values are irrelevant.
+        List<IReadOnlyList<Tensor>>? replicaPs = null;
+        List<Func<int[], int[], bool, Tensor>>? replicaLoss = null;
+        if (workers > 1)
+        {
+            var models  = new List<DecoderLM> { Model };
+            for (int w = 1; w < workers; w++) models.Add(new DecoderLM(Config, new Random(_seed + w)));
+            replicaPs   = [.. models.Select(m => m.Parameters())];
+            replicaLoss = [.. models.Select(m => (Func<int[], int[], bool, Tensor>)
+                                ((t, y, tr) => m.Loss(t, y, ignoreIndex: -1, tr)))];
+        }
+
+        var keepRoute = Ag.MatMulRoute;
+        if (opts.AutoGemmRoute) Ag.MatMulRoute = MatMulRoute.Auto;
+
         float first = 0f, last = 0f;
         int   step  = 0;
-        for (int epoch = 0; epoch < opts.Epochs; epoch++)
+        try
         {
-            double epochSum = 0d;
-            foreach (var batch in batches)
+            for (int epoch = 0; epoch < opts.Epochs; epoch++)
             {
-                last = Trainer.Step(ps, batch, Loss, optimizer, schedule.At(step), opts.ClipNorm);
-                if (step == 0) first = last;
-                epochSum += last;
-                step++;
+                double epochSum = 0d;
+                foreach (var batch in batches)
+                {
+                    last = workers > 1
+                        ? Trainer.StepParallel(replicaPs!, replicaLoss!, batch, optimizer, schedule.At(step), opts.ClipNorm)
+                        : Trainer.Step(ps, batch, Loss, optimizer, schedule.At(step), opts.ClipNorm);
+                    if (step == 0) first = last;
+                    epochSum += last;
+                    step++;
+                }
+                opts.OnEpochEnd?.Invoke(epoch + 1, (float)(epochSum / batches.Length));
             }
-            opts.OnEpochEnd?.Invoke(epoch + 1, (float)(epochSum / batches.Length));
         }
+        finally { Ag.MatMulRoute = keepRoute; }
 
         double after = PerplexityEvaluator.Evaluate(Model, evalSet).Perplexity;
         return new TrainingReport(before, after, first, last, step, trainSet.Count, evalSet.Count);

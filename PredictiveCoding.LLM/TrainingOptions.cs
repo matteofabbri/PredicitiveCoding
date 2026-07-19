@@ -42,4 +42,22 @@ public sealed record TrainingOptions
     public int? MaxWindows { get; init; } = null;
     /// <summary>Called after each epoch with (epoch number 1-based, mean loss of the epoch) — progress reporting.</summary>
     public Action<int, float>? OnEpochEnd { get; init; } = null;
+
+    /// <summary>
+    /// Parallel micro-batch workers (roadmap-Pro Phase 3). 1 = serial, bit-identical
+    /// to the historical path; 0 = auto (<see cref="Environment.ProcessorCount"/>);
+    /// N &gt; 1 shards each batch across N model replicas with a deterministic
+    /// gradient merge — reproducible, but not bit-identical to serial (re-associated
+    /// float sums). Capped at the batch size.
+    /// </summary>
+    public int Workers { get; init; } = 1;
+
+    /// <summary>
+    /// Flip <see cref="Autograd.Ag.MatMulRoute"/> to <c>Auto</c> for the duration of
+    /// training (restored afterwards): big matmuls route to <c>Gemm.Provider</c>
+    /// (a CUDA backend when present), small ones stay on the inline SIMD loop.
+    /// Off by default — the default provider is the CPU GEMM, so this only pays
+    /// with an accelerated provider installed.
+    /// </summary>
+    public bool AutoGemmRoute { get; init; } = false;
 }

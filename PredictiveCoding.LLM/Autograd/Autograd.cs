@@ -73,6 +73,16 @@ public enum MatMulRoute
     /// accumulation) — CPU rounding oracle or CUDA tensor cores.
     /// </summary>
     ProviderMixed,
+
+    /// <summary>
+    /// Size-adaptive: the inline SIMD loop for small products (no output-buffer
+    /// allocation, deterministic), the <see cref="Gemm.Provider"/> once the
+    /// MAC count crosses <see cref="Ag.ProviderCrossoverMacs"/> — the point past
+    /// which a batched/GPU backend repays its call overhead. With the default CPU
+    /// provider the two paths are numerically equivalent; a CUDA provider makes
+    /// the crossover a real speed win on the big matmuls.
+    /// </summary>
+    Auto,
 }
 
 /// <summary>Differentiable operations producing new tensors wired for backprop.</summary>
@@ -89,17 +99,30 @@ public static class Ag
     /// </summary>
     public static MatMulRoute MatMulRoute { get; set; } = MatMulRoute.Inline;
 
+    /// <summary>
+    /// MAC-count threshold (m·k·n) at which <see cref="MatMulRoute.Auto"/> stops
+    /// running the inline SIMD loop and delegates to <see cref="Gemm.Provider"/>.
+    /// Default 2²⁰ (≈1M MACs) — below it the provider's call + output-copy
+    /// overhead outweighs any backend win, as the Phase-4 bench showed.
+    /// </summary>
+    public static long ProviderCrossoverMacs { get; set; } = 1L << 20;
+
     public static Tensor MatMul(Tensor a, Tensor b)
     {
         int m = a.Rows, k = a.Cols, n = b.Cols;
         var o = new Tensor(m, n) { Parents = [a, b] };
         float[] A = a.Data, B = b.Data, C = o.Data;
 
+        // Resolve Auto to a concrete engine by the product's MAC count.
+        var route = MatMulRoute;
+        if (route == MatMulRoute.Auto)
+            route = (long)m * k * n >= ProviderCrossoverMacs ? MatMulRoute.Provider : MatMulRoute.Inline;
+
         // Forward C = A·B. Inline: i-k-j order, the inner axpy over j is
         // contiguous and SIMD-vectorised, rows of C are independent so they
         // parallelise cleanly. Otherwise the product is delegated to the
         // Gemm.Provider backend (float or mixed) and copied into place.
-        if (MatMulRoute == MatMulRoute.Inline)
+        if (route == MatMulRoute.Inline)
             RunRows(m, i =>
             {
                 var crow = C.AsSpan(i * n, n);
@@ -112,7 +135,7 @@ public static class Ag
                 }
             });
         else
-            Array.Copy(MatMulRoute == MatMulRoute.ProviderMixed
+            Array.Copy(route == MatMulRoute.ProviderMixed
                 ? Gemm.Provider.MatMulMixed(A, m, k, B, n)
                 : Gemm.Provider.MatMul(A, m, k, B, n), C, C.Length);
 

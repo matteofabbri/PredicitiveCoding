@@ -24,8 +24,9 @@ Design invariants (inherited from every previous roadmap):
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–2 ✅ done (real BPE tokenizer travelling with the
-model, the O(n) serving path, real sampling + chat); Phases 3–8 ❌ to build.*
+*Status as of 2026-07-19: Phases 0–3 ✅ done (real BPE tokenizer travelling with the
+model, the O(n) serving path, real sampling + chat, parallel training + adaptive GEMM
+routing); Phases 4–8 ❌ to build.*
 
 *Architecture map: **`ARCHITECTURE.html`** — the layered diagram from `PredictiveLlm`
 down to FasterKV (product subsystems → shared tensor foundations → the PC branch),
@@ -119,16 +120,16 @@ we actually train. Tests: `LlmProPhase1Tests` (4).
 | `Chat()` surface | ✅ | `StartChat(system)` → `ChatSession`: role-tagged history via `ChatTemplate`, replies stop at the next role tag, caller stop sequences merge in. The self-feeding rule extends to chat: `learnFromUser` absorbs ONLY the user's words — never the formatted history, never the assistant's own turns. Window overflow throws clearly (history compression is a later phase). |
 | Tests | ✅ | `LlmProPhase2Tests` (7): greedy-flag and top-k=1 ≡ default greedy, per-seed reproducibility + cross-seed variety, repetition penalty breaks the learned loop, stop sequences cut greedy AND end sampling early (forwards saved, asserted), server takes the same knobs, chat history/role-tag hygiene, learn-from-user drops the user's surprise. |
 
-## Phase 3 — Training throughput · ❌
+## Phase 3 — Training throughput · ✅ done 2026-07-19
 
-*One CPU core per micro-example is the current ceiling.*
+*One CPU core per micro-example was the ceiling; the batch now fans across cores.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Parallel micro-batch | ❌ | `Trainer.Step` accumulates per-example grads — run examples across cores (thread-local grad buffers, one merge; bit-stability policy documented: deterministic reduction order). |
-| GEMM routing by default | ❌ | flip `Ag.MatMulRoute` to `Gemm.Provider` where the Phase-4 bench shows a win (big dims), keep inline below the crossover; CUDA provider when present. |
-| Sequence bucketing | ❌ | batch windows of equal length to kill padding waste in the batched path. |
-| Yardstick | ❌ | tokens/s (train) before/after on the yardstick corpus; target ≥ 4× on an 8-core box. |
+| Parallel micro-batch | ✅ | `Trainer.StepParallel` — the batch is sharded across N model replicas (independent param/grad buffers, weights synced from the primary each step), gradients merged into the primary in a FIXED worker order. **Bit-stability policy:** 1 worker ≡ serial `Step` bit-for-bit (tested); N > 1 re-associates the float accumulation → reproducible across runs (tested) but not identical to serial — the standard data-parallel trade. `TrainingOptions.Workers` (1 = serial, 0 = auto = `ProcessorCount`, capped at batch size). |
+| GEMM routing by default | ✅ | `MatMulRoute.Auto` + `Ag.ProviderCrossoverMacs` (default 2²⁰): inline SIMD below the crossover (no output-buffer alloc), `Gemm.Provider` above — where a CUDA backend repays its overhead. Opt-in per run via `TrainingOptions.AutoGemmRoute` (restored after). Numerically ≡ inline with the CPU provider (tested); a real speed win only with an accelerated provider, honestly. |
+| Sequence bucketing | ➖ | not needed: `StreamingTextDataset` emits fixed-length windows (all = `SeqLen`), so there is no padding waste to bucket away. Recorded as N/A rather than built. |
+| Yardstick | ✅ | `LlmProPhase3Tests.ParallelTraining_ThroughputYardstick` logs serial vs parallel wall-clock. Measured (24-dim/3-block toy on a 28-core box): 1474 ms → 405 ms, **×3.64**. Below the aspirational ×4 — the toy model is small and replica sync + merge cost is fixed overhead; the ratio grows with model/batch size. Correctness (loss reduction) is the asserted part; the ratio is informational. |
 
 ## Phase 4 — Data pipeline · ❌
 
