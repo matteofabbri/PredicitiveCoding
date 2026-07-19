@@ -38,7 +38,7 @@ public class MixedPersistenceTests : IDisposable
         var layer = MakeLayer(size: 4, lowerSize: 3);
 
         var full = LayerSerializer.Serialize(layer);
-        var half = LayerSerializer.Serialize(layer, halfWeights: true);
+        var half = LayerSerializer.Serialize(layer, WeightStoragePrecision.Half);
         Assert.Equal(3 * 4 * 2, full.Length - half.Length);        // 12 weights × 2 bytes saved each
 
         var back = LayerSerializer.AllocateAndDeserialize(half, index: 1, ActivationType.Linear);

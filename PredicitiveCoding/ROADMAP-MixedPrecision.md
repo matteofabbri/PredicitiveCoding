@@ -17,7 +17,8 @@ The design invariant across every phase: *storage light (Half/int8), accumulatio
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19.*
+*Status as of 2026-07-19: **ROADMAP CLOSED** — Phases 0–7 all ✅, tensor cores verified
+on real hardware (RTX 4070 SUPER), quantized model I/O down to int8.*
 
 **Foundation already in place** (pre-existing, not part of this effort):
 `DenseTensor<T> where T : struct, INumber<T>` (generic math); all dense ops go through
@@ -110,14 +111,20 @@ primitive accelerates. On CPU mixed precision still saves **memory/bandwidth**.
 | Persist Half weights | ✅ | `LayerSerializer` flags bit2: generative weights stored as Half (2 bytes each, everything else float32); `LayerStore.WriteQuantized` upserts immediately in both modes (lazy resident replaced + marked clean, so a later Flush cannot fatten the record back); `Network.PersistWeightsAsHalf()` — one-shot and explicit, later training writes float again. In-RAM masters are rounded at persist time so behaviour is identical before/after a reopen. |
 | Load at half size, mixed-ready | ✅ | on deserialize the stored Half bits become BOTH `GenerativeWeightsHalf` (bit-exact) and the widened float masters; `QuantizeWeightsToHalf()` now skips when the copy is present (`force: true` re-syncs) — the *Mixed methods stop re-quantizing on every call. Tests: `MixedPersistenceTests` (5) — record shrinks by exactly 2 bytes/weight, round-trip bit checks, skip/force, reopen (eager AND lazy) keeps both float and mixed classifications. |
 
-## Phase 7 — Sub-16-bit quantization · ❌ (ambitious)
+## Phase 7 — Sub-16-bit quantization · ✅ done 2026-07-19
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| BFloat16 storage path | ❌ | `System.Numerics.BFloat16` (net10) — same scheme as Half. |
-| int8 post-training quantization | ❌ | per-tensor/per-channel scale + zero-point; calibration. |
+| BFloat16 storage path | ✅ | in-house conversions `TensorUtils.FloatToBf16Bits`/`Bf16BitsToFloat` (round-to-nearest-even, NaN preserved — no framework type needed); serializer flag bit3 stores weights as bf16 (2 B each, fp32 range, 8-bit mantissa). A *storage* path by design: masters are widened on load, mixed compute stays Half (the CPU has no bf16 units — nothing to gain there). Round-trip idempotent (tested bit-stable). |
+| int8 post-training quantization | ✅ | serializer flag bit4: per-row (= per-channel) affine `scale` + `zero-point`, `q = clamp(round(w/s) + z)`, ~1 B/weight + 5 B/row; per-element error ≤ s/2 (tested). Weight PTQ needs no activation calibration — the scale IS the max/min measurement; the affine zero-point absorbs asymmetric rows. |
 
-The far end of 2026 SOTA.
+Everything flows through the one API: `Network.PersistWeightsQuantized(WeightStoragePrecision)`
+(`Half` | `BFloat16` | `Int8`; `PersistWeightsAsHalf()` = the Half shorthand), which
+serializes, **deserializes the blob back into RAM** (so memory ≡ disk by construction)
+and upserts. Tests: `MixedSub16Tests` (5) — conversions, both record formats, error
+bounds, and reopen-with-same-classes for bf16 AND int8.
+
+**The far end of 2026 SOTA — reached.**
 
 ---
 

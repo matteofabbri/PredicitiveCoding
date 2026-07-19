@@ -368,4 +368,35 @@ public static class TensorUtils
         TensorPrimitives.ConvertToSingle(x.Buffer.AsSpan(), f);
         return new DenseTensor<float>(f, x.Dimensions);
     }
+
+    // ── Conversioni di precisione  float ↔ bfloat16 ──────────────────────────
+    //
+    // bfloat16 = i 16 bit alti di un float32: stesso esponente (stesso range,
+    // niente overflow ai valori grandi, a differenza di Half), mantissa a 8 bit.
+    // Arrotondamento round-to-nearest-even; i NaN restano NaN.
+
+    /// <summary>Converte float32 → bit bfloat16 (round-to-nearest-even).</summary>
+    public static void FloatToBf16Bits(ReadOnlySpan<float> src, Span<ushort> dst)
+    {
+        if (dst.Length < src.Length) throw new ArgumentException("dst too short.", nameof(dst));
+        for (int i = 0; i < src.Length; i++)
+        {
+            uint bits = BitConverter.SingleToUInt32Bits(src[i]);
+            if (float.IsNaN(src[i]))
+            {
+                dst[i] = (ushort)((bits >> 16) | 0x0040);          // keep it NaN
+                continue;
+            }
+            uint rounding = 0x7FFFu + ((bits >> 16) & 1u);         // round to nearest even
+            dst[i] = (ushort)((bits + rounding) >> 16);
+        }
+    }
+
+    /// <summary>Converte bit bfloat16 → float32 (esatta: shift dei 16 bit alti).</summary>
+    public static void Bf16BitsToFloat(ReadOnlySpan<ushort> src, Span<float> dst)
+    {
+        if (dst.Length < src.Length) throw new ArgumentException("dst too short.", nameof(dst));
+        for (int i = 0; i < src.Length; i++)
+            dst[i] = BitConverter.UInt32BitsToSingle((uint)src[i] << 16);
+    }
 }

@@ -18,16 +18,19 @@ namespace PredictiveCoding.Model;
 //  16      4      StateLearningRate
 //  20      4      WeightLearningRate
 //  24      1      IsClamped  (0/1)
-//  25      1      flags      bit0=hasDiagPrec  bit1=hasPriorMean  bit2=halfWeights
+//  25      1      flags      bit0=hasDiagPrec  bit1=hasPriorMean
+//                            bit2=halfWeights  bit3=bf16Weights  bit4=int8Weights
 //  26      2      (padding, align to 4)
 //  28      Size*4             Mu
 //  +       Size*4             PredictionError
-//  if LowerSize > 0:
-//    +     LowerSize*Size*4   GenerativeWeights  (row-major, float32)
-//          — or, when bit2 (halfWeights) is set —
-//    +     LowerSize*Size*2   GenerativeWeights  (row-major, Half — roadmap
-//          Phase 6: the record stores the weights at half size, and on load the
-//          Half copy is populated too, so mixed inference skips re-quantizing)
+//  if LowerSize > 0, the weights in the persisted precision (roadmap Ph. 6-7):
+//    float32 (default):  LowerSize*Size*4   GenerativeWeights (row-major)
+//    bit2 Half:          LowerSize*Size*2   — on load the Half copy is
+//                        populated too, so mixed inference skips re-quantizing
+//    bit3 bfloat16:      LowerSize*Size*2   — fp32 range, 8-bit mantissa
+//    bit4 int8 affine:   LowerSize*4 scales + LowerSize zero-points +
+//                        LowerSize*Size codes   (per-row scale + zero-point)
+//  then, always float32:
 //    +     LowerSize*4        Bias
 //    +     LowerSize*4        PreActivation
 //    +     LowerSize*4        Prediction
@@ -71,20 +74,28 @@ internal static class LayerSerializer
     // ── Serialize ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Serializes the layer. With <paramref name="halfWeights"/> the generative
-    /// weights are stored as Half (2 bytes each — roadmap Phase 6), rounded
-    /// from the float32 masters; everything else stays float32.
+    /// Serializes the layer. <paramref name="precision"/> selects how the
+    /// generative weights are stored (roadmap Phases 6-7) — rounded/quantized
+    /// from the float32 masters; everything else always stays float32.
     /// </summary>
-    public static byte[] Serialize(Layer layer, bool halfWeights = false)
+    public static byte[] Serialize(Layer layer, WeightStoragePrecision precision = WeightStoragePrecision.Float32)
     {
         bool hasDiag  = layer.DiagonalPrecision != null;
         bool hasPrior = layer.PriorMean         != null;
-        bool half     = halfWeights && layer.LowerSize > 0;
+        if (layer.LowerSize == 0) precision = WeightStoragePrecision.Float32;
 
-        int totalBytes = ComputeByteLength(layer.Size, layer.LowerSize, hasDiag, hasPrior, half);
+        int totalBytes = ComputeByteLength(layer.Size, layer.LowerSize, hasDiag, hasPrior, precision);
         var buf = new byte[totalBytes];
         var span = buf.AsSpan();
         int pos = 0;
+
+        byte precisionFlags = precision switch
+        {
+            WeightStoragePrecision.Half     => 4,
+            WeightStoragePrecision.BFloat16 => 8,
+            WeightStoragePrecision.Int8     => 16,
+            _                               => 0,
+        };
 
         WriteInt  (span, ref pos, layer.Size);
         WriteInt  (span, ref pos, layer.LowerSize);
@@ -93,7 +104,7 @@ internal static class LayerSerializer
         WriteFloat(span, ref pos, layer.StateLearningRate);
         WriteFloat(span, ref pos, layer.WeightLearningRate);
         span[pos++] = layer.IsClamped ? (byte)1 : (byte)0;
-        span[pos++] = (byte)((hasDiag ? 1 : 0) | (hasPrior ? 2 : 0) | (half ? 4 : 0));
+        span[pos++] = (byte)((hasDiag ? 1 : 0) | (hasPrior ? 2 : 0) | precisionFlags);
         pos += 2; // padding
 
         WriteFloats(span, ref pos, layer.Mu.Buffer.AsSpan());
@@ -101,10 +112,25 @@ internal static class LayerSerializer
 
         if (layer.LowerSize > 0)
         {
-            if (half)
-                WriteHalves(span, ref pos, TensorUtils.ToHalf(layer.GenerativeWeights!).Buffer.AsSpan());
-            else
-                WriteFloats(span, ref pos, layer.GenerativeWeights!.Buffer.AsSpan());
+            switch (precision)
+            {
+                case WeightStoragePrecision.Half:
+                    WriteHalves(span, ref pos, TensorUtils.ToHalf(layer.GenerativeWeights!).Buffer.AsSpan());
+                    break;
+                case WeightStoragePrecision.BFloat16:
+                {
+                    var bits = new ushort[layer.LowerSize * layer.Size];
+                    TensorUtils.FloatToBf16Bits(layer.GenerativeWeights!.Buffer.AsSpan(), bits);
+                    WriteUShorts(span, ref pos, bits);
+                    break;
+                }
+                case WeightStoragePrecision.Int8:
+                    WriteInt8Weights(span, ref pos, layer.GenerativeWeights!.Buffer, layer.LowerSize, layer.Size);
+                    break;
+                default:
+                    WriteFloats(span, ref pos, layer.GenerativeWeights!.Buffer.AsSpan());
+                    break;
+            }
             WriteFloats(span, ref pos, layer.Bias!.Buffer.AsSpan());
             WriteFloats(span, ref pos, layer.PreActivation!.Buffer.AsSpan());
             WriteFloats(span, ref pos, layer.Prediction!.Buffer.AsSpan());
@@ -141,6 +167,8 @@ internal static class LayerSerializer
         bool hasDiag  = (flags & 1) != 0;
         bool hasPrior = (flags & 2) != 0;
         bool half     = (flags & 4) != 0;
+        bool bf16     = (flags & 8) != 0;
+        bool int8     = (flags & 16) != 0;
 
         ReadFloats(span, ref pos, target.Mu.Buffer.AsSpan());
         ReadFloats(span, ref pos, target.PredictionError.Buffer.AsSpan());
@@ -157,6 +185,20 @@ internal static class LayerSerializer
                 target.GenerativeWeightsHalf = halfWeights;
                 TensorUtils.ToFloat(halfWeights).Buffer.AsSpan().CopyTo(target.GenerativeWeights!.Buffer.AsSpan());
             }
+            else if (bf16)
+            {
+                // bf16-persisted record (roadmap Phase 7): widened straight
+                // into the masters; the mixed Half copy stays on-demand.
+                var bits = new ushort[lowerSize * size];
+                ReadUShorts(span, ref pos, bits);
+                TensorUtils.Bf16BitsToFloat(bits, target.GenerativeWeights!.Buffer.AsSpan());
+            }
+            else if (int8)
+            {
+                // int8 affine per-row (roadmap Phase 7): dequantized into the
+                // masters — w̃ = (q − z) · s per row.
+                ReadInt8Weights(span, ref pos, target.GenerativeWeights!.Buffer, lowerSize, size);
+            }
             else
             {
                 ReadFloats(span, ref pos, target.GenerativeWeights!.Buffer.AsSpan());
@@ -172,15 +214,92 @@ internal static class LayerSerializer
 
     // ── Byte-length calculation ───────────────────────────────────────────────
 
-    public static int ComputeByteLength(int size, int lowerSize, bool hasDiag, bool hasPrior, bool halfWeights = false)
+    public static int ComputeByteLength(int size, int lowerSize, bool hasDiag, bool hasPrior,
+                                        WeightStoragePrecision precision = WeightStoragePrecision.Float32)
     {
         int n = FixedHeaderBytes;
         n += size * 4 * 2; // Mu + PredictionError
         if (lowerSize > 0)
-            n += lowerSize * size * (halfWeights ? 2 : 4) + lowerSize * 3 * 4; // W + b + preAct + pred
+        {
+            n += precision switch
+            {
+                WeightStoragePrecision.Half     => lowerSize * size * 2,
+                WeightStoragePrecision.BFloat16 => lowerSize * size * 2,
+                WeightStoragePrecision.Int8     => lowerSize * 4 + lowerSize + lowerSize * size,   // scales + zero-points + codes
+                _                               => lowerSize * size * 4,
+            };
+            n += lowerSize * 3 * 4; // b + preAct + pred
+        }
         if (hasDiag)  n += size * 4;
         if (hasPrior) n += size * 4;
         return n;
+    }
+
+    // ── int8 affine per-row weights (roadmap Phase 7) ─────────────────────────
+    //
+    // Layout: float scales[rows], sbyte zeroPoints[rows], sbyte codes[rows·cols].
+    // Quantization:  s = (max − min) / 255,  z = round(−min/s) − 128,
+    //                q = clamp(round(w/s) + z, −128, 127);   dequant  w̃ = (q − z)·s.
+    // Weight PTQ needs no activation calibration; the affine zero-point handles
+    // asymmetric rows (for near-symmetric weights it lands near 0 by itself).
+
+    private static void WriteInt8Weights(Span<byte> span, ref int pos, float[] w, int rows, int cols)
+    {
+        var scales = new float[rows];
+        var zeros  = new sbyte[rows];
+        var codes  = new sbyte[rows * cols];
+
+        for (int r = 0; r < rows; r++)
+        {
+            float min = float.MaxValue, max = float.MinValue;
+            for (int j = 0; j < cols; j++)
+            {
+                float v = w[r * cols + j];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+
+            float s;
+            int   z;
+            if (max - min < 1e-12f)
+            {
+                // Constant row: symmetric scale around the single value.
+                s = MathF.Max(MathF.Abs(min), 1e-12f) / 127f;
+                z = 0;
+            }
+            else
+            {
+                s = (max - min) / 255f;
+                z = Math.Clamp((int)MathF.Round(-min / s) - 128, -128, 127);
+            }
+
+            scales[r] = s;
+            zeros[r]  = (sbyte)z;
+            for (int j = 0; j < cols; j++)
+                codes[r * cols + j] = (sbyte)Math.Clamp((int)MathF.Round(w[r * cols + j] / s) + z, -128, 127);
+        }
+
+        WriteFloats(span, ref pos, scales);
+        WriteSBytes(span, ref pos, zeros);
+        WriteSBytes(span, ref pos, codes);
+    }
+
+    private static void ReadInt8Weights(ReadOnlySpan<byte> span, ref int pos, float[] w, int rows, int cols)
+    {
+        var scales = new float[rows];
+        var zeros  = new sbyte[rows];
+        var codes  = new sbyte[rows * cols];
+        ReadFloats(span, ref pos, scales);
+        ReadSBytes(span, ref pos, zeros);
+        ReadSBytes(span, ref pos, codes);
+
+        for (int r = 0; r < rows; r++)
+        {
+            float s = scales[r];
+            int   z = zeros[r];
+            for (int j = 0; j < cols; j++)
+                w[r * cols + j] = (codes[r * cols + j] - z) * s;
+        }
     }
 
     // ── Primitive writers ─────────────────────────────────────────────────────
@@ -207,6 +326,20 @@ internal static class LayerSerializer
     private static void WriteHalves(Span<byte> span, ref int pos, Span<Half> halves)
     {
         var bytes = MemoryMarshal.Cast<Half, byte>(halves);
+        bytes.CopyTo(span.Slice(pos));
+        pos += bytes.Length;
+    }
+
+    private static void WriteUShorts(Span<byte> span, ref int pos, Span<ushort> values)
+    {
+        var bytes = MemoryMarshal.Cast<ushort, byte>(values);
+        bytes.CopyTo(span.Slice(pos));
+        pos += bytes.Length;
+    }
+
+    private static void WriteSBytes(Span<byte> span, ref int pos, Span<sbyte> values)
+    {
+        var bytes = MemoryMarshal.Cast<sbyte, byte>(values);
         bytes.CopyTo(span.Slice(pos));
         pos += bytes.Length;
     }
@@ -238,6 +371,20 @@ internal static class LayerSerializer
     private static void ReadHalves(ReadOnlySpan<byte> span, ref int pos, Span<Half> target)
     {
         var dst = MemoryMarshal.Cast<Half, byte>(target);
+        span.Slice(pos, dst.Length).CopyTo(dst);
+        pos += dst.Length;
+    }
+
+    private static void ReadUShorts(ReadOnlySpan<byte> span, ref int pos, Span<ushort> target)
+    {
+        var dst = MemoryMarshal.Cast<ushort, byte>(target);
+        span.Slice(pos, dst.Length).CopyTo(dst);
+        pos += dst.Length;
+    }
+
+    private static void ReadSBytes(ReadOnlySpan<byte> span, ref int pos, Span<sbyte> target)
+    {
+        var dst = MemoryMarshal.Cast<sbyte, byte>(target);
         span.Slice(pos, dst.Length).CopyTo(dst);
         pos += dst.Length;
     }

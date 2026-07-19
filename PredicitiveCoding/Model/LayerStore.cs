@@ -287,15 +287,20 @@ internal sealed class LayerStore : IDisposable
     }
 
     /// <summary>
-    /// Persists <paramref name="layer"/> with 16-bit weights (roadmap Phase 6):
-    /// serializes with the halfWeights flag and upserts IMMEDIATELY, in both
-    /// modes. In lazy mode the resident entry is replaced and marked clean, so
-    /// a later Flush does not overwrite the compact record with a float one.
-    /// One-shot by design: ordinary <see cref="Write"/> calls keep storing float.
+    /// Persists <paramref name="layer"/> with quantized weights (roadmap
+    /// Phases 6-7) and upserts IMMEDIATELY, in both modes. The blob is then
+    /// deserialized BACK into the layer, so its in-memory state (masters, and
+    /// the Half copy for <see cref="WeightStoragePrecision.Half"/>) is exactly
+    /// what the disk holds — behaviour cannot drift across a reopen. In lazy
+    /// mode the resident entry is replaced and marked clean, so a later Flush
+    /// does not overwrite the compact record with a float one. One-shot by
+    /// design: ordinary <see cref="Write"/> calls keep storing float.
     /// </summary>
-    public void WriteQuantized(int index, Layer layer)
+    public void WriteQuantized(int index, Layer layer, WeightStoragePrecision precision = WeightStoragePrecision.Half)
     {
-        PersistToStore(index, LayerSerializer.Serialize(layer, halfWeights: true));
+        byte[] blob = LayerSerializer.Serialize(layer, precision);
+        LayerSerializer.Deserialize(blob, layer);
+        PersistToStore(index, blob);
         if (_lazyPersistence)
         {
             _resident![index] = layer;

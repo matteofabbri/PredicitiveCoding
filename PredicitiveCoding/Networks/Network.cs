@@ -1118,26 +1118,30 @@ public sealed class Network : IDisposable
 
     /// <summary>
     /// Quantizes the PERSISTED model to 16-bit weights (mixed-precision roadmap
-    /// Phase 6): every layer's generative weights are rounded to Half and the
-    /// store records are rewritten at half the weight size, with the Half copy
-    /// shipping inside the record — so a reopened network is mixed-ready and
-    /// the *Mixed methods skip re-quantizing. The in-memory masters are rounded
-    /// too, making behaviour identical before and after a reopen. One-shot and
-    /// explicit: any later training step writes ordinary float records again.
+    /// Phase 6): the store records are rewritten at half the weight size, with
+    /// the Half copy shipping inside the record — so a reopened network is
+    /// mixed-ready and the *Mixed methods skip re-quantizing.
+    /// Shorthand for <see cref="PersistWeightsQuantized"/> with Half.
     /// </summary>
-    public void PersistWeightsAsHalf()
+    public void PersistWeightsAsHalf() => PersistWeightsQuantized(WeightStoragePrecision.Half);
+
+    /// <summary>
+    /// Quantizes the PERSISTED model (mixed-precision roadmap Phases 6-7):
+    /// every layer's generative weights are rewritten in the chosen storage
+    /// precision — Half (2 B/weight, record ships mixed-ready), BFloat16
+    /// (2 B/weight, fp32 range), or Int8 (≈1 B/weight, per-row affine
+    /// scale + zero-point). The in-memory masters are replaced by the exact
+    /// round-tripped values, so behaviour is identical before and after a
+    /// reopen. One-shot and explicit: any later training step writes ordinary
+    /// float records again.
+    /// </summary>
+    public void PersistWeightsQuantized(WeightStoragePrecision precision)
     {
         _rwLock.EnterWriteLock();
         try
         {
             for (int l = 0; l < LayerCount; l++)
-            {
-                var layer = _store.ReadLayer(l);
-                layer.QuantizeWeightsToHalf(force: true);
-                if (layer.GenerativeWeightsHalf is { } half)
-                    TensorUtils.ToFloat(half).Buffer.AsSpan().CopyTo(layer.GenerativeWeights!.Buffer.AsSpan());
-                _store.WriteQuantized(l, layer);
-            }
+                _store.WriteQuantized(l, _store.ReadLayer(l), precision);
         }
         finally { _rwLock.ExitWriteLock(); }
     }
