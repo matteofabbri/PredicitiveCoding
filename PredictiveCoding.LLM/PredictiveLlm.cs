@@ -48,6 +48,8 @@ public sealed record TrainingOptions
     public int HeldOutEvery { get; init; } = 5;
     /// <summary>Cap on training windows (null = use the whole corpus).</summary>
     public int? MaxWindows { get; init; } = null;
+    /// <summary>Called after each epoch with (epoch number 1-based, mean loss of the epoch) — progress reporting.</summary>
+    public Action<int, float>? OnEpochEnd { get; init; } = null;
 }
 
 /// <summary>What a training run did, in numbers.</summary>
@@ -159,12 +161,15 @@ public sealed class PredictiveLlm
         int   step  = 0;
         for (int epoch = 0; epoch < opts.Epochs; epoch++)
         {
+            double epochSum = 0d;
             foreach (var batch in batches)
             {
                 last = Trainer.Step(ps, batch, Loss, optimizer, schedule.At(step), opts.ClipNorm);
                 if (step == 0) first = last;
+                epochSum += last;
                 step++;
             }
+            opts.OnEpochEnd?.Invoke(epoch + 1, (float)(epochSum / batches.Length));
         }
 
         double after = PerplexityEvaluator.Evaluate(Model, evalSet).Perplexity;

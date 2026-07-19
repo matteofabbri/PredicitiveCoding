@@ -20,7 +20,8 @@ Console.WriteLine("  6  Face Recognition demo (LFW benchmark · LBP · PC · Arc
 Console.WriteLine("  7  Language ID demo (PC network vs naive-Bayes · PredictiveCoding.Data)");
 Console.WriteLine("  8  People counting (live cam / video · YOLOX ONNX · per-frame count)");
 Console.WriteLine("  9  Thousand Brains demo (sensorimotor object recognition · columns voting)");
-Console.WriteLine(" 10  LM distillation demo (live LM Studio teacher → sparse-MoE student)");
+Console.WriteLine(" 10  Full LLM demo (PredictiveLlm · train → generate → report, all features on)");
+Console.WriteLine(" 11  LM distillation demo (live LM Studio teacher → sparse-MoE student)");
 Console.Write("\n  Choice [1]: ");
 string? choice = Console.ReadLine()?.Trim();
 
@@ -73,6 +74,12 @@ if (choice == "9")
 }
 
 if (choice == "10")
+{
+    FullLlmDemo.Run();
+    return;
+}
+
+if (choice == "11")
 {
     LmDistillationDemo.Run();
     return;
