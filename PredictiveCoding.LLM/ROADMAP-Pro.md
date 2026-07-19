@@ -27,6 +27,11 @@ Design invariants (inherited from every previous roadmap):
 *Status as of 2026-07-19: Phases 0–2 ✅ done (real BPE tokenizer travelling with the
 model, the O(n) serving path, real sampling + chat); Phases 3–8 ❌ to build.*
 
+*Architecture map: **`ARCHITECTURE.html`** — the layered diagram from `PredictiveLlm`
+down to FasterKV (product subsystems → shared tensor foundations → the PC branch),
+with the honest boundary note: the LLM persists via `Checkpoint` files; FasterKV backs
+the core PC network, and the two meet at Phase 7 (episodic memory).*
+
 **Where this starts from** (all ✅, see `ROADMAP.md`): `PredictiveLlm` with hybrid
 T/A blocks, looped depth, t+2 head + self-speculative decoding, FLOP-sparse MoE,
 latent plan, online `Learn(text)`, distillation, save/load, HTML observatory;

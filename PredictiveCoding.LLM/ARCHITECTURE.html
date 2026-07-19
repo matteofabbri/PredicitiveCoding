@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PredictiveLlm — architettura, dal prodotto a FasterKV</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #ffffff; color: #1f2328; margin: 2rem auto; max-width: 920px; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; border-bottom: 1px solid #d1d9e0; padding-bottom: .4rem; }
+  .sub { color: #59606a; font-size: .85rem; margin-top: -.4rem; }
+  .stk { max-width: 880px; margin: 1.5rem auto; }
+  .stk * { box-sizing: border-box; }
+  .tier { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .box { border: 1.5px solid #59606a; border-radius: 8px; padding: 8px 12px; background: #ffffff; flex: 1 1 240px; min-width: 220px; }
+  .box h4 { margin: 0 0 4px; font-size: 13px; }
+  .box ul { margin: 0; padding: 0; list-style: none; font-size: 11.5px; color: #59606a; line-height: 1.45; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+  .llm  { border-color: #378ADD; } .llm h4  { color: #185FA5; }
+  .fnd  { border-color: #1D9E75; } .fnd h4  { color: #0F6E56; }
+  .pc   { border-color: #EF9F27; } .pc h4   { color: #854F0B; }
+  .arrow { text-align: center; color: #59606a; font-size: 14px; line-height: 1.6; }
+  .prod { border-width: 2px; text-align: center; padding: 10px 14px; }
+  .prod h3 { margin: 0 0 6px; font-size: 16px; color: #185FA5; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+  .chip { border: 1px solid #85B7EB; border-radius: 999px; padding: 1.5px 9px; font-size: 11px; }
+  .note { font-size: 11.5px; color: #59606a; text-align: center; margin: 10px auto 4px; max-width: 640px; font-style: italic; }
+  .chain { display: flex; flex-direction: column; gap: 0; flex: 1 1 300px; min-width: 260px; }
+  .chain .box { flex: none; }
+  .side { display: flex; gap: 12px; align-items: stretch; justify-content: center; flex-wrap: wrap; }
+  .kv { border-width: 2.5px; border-color: #BA7517; background: #FAEEDA; }
+  .kv h4 { font-size: 14px; }
+  .lbl { text-align: center; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #59606a; margin: 14px 0 6px; }
+  .notes { border-top: 1px solid #d1d9e0; margin-top: 2rem; padding-top: 1rem; }
+  .notes h2 { font-size: 1.1rem; }
+  .notes li { margin-bottom: .5rem; line-height: 1.5; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: .85em; background: #f6f8fa; padding: 1px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>PredictiveLlm — architettura a strati, dal prodotto a FasterKV</h1>
+<p class="sub">Stato al 2026-07-19 · ROADMAP-Pro fasi 0–2 complete · generato dallo schema di sessione</p>
+
+<div class="stk">
+  <div class="box llm prod">
+    <h3>PredictiveLlm</h3>
+    <div class="chips">
+      <span class="chip">Create2026</span><span class="chip">Train</span><span class="chip">Generate</span><span class="chip">Learn (online)</span><span class="chip">Evaluate · bits/byte</span><span class="chip">DistillFrom</span><span class="chip">StartChat</span><span class="chip">CreateServer</span><span class="chip">Save/Load</span><span class="chip">Report</span>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="tier">
+    <div class="box llm"><h4>Tokenization</h4><ul>
+      <li class="mono">ByteTokenizer · BpeTokenizer</li>
+      <li>vocab che viaggia col modello</li>
+      <li class="mono">TokenizerManifest (SHA-256)</li></ul></div>
+    <div class="box llm"><h4>Data + Training</h4><ul>
+      <li class="mono">StreamingTextDataset · EvalCorpus</li>
+      <li class="mono">Trainer → Adam · LrSchedule</li>
+      <li class="mono">LmDistiller · Checkpoint (file)</li></ul></div>
+    <div class="box llm"><h4>DecoderLM (trainabile)</h4><ul>
+      <li>Block T/A · loop · MTP · MoE · plan</li>
+      <li class="mono">Ag: MatMulRoute · RecurrentScan</li>
+      <li class="mono">Gather/ScatterRows · SoftmaxRows</li></ul></div>
+  </div>
+  <div class="tier" style="margin-top:10px">
+    <div class="box llm"><h4>Generation + Chat</h4><ul>
+      <li class="mono">SelfSpeculative (greedy + t+2)</li>
+      <li class="mono">Sampler (T · top-k/p · penalty)</li>
+      <li class="mono">ChatSession · ChatTemplate</li></ul></div>
+    <div class="box llm"><h4>Serving O(n)</h4><ul>
+      <li class="mono">GptExporter → GptModel</li>
+      <li>attention GQA/MLA · SSM O(1) · MoE</li>
+      <li class="mono">KvCache (window · sink · Half)</li></ul></div>
+    <div class="box llm"><h4>Eval + Report</h4><ul>
+      <li class="mono">PerplexityEvaluator</li>
+      <li class="mono">ActivationProbe (spike · sink)</li>
+      <li class="mono">HtmlReport (un file, chiaro)</li></ul></div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="lbl" style="margin-top:2px">Fondazioni condivise — core + Device</div>
+  <div class="tier">
+    <div class="box fnd"><h4>DenseTensor&lt;T&gt; · TensorUtils</h4><ul>
+      <li>SIMD (TensorPrimitives)</li>
+      <li class="mono">MatVecMul(T)Mixed · ToHalf · bf16</li></ul></div>
+    <div class="box fnd"><h4>Gemm · IGemmProvider</h4><ul>
+      <li class="mono">CpuGemmProvider (parallel+SIMD)</li>
+      <li class="mono">BatchedPcForward</li></ul></div>
+    <div class="box fnd"><h4>CUDA (Device)</h4><ul>
+      <li class="mono">cublasGemmEx — tensor core</li>
+      <li>fallback CPU automatico</li></ul></div>
+  </div>
+
+  <div class="note">Confine: il LLM persiste i pesi via <span class="mono">Checkpoint</span> (file). FasterKV è la persistenza della <b>rete predictive-coding</b> del core — stesse fondazioni, ramo gemello. Il ponte pianificato è la fase 7 (memoria episodica ippocampale).</div>
+  <div class="lbl">Ramo predictive-coding — dove vive FasterKV</div>
+
+  <div class="side">
+    <div class="chain">
+      <div class="box pc"><h4>Network</h4><ul><li class="mono">Infer/InferAdaptive · Learn · *Mixed</li><li class="mono">EffortLevel · PersistWeightsQuantized</li></ul></div>
+      <div class="arrow">▼</div>
+      <div class="box pc"><h4>Layer</h4><ul><li class="mono">ComputePrediction · UpdateState</li><li class="mono">GenerativeWeightsHalf (transiente)</li></ul></div>
+      <div class="arrow">▼</div>
+      <div class="box pc"><h4>LayerStore</h4><ul><li>lazy resident / eager · Flush</li><li class="mono">WriteQuantized (one-shot)</li></ul></div>
+      <div class="arrow">▼</div>
+      <div class="box pc"><h4>LayerSerializer</h4><ul><li>flags: fp32 · Half · bf16 · int8/riga</li></ul></div>
+      <div class="arrow">▼</div>
+      <div class="box pc kv"><h4>FasterKV&lt;int, SpanByte&gt;</h4><ul><li>upsert/read per layer · recovery</li><li>checkpoint completo su Dispose</li></ul></div>
+    </div>
+    <div class="chain" style="max-width:280px">
+      <div class="box pc" style="border-style:dashed"><h4>Networks.*</h4><ul>
+        <li>MoE trio · Ensemble · Attentive</li>
+        <li class="mono">Hopfield · Memory · Gated · Spiking…</li>
+        <li>→ fase 7: memoria episodica del LLM</li></ul></div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>Come leggerlo</h2>
+  <ul>
+    <li><b>La dorsale blu</b> è il prodotto: da <code>PredictiveLlm</code> si scende nei sei sottosistemi (tokenizer, dati/training, modello trainabile, generazione/chat, serving, eval) — la strada percorsa dalle fasi 0–2 della ROADMAP-Pro.</li>
+    <li><b>La fascia verde</b> è il pavimento comune: tensori SIMD, GEMM e CUDA. Tutto ciò che sta sopra — LLM <i>e</i> rete predictive-coding — poggia lì.</li>
+    <li><b>La colonna ambra</b> è la discesa fino a <code>FasterKV</code>: appartiene alla <b>rete predictive-coding</b> (<code>Network → Layer → LayerStore → LayerSerializer → FasterKV</code>, coi formati fp32/Half/bf16/int8 della roadmap mixed-precision). Il LLM oggi <b>non</b> ci passa: salva i pesi via <code>Checkpoint</code> su file.</li>
+    <li><b>Il punto di saldatura futuro</b> è il box tratteggiato: la famiglia <code>Networks.*</code> (Hopfield/Memory), che nella fase 7 della ROADMAP-Pro diventerà la memoria episodica del LLM — a quel punto un ricordo del LLM finirà davvero dentro FasterKV.</li>
+  </ul>
+</div>
+
+</body>
+</html>
