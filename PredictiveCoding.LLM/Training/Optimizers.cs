@@ -60,6 +60,29 @@ public sealed class Adam
     {
         foreach (var p in parameters) Array.Clear(p.Grad);
     }
+
+    // ── State access for checkpoint/resume (roadmap-Pro Phase 5) ──────────────
+
+    /// <summary>The bias-correction step counter <c>t</c> (0 before the first step).</summary>
+    public int StepCount => _t;
+
+    /// <summary>Restores the step counter so a resumed run continues bias correction, not restarts it.</summary>
+    public void RestoreStepCount(int t)
+    {
+        if (t < 0) throw new ArgumentOutOfRangeException(nameof(t));
+        _t = t;
+    }
+
+    /// <summary>The (m, v) moment vectors for a parameter, or null if it has not been stepped yet.</summary>
+    public (float[] m, float[] v)? MomentsFor(Tensor p) => _state.TryGetValue(p, out var s) ? s : null;
+
+    /// <summary>Installs the (m, v) moment vectors for a parameter (lengths must match its data).</summary>
+    public void SetMoments(Tensor p, float[] m, float[] v)
+    {
+        if (m.Length != p.Data.Length || v.Length != p.Data.Length)
+            throw new ArgumentException("Moment vectors must match the parameter length.");
+        _state[p] = (m, v);
+    }
 }
 
 public static class GradientClipping

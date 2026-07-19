@@ -24,9 +24,10 @@ Design invariants (inherited from every previous roadmap):
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–4 ✅ done (real BPE tokenizer travelling with the
+*Status as of 2026-07-19: Phases 0–5 ✅ done (real BPE tokenizer travelling with the
 model, the O(n) serving path, real sampling + chat, parallel training + adaptive GEMM
-routing, streaming data pipeline with mixing/hygiene/hashed split); Phases 5–8 ❌ to build.*
+routing, streaming data pipeline with mixing/hygiene/hashed split, professional
+checkpointing with true resume + quantized weights); Phases 6–8 ❌ to build.*
 
 *Architecture map: **`ARCHITECTURE.html`** — the layered diagram from `PredictiveLlm`
 down to FasterKV (product subsystems → shared tensor foundations → the PC branch),
@@ -143,14 +144,14 @@ we actually train. Tests: `LlmProPhase1Tests` (4).
 | Hygiene | ✅ | `.Deduplicated()` (64-bit content hash, memory bounded by distinct-line count) + `.WithLengthFilter(min,max)` — composable decorators. |
 | Tests | ✅ | `LlmProPhase4Tests` (8): folder order + accounting, recursive glob, dedup, length filter, weighted-mix ratio, weight validation, hashed-split complement + reorder-stability, end-to-end train from a mixed/deduped folder corpus. |
 
-## Phase 5 — Checkpointing, professionally · ❌
+## Phase 5 — Checkpointing, professionally · ✅ done 2026-07-19
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Periodic + best-on-val | ❌ | save every N steps and keep the best held-out ppl; `TrainingReport` records the path. |
-| True resume | ❌ | Adam moments serialized next to the weights — resume continues, not restarts (today's `Load` restarts the optimizer). |
-| Quantized checkpoints | ❌ | weights persisted Half/int8 via the mixed-precision Phase-6/7 machinery (`WeightStoragePrecision`) — the LLM side finally consumes it. |
-| Tests | ❌ | kill/resume ≡ uninterrupted run (same final loss within tolerance); quantized reload parity within format tolerance. |
+| Periodic + best-on-val | ✅ | `TrainingOptions.CheckpointEverySteps`/`CheckpointDir`/`KeepBestByPerplexity`: every N steps evaluate held-out ppl and (keeping the best) write a full resumable dir; `TrainingReport.BestCheckpointPath`/`BestPerplexity` record it. |
+| True resume | ✅ | `OptimizerCheckpoint` serialises Adam's moments + step counter (`optimizer.bin`) next to the weights; `PredictiveLlm.LoadWithOptimizer` restores both, `TrainingOptions.ResumeOptimizer` continues from them. `Adam` gained `StepCount`/`RestoreStepCount`/`MomentsFor`/`SetMoments`. |
+| Quantized checkpoints | ✅ | `Checkpoint.Save(dir, params, WeightStoragePrecision)` consumes the mixed-precision enum: Half/BFloat16 halve the file, Int8 (per-row min+scale affine — anchored to [min,max] so near-constant rows far from zero survive) quarters it; `Load` widens back to fp32. `PredictiveLlm.Save(dir, precision)` exposes it. |
+| Tests | ✅ | `LlmProPhase5Tests` (7): resume ≡ uninterrupted 20-step run to 4 decimals, control that a FRESH optimizer diverges (so the equivalence is really carried by the moments), quantized reload within format tolerance (Half/bf16 5e-2, int8 1e-1), Half file < Float32, Train writes best-on-val + `LoadWithOptimizer` restores step count. |
 
 ## Phase 6 — Continual learning, robustly · ❌
 

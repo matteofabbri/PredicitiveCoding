@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using PredictiveCoding.Core;
+using PredictiveCoding.Model;
 using PredictiveCoding.LLM.Autograd;
 using PredictiveCoding.LLM.Data;
 using PredictiveCoding.LLM.Eval;
@@ -149,8 +150,14 @@ public sealed class PredictiveLlm
             PeakLr = opts.PeakLr, MinLr = opts.MinLr,
             WarmupSteps = Math.Max(1, totalSteps / 10), TotalSteps = totalSteps,
         };
-        var optimizer = new Adam();
+        // Resume from a loaded optimizer (true resume) or start fresh.
+        var optimizer = opts.ResumeOptimizer ?? new Adam();
         var ps        = Model.Parameters();
+
+        if (opts.CheckpointEverySteps > 0 && string.IsNullOrEmpty(opts.CheckpointDir))
+            throw new ArgumentException("CheckpointEverySteps > 0 requires CheckpointDir.", nameof(opts));
+        double bestPpl  = double.PositiveInfinity;
+        string? bestDir = null;
 
         // Parallel micro-batch (Pro Phase 3): 0 = auto, else the requested count,
         // capped at the batch size (no idle workers). 1 ⇒ the serial path.
@@ -188,6 +195,19 @@ public sealed class PredictiveLlm
                     if (step == 0) first = last;
                     epochSum += last;
                     step++;
+
+                    // Periodic checkpoint (Phase 5): evaluate held-out ppl and,
+                    // when keeping the best, write only when it improves.
+                    if (opts.CheckpointEverySteps > 0 && step % opts.CheckpointEverySteps == 0)
+                    {
+                        double ppl = PerplexityEvaluator.Evaluate(Model, evalSet).Perplexity;
+                        if (!opts.KeepBestByPerplexity || ppl < bestPpl)
+                        {
+                            bestPpl = ppl;
+                            bestDir = opts.CheckpointDir!;
+                            SaveResumable(bestDir, optimizer, opts.CheckpointPrecision);
+                        }
+                    }
                 }
                 opts.OnEpochEnd?.Invoke(epoch + 1, (float)(epochSum / batches.Length));
             }
@@ -195,7 +215,11 @@ public sealed class PredictiveLlm
         finally { Ag.MatMulRoute = keepRoute; }
 
         double after = PerplexityEvaluator.Evaluate(Model, evalSet).Perplexity;
-        return new TrainingReport(before, after, first, last, step, trainSet.Count, evalSet.Count);
+        return new TrainingReport(before, after, first, last, step, trainSet.Count, evalSet.Count)
+        {
+            BestPerplexity     = bestDir is null ? double.NaN : bestPpl,
+            BestCheckpointPath = bestDir,
+        };
 
         Tensor Loss(int[] t, int[] y, bool training) => Model.Loss(t, y, ignoreIndex: -1, training);
     }
@@ -420,12 +444,19 @@ public sealed class PredictiveLlm
     /// so <see cref="Load"/> reconstructs exactly the vocabulary the weights
     /// were trained on — or fails loudly.
     /// </summary>
-    public void Save(string directory)
+    public void Save(string directory) => Save(directory, WeightStoragePrecision.Float32);
+
+    /// <summary>
+    /// <see cref="Save(string)"/> with an explicit on-disk weight precision
+    /// (roadmap-Pro Phase 5): Half/BFloat16 halve the weight file, Int8 quarters
+    /// it; <see cref="Load"/> widens back to fp32 within the format's tolerance.
+    /// </summary>
+    public void Save(string directory, WeightStoragePrecision precision)
     {
         Directory.CreateDirectory(directory);
         File.WriteAllText(Path.Combine(directory, "config.json"),
             JsonSerializer.Serialize(Config, new JsonSerializerOptions { WriteIndented = true }));
-        Checkpoint.Save(Path.Combine(directory, "weights"), Model.Parameters());
+        Checkpoint.Save(Path.Combine(directory, "weights"), Model.Parameters(), precision);
 
         string kind = Tokenizer switch
         {
@@ -495,6 +526,31 @@ public sealed class PredictiveLlm
         var llm = new PredictiveLlm(cfg, tokenizer, seed);
         Checkpoint.Load(Path.Combine(directory, "weights"), llm.Model.Parameters());
         return llm;
+    }
+
+    // Full resumable checkpoint: model (weights at the requested precision) +
+    // Adam moments in optimizer.bin next to it (roadmap-Pro Phase 5).
+    private void SaveResumable(string directory, Adam optimizer, WeightStoragePrecision precision)
+    {
+        Save(directory, precision);
+        OptimizerCheckpoint.Save(Path.Combine(directory, "optimizer.bin"), Model.Parameters(), optimizer);
+    }
+
+    /// <summary>
+    /// Loads a model AND its Adam optimizer state (roadmap-Pro Phase 5 true resume):
+    /// weights via <see cref="Load"/>, moments + step counter from <c>optimizer.bin</c>
+    /// when present (else a fresh optimizer). Feed the returned optimizer back via
+    /// <see cref="TrainingOptions.ResumeOptimizer"/> to continue, not restart.
+    /// </summary>
+    public static (PredictiveLlm llm, Adam optimizer) LoadWithOptimizer(
+        string directory, ITokenizer? tokenizer = null, int seed = 42)
+    {
+        var llm = Load(directory, tokenizer, seed);
+        var opt = new Adam();
+        string optPath = Path.Combine(directory, "optimizer.bin");
+        if (File.Exists(optPath))
+            OptimizerCheckpoint.Load(optPath, llm.Model.Parameters(), opt);
+        return (llm, opt);
     }
 
     private static string Fingerprint(byte[] bytes)

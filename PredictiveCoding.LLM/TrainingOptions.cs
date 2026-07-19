@@ -60,4 +60,30 @@ public sealed record TrainingOptions
     /// with an accelerated provider installed.
     /// </summary>
     public bool AutoGemmRoute { get; init; } = false;
+
+    /// <summary>
+    /// Checkpoint every N optimizer steps (roadmap-Pro Phase 5). 0 = off. Requires
+    /// <see cref="CheckpointDir"/>. Each checkpoint is a full resumable model dir
+    /// (config + tokenizer + weights + optimizer moments).
+    /// </summary>
+    public int CheckpointEverySteps { get; init; } = 0;
+
+    /// <summary>Where periodic checkpoints are written (null = no checkpointing).</summary>
+    public string? CheckpointDir { get; init; } = null;
+
+    /// <summary>
+    /// Keep only the checkpoint with the best held-out perplexity so far (true, the
+    /// default) rather than overwriting on every interval regardless of quality.
+    /// </summary>
+    public bool KeepBestByPerplexity { get; init; } = true;
+
+    /// <summary>On-disk weight precision for periodic checkpoints (Float32 = exact).</summary>
+    public PredictiveCoding.Model.WeightStoragePrecision CheckpointPrecision { get; init; }
+        = PredictiveCoding.Model.WeightStoragePrecision.Float32;
+
+    /// <summary>
+    /// Continue from these Adam moments instead of a fresh optimizer (true resume).
+    /// Load them with <see cref="PredictiveLlm.LoadWithOptimizer"/>. Null = start clean.
+    /// </summary>
+    public Training.Adam? ResumeOptimizer { get; init; } = null;
 }
