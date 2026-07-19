@@ -1,0 +1,215 @@
+# PredictiveCoding.LLM — 2026 research roadmap (predictive-coding edition)
+
+> **Mission — one mandate:** fold the 2026 LLM research directions — adaptive reasoning
+> effort, looped/weight-tied depth, multi-token prediction, long-context cache efficiency,
+> hybrid attention+SSM, sparse experts, on-policy distillation, latent planning — into the
+> in-house stack, expressing each one **through the predictive-coding lens** (iterative
+> settling, prediction error, energy, persistent temporal state) instead of bolting on
+> foreign machinery.
+
+Design invariants across every phase:
+
+- **In-house only.** No new dependencies, ever.
+- **Additive.** The vanilla paths (`DecoderLM` classic forward, `GptModel` MHA) stay
+  bit-identical; every new mechanism is opt-in via config, with `0`/`off` meaning
+  "exactly the old behaviour".
+- **Toy scale, real mechanisms.** We reproduce the *mechanism* with measurable ablations
+  at small scale, not the frontier numbers — same stance as the rest of the repo.
+- Each phase lands with unit tests; the full suite stays green (874 today).
+
+### Legend
+
+| Flag | Meaning |
+|:----:|---------|
+| ✅ | **Done** — implemented and covered by tests. |
+| 🟡 | **Partial** — building block exists, needs extension. |
+| ❌ | **To build** — not present yet. |
+
+*Status as of 2026-07-19: plan drafted, nothing started.*
+
+### Paper anchors → phases
+
+| 2026 trend / paper | Phase |
+|--------------------|:-----:|
+| "The Spike, the Sparse and the Sink" (massive activations, attention sinks) | 0, 4 |
+| Controlling reasoning effort (low/med/high effort modes; adaptive compute) | 1, 2 |
+| DeepLoop (depth scaling for looped transformers) | 2 |
+| Nemotron 3 Super ablations: multi-token prediction | 3 |
+| Agent-driven long-context efficiency; LongStraw's fixed-budget spirit | 4 |
+| Nemotron 3 / Mamba-3 / Qwen3.6 / Arcee Trinity (hybrid attention+SSM) | 5 |
+| Step 3.5 Flash (frontier behaviour, 11B *active* params — sparse MoE) | 6 |
+| SEED (self-evolving on-policy distillation for agents) | 7 |
+| Cola DLM (plan in continuous latent space, then decode) | 8 |
+
+**Foundation already in place** (pre-existing, not part of this effort):
+
+- Core PC `Network` (`PredicitiveCoding/Networks/Network.cs`): `Infer(inferenceSteps)`,
+  `InferTrace` (per-step energy trajectory), temporal variants with persistent hidden
+  state, `LearnGated`, mixed-precision twins.
+- Trainable LM: `DecoderLM` on the autograd engine (12 ops; **gradients accumulate per
+  use**, so weight-tying across reuses already back-propagates correctly), `Trainer`
+  (grad accumulation + clipping), `Adam`, `LrSchedule`, `Checkpoint`, BPE tokenizer,
+  `StreamingTextDataset`.
+- Inference LM: `GptModel` is already 2025-modern — RoPE/ALiBi, GQA/MQA, MLA compressed
+  KV cache, SwiGLU, RMSNorm, QK-Norm, logit soft-caps, flash-style attention,
+  `KvCache` with `Clone`, `ContinuousBatcher`, `BeamSearch`.
+- Mixed precision: `ToHalf`/`ToFloat` + mixed GEMM behind `Gemm.Provider`
+  (see `PredicitiveCoding/ROADMAP-MixedPrecision.md`, Phase 5 — the LLM stack is the
+  named "GEMM-heavy consumer" to route).
+- Teacher & distillation precedents: `LmStudioSource` (chat/generate/embed on :1234),
+  `DetectorDistiller`, `PcDistilledFaceEmbedder`.
+
+---
+
+## Phase 0 — Yardstick: eval harness + activation observatory · ❌
+
+*PC angle: measure the prediction error before changing the predictor.*
+
+| Task | Status | Notes |
+|------|:------:|-------|
+| Perplexity eval harness | ❌ | held-out split over `StreamingTextDataset` + a tiny in-repo eval text (datasets stay out of git); deterministic given a seed. |
+| Activation-stats probe | ❌ | per-block mean/max activation → detect massive-activation "spikes"; opt-in hook on `DecoderLM.Forward` and `GptModel`. |
+| Attention-sink meter | ❌ | share of attention mass on position 0 per head ("the Sink"); feeds Phase 4's sink handling. |
+| Self-contained HTML report | ❌ | optional; reuse the `HtmlVisualizer` pattern from the Brain project (one file, no server). |
+
+Every later phase quotes its before/after from this harness. Exit: numbers, not vibes.
+
+## Phase 1 — Adaptive inference effort (core PC) · ❌
+
+*PC angle: "reasoning effort" is our native dial — effort = settling steps, and the
+energy trajectory is the built-in stop signal. The transformer world is re-discovering
+what the PC formulation gives for free.*
+
+| Task | Status | Notes |
+|------|:------:|-------|
+| `Network.InferAdaptive(input, maxSteps, epsilon)` | ❌ | early-exit when the per-step energy improvement drops below ε; returns `(topLatent, stepsUsed, energy)`. Reuses the `InferTrace` machinery. |
+| Effort presets | ❌ | `EffortLevel.Low/Medium/High` → `(maxSteps, ε)` pairs, one place to tune. |
+| `PredictAdaptive` | ❌ | classification twin; reports steps actually spent. |
+| Tests | ❌ | easy inputs exit early; noisy inputs spend more; ε=0 ≡ fixed-step path bit-for-bit. |
+
+Small, pure-core, immediately measurable (steps saved at equal accuracy).
+
+## Phase 2 — Looped DecoderLM (weight-tied depth) · ❌
+
+*PC angle: reusing one tied block K times is settling toward a fixed point — the discrete
+cousin of PC's iterative inference. Depth becomes iteration, which is exactly how the
+core `Network` already treats computation.*
+
+| Task | Status | Notes |
+|------|:------:|-------|
+| `DecoderLmConfig.NumLoops` | ❌ | default 1 = vanilla; forward re-applies the block stack `NumLoops` times with tied weights. |
+| Tied-reuse gradient test | ❌ | explicit unit test that multi-use accumulation matches an unrolled reference (the engine already `+=`s per use). |
+| Loop-step conditioning | ❌ | cheap per-iteration bias so the block knows which pass it is on. |
+| Inference early-exit | ❌ | stop looping when `‖x_k − x_{k−1}‖ / ‖x‖ < τ` — Phase 1's adaptive effort, applied to the LM. |
+| Tests | ❌ | `NumLoops=1` bit-identical to vanilla; loss at equal *parameter count* vs deeper untied model; early-exit ≡ full loop when τ=0. |
+
+The highest predictive-codiness-per-line item on the list.
+
+## Phase 3 — Multi-token prediction · ❌
+
+*PC angle: predicting further into the future at multiple horizons is what the core's
+temporal path (`LearnTemporal`) already does; an auxiliary t+2 head is the same idea one
+level up.*
+
+| Task | Status | Notes |
+|------|:------:|-------|
+| Aux prediction head | ❌ | `MtpHorizon`/`MtpWeight` in `DecoderLmConfig` (0 = off); extra head predicts t+2 (optionally t+3), loss = CE + λ·CE₂. |
+| Masked-target plumbing | ❌ | reuse the existing `ignoreIndex` masking for the shifted targets. |
+| Self-speculative decoding | ❌ | optional, in `TextGenerator`: draft with the t+2 head, verify with the main head; report acceptance rate. |
+| Tests | ❌ | λ=0 ≡ vanilla; both losses decrease on the toy corpus; generation identical when speculation is off. |
+
+## Phase 4 — Long-context cache efficiency · ❌
+
+*PC angle: bounded state — keep only what still helps prediction. The core's temporal
+state is O(1) already; the KV cache should move toward it, not away.*
+
+| Task | Status | Notes |
+|------|:------:|-------|
+| Sliding-window attention | ❌ | `TransformerConfig.WindowSize` (0 = full); applies to `KvCacheLayer` eviction. |
+| Attention sinks | ❌ | `NumSinkTokens` always retained alongside the window — per the Spike/Sink findings and Phase 0's meter. |
+| Half-precision KV cache | ❌ | `KvCacheLayer` stores Half, computes float — reuses `ToHalf`/`ToFloat`; the first concrete landing of Mixed-Precision Phase 5's "route the LLM to mixed". |
+| Cache accounting | ❌ | `KvCache.BytesUsed` — the fixed-budget number LongStraw-style work optimises against. |
+| Tests | ❌ | `WindowSize=MaxSeq` ≡ full attention; sinks survive eviction; Half-cache perplexity delta within tolerance; bytes halved. |
+
+MLA (compressed cache) already exists; this phase completes the efficiency menu.
+
+## Phase 5 — Hybrid temporal-state blocks (attention + SSM) · ❌
+
+*PC angle: a gated linear recurrence `h_t = a_t ⊙ h_{t−1} + b_t ⊙ x_t` is a learned
+temporal predictor with persistent state — the LM-side sibling of the core's
+`InferTemporal` hidden state. O(1) state instead of a growing transcript is the PC way.*
+
+| Task | Status | Notes |
+|------|:------:|-------|
+| New autograd ops | ❌ | elementwise `Mul`, `Sigmoid`/`Silu`, and `RecurrentScan` (sequential scan, custom backward = BPTT inside the op). |
+| Numeric grad check | ❌ | finite-difference test for `RecurrentScan` before anything is built on it. |
+| `TemporalBlock` (trainable) | ❌ | gated diagonal recurrence in `DecoderLM`; `DecoderLmConfig.BlockPattern` e.g. `"TTAT"` (T = temporal, A = attention — Nemotron-style interleave). |
+| Inference twin | ❌ | `RecurrentLayer : IAttentionLayer` whose `ILayerCache` is a fixed-size state vector — O(1) cache growth; add a `NemotronStyle` hybrid preset to `ModernPresets`. |
+| Tests | ❌ | O(1) cache growth vs O(n) KV; hybrid beats attention-only on a long-range recall probe at equal params; pattern `"AAAA"` ≡ vanilla. |
+
+The heaviest phase — gated by the scan op landing cleanly. Do after 2–4.
+
+## Phase 6 — Sparse experts (MoE feed-forward) · ❌
+
+*PC angle: routing as precision-weighted gating — send the token to the expert expected
+to predict it best; the conceptual sibling of `LearnGated` and of Cortex's area routing.*
+
+| Task | Status | Notes |
+|------|:------:|-------|
+| `ExpertsFfn` | ❌ | N expert MLPs + softmax router, top-k selection, outputs weighted by gate probability (differentiable through the taken path). |
+| Load-balancing aux loss | ❌ | standard fraction·probability penalty to prevent expert collapse. |
+| Config + accounting | ❌ | `NumExperts`/`TopK` (1/dense = vanilla); report **active params per token** — the Step-3.5-Flash headline metric. |
+| Tests | ❌ | k=N matches dense reference within tolerance; balance loss spreads load on the toy corpus; accounting correct. |
+
+## Phase 7 — On-policy distillation from the local teacher · ❌
+
+*PC angle: the training signal is the mismatch between the student's own generation and
+the teacher's correction — prediction error on the student's own trajectory (on-policy),
+the generative sequel to `PcDistilledFaceEmbedder`.*
+
+| Task | Status | Notes |
+|------|:------:|-------|
+| `LmDistiller` — offline KD | ❌ | prompt set → teacher completions via `LmStudioSource.ChatAsync` + `ChatTemplate` → student fine-tune with masked CE on completion tokens (sequence-level KD; the endpoint is text-level, logit-matching only if it ever exposes logprobs). |
+| On-policy round (SEED-style) | ❌ | student generates a draft prefix → teacher continues/corrects from that prefix → student trains on the correction *from its own prefix*; iterate. |
+| Dataset cache | ❌ | teacher transcripts cached under `~/.predictivecoding/` (runtime data — stays out of git, house rule). |
+| Tests | ❌ | offline round-trip on a canned transcript (no network in CI); live LM Studio behind a manual flag. |
+
+## Phase 8 — Latent planning before decoding · ❌ (ambitious)
+
+*PC angle: the most PC-native idea in the 2026 crop. "Plan in a continuous latent, then
+decode" is literally a PC generative model: infer a top-down latent from the evidence
+(the prompt) by iterative settling, then predict the rest of the sequence under it.*
+
+| Task | Status | Notes |
+|------|:------:|-------|
+| Plan-token conditioning | ❌ | a learned `plan` vector prepended as a soft position; trained end-to-end. |
+| Prefix-energy settling | ❌ | at inference: freeze weights, run K gradient steps on `plan` alone to minimise the prompt's CE (settle the latent on the evidence), then decode. Reuses the autograd engine as the inner loop. |
+| Ablation | ❌ | held-out continuation perplexity with settled plan vs no plan vs random plan. |
+
+Exploratory: success = a measurable gain, not a promise. Park it if the ablation is flat.
+
+---
+
+## Notes
+
+- **Deliberately skipped.** World models — the Brain project (thousand-brains demo,
+  SE(3) sensor) already owns that direction. Full-scale agentic RL (LongStraw) — Phase 7
+  captures the practical value at our scale; revisit only if a real reward signal shows up.
+- **Order rationale.** 0–1 give the yardstick and the cheapest PC-native win; 2–4 are
+  self-contained LM upgrades with hard equivalence tests; 5–6 change the architecture and
+  lean on new ops; 7 needs the LM to be worth distilling into; 8 is research.
+- **Mixed-precision hand-off.** Phase 4's Half KV cache and (later) routing the
+  attention/FFN GEMMs through `Gemm.Provider.MatMulMixed` are the LLM-side landings of
+  ROADMAP-MixedPrecision Phase 5 — the tensor-core verification on real CUDA hardware
+  stays tracked *there*, not here.
+
+## How this maps onto the stack
+
+- **Core** (`PredicitiveCoding`): Phase 1.
+- **LLM / Autograd + Training** (`Autograd/DecoderLM.cs`, `Autograd/Autograd.cs`,
+  `Training/`): Phases 2, 3, 5 (ops + `TemporalBlock`), 6, 7, 8.
+- **LLM / Model + Generation** (`Model/Attention.cs`, `Model/TransformerConfig.cs`,
+  `Generation/TextGenerator.cs`): Phases 0 (probes), 3 (speculative), 4, 5
+  (`RecurrentLayer`, preset), 6.
+- **Data** (`PredictiveCoding.Data/LmStudio/LmStudioSource.cs`): Phase 7.
+- **Tests** (`PredicitiveCoding.UnitTests`): every phase.
