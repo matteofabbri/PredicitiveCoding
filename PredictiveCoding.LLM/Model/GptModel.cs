@@ -1,4 +1,5 @@
 using PredictiveCoding.Core;
+using PredictiveCoding.LLM.Eval;
 
 namespace PredictiveCoding.LLM.Model;
 
@@ -50,15 +51,20 @@ public sealed class GptModel
     /// <summary>
     /// Runs one decoding step: embeds <paramref name="token"/> at
     /// <paramref name="position"/>, updates the cache, and returns the next-token
-    /// logits (length VocabSize).
+    /// logits (length VocabSize). An optional <see cref="ActivationProbe"/>
+    /// records per-block hidden-state statistics; null (the default) leaves the
+    /// step untouched.
     /// </summary>
-    public DenseTensor<float> Step(int token, int position, KvCache cache)
+    public DenseTensor<float> Step(int token, int position, KvCache cache, ActivationProbe? probe = null)
     {
         var x = _embedding.Lookup(token);
         _positional?.AddTo(x, position);
 
         for (int l = 0; l < _blocks.Length; l++)
+        {
             x = _blocks[l].Forward(x, cache.Layers[l], position);
+            probe?.RecordBlock(l, x.Buffer);
+        }
 
         x = _lnFinal.Forward(x);
         var logits = _lmHead is null ? _embedding.Project(x) : _lmHead.Forward(x);

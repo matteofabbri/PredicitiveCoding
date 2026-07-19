@@ -15,7 +15,7 @@ Design invariants across every phase:
   "exactly the old behaviour".
 - **Toy scale, real mechanisms.** We reproduce the *mechanism* with measurable ablations
   at small scale, not the frontier numbers — same stance as the rest of the repo.
-- Each phase lands with unit tests; the full suite stays green (874 today).
+- Each phase lands with unit tests; the full suite stays green (888 today).
 
 ### Legend
 
@@ -25,7 +25,8 @@ Design invariants across every phase:
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: plan drafted, nothing started.*
+*Status as of 2026-07-19: Phases 0–1 ✅ done (888/888 green; Phase 0's optional HTML
+report deferred); Phases 2–8 ❌ to build.*
 
 ### Paper anchors → phases
 
@@ -61,20 +62,21 @@ Design invariants across every phase:
 
 ---
 
-## Phase 0 — Yardstick: eval harness + activation observatory · ❌
+## Phase 0 — Yardstick: eval harness + activation observatory · ✅ done 2026-07-19
 
 *PC angle: measure the prediction error before changing the predictor.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Perplexity eval harness | ❌ | held-out split over `StreamingTextDataset` + a tiny in-repo eval text (datasets stay out of git); deterministic given a seed. |
-| Activation-stats probe | ❌ | per-block mean/max activation → detect massive-activation "spikes"; opt-in hook on `DecoderLM.Forward` and `GptModel`. |
-| Attention-sink meter | ❌ | share of attention mass on position 0 per head ("the Sink"); feeds Phase 4's sink handling. |
-| Self-contained HTML report | ❌ | optional; reuse the `HtmlVisualizer` pattern from the Brain project (one file, no server). |
+| Perplexity eval harness | ✅ | `Eval/PerplexityEvaluator.cs` — token-weighted NLL → perplexity, `ignoreIndex` masking, `maxWindows` cap; deterministic `HeldOut`/`TrainingSplit` partitions of a window stream; all-zero-weights model measures exactly vocab-size ppl (test). |
+| Tiny in-repo eval text | ✅ | `Eval/EvalCorpus.cs` (~1 KB, committed) — the fixed yardstick every phase quotes against. |
+| Activation-stats probe | ✅ | `Eval/ActivationProbe.cs` — per-block mean/max abs + `SpikeRatio`; opt-in `probe` parameter on `DecoderLM.Forward` and `GptModel.Step` (null = untouched pass, bit-identical, tested). |
+| Attention-sink meter | ✅ | per-(block, head) share of attention mass on position 0, on the trainable stack (`SoftmaxRowsCausal` probs); the inference-stack meter lands with Phase 4's sink handling. |
+| Self-contained HTML report | ❌ | optional, deferred; reuse the `HtmlVisualizer` pattern from the Brain project (one file, no server). |
 
-Every later phase quotes its before/after from this harness. Exit: numbers, not vibes.
+Every later phase quotes its before/after from this harness. Tests: `LlmEvalTests` (7).
 
-## Phase 1 — Adaptive inference effort (core PC) · ❌
+## Phase 1 — Adaptive inference effort (core PC) · ✅ done 2026-07-19
 
 *PC angle: "reasoning effort" is our native dial — effort = settling steps, and the
 energy trajectory is the built-in stop signal. The transformer world is re-discovering
@@ -82,12 +84,17 @@ what the PC formulation gives for free.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| `Network.InferAdaptive(input, maxSteps, epsilon)` | ❌ | early-exit when the per-step energy improvement drops below ε; returns `(topLatent, stepsUsed, energy)`. Reuses the `InferTrace` machinery. |
-| Effort presets | ❌ | `EffortLevel.Low/Medium/High` → `(maxSteps, ε)` pairs, one place to tune. |
-| `PredictAdaptive` | ❌ | classification twin; reports steps actually spent. |
-| Tests | ❌ | easy inputs exit early; noisy inputs spend more; ε=0 ≡ fixed-step path bit-for-bit. |
+| `Network.InferAdaptive(input, maxSteps, epsilon)` | ✅ | early-exit when a step improves the energy by less than ε **relative to the current energy** (scale-free, so presets transfer across network sizes); returns `(topLatent, stepsUsed, energy)`; free layers start from zero (deterministic in the input alone). ε ≤ 0 ⇒ bit-identical to `InferGetTop(maxSteps, resetState: true)`. |
+| Effort presets | ✅ | `Networks/EffortLevel.cs` — `Low/Medium/High` → `(maxSteps, ε)`, one place to tune; `InferAdaptive`/`PredictAdaptive` overloads take the enum. |
+| `PredictAdaptive` | ✅ | minimum-energy classification with adaptive settling per candidate; returns `(cls, energy, stepsUsed)` with the total steps actually spent. |
+| Tests | ✅ | `AdaptiveInferenceTests` (7): ε=0 ≡ fixed path bit-for-bit (infer + predict), exit fires before the budget, ε-monotonicity, budget-invariance of the exit step, preset ordering, argument validation. |
 
-Small, pure-core, immediately measurable (steps saved at equal accuracy).
+**Finding.** The naive story "easy inputs exit early, noise spends more" is exactly
+backwards on a trained net: the trained input keeps descending productively (deep
+attractor, 30 steps) while noise hits its shallow "nothing more to explain" minimum
+almost immediately (20 steps). The step counter is an **explanation-progress meter**,
+not a familiarity meter — the effort goes where there is structure to explain, which
+is the behaviour you actually want from adaptive compute.
 
 ## Phase 2 — Looped DecoderLM (weight-tied depth) · ❌
 

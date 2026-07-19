@@ -1,3 +1,5 @@
+using PredictiveCoding.LLM.Eval;
+
 namespace PredictiveCoding.LLM.Autograd;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,8 +81,13 @@ public sealed class DecoderLM
         return [.. ps];
     }
 
-    /// <summary>Forward pass: tokens → logits [seq, vocab]. Dropout active only when training.</summary>
-    public Tensor Forward(int[] tokens, bool training = false)
+    /// <summary>
+    /// Forward pass: tokens → logits [seq, vocab]. Dropout active only when
+    /// training. An optional <see cref="ActivationProbe"/> records per-block
+    /// activation statistics and per-head attention-sink shares; null (the
+    /// default) leaves the pass untouched.
+    /// </summary>
+    public Tensor Forward(int[] tokens, bool training = false, ActivationProbe? probe = null)
     {
         int seq = tokens.Length;
         if (seq > Config.MaxSeq)
@@ -92,8 +99,11 @@ public sealed class DecoderLM
         var x = Ag.MatMul(oneHot, _wemb);                                  // [seq, dim]
         x = Ag.Add(x, AgPositional.Sinusoidal(seq, Config.Dim));           // + positions
 
-        foreach (var blk in _blocks)
-            x = blk.Forward(x, _attnScale, Config.Dropout, training, _rng, Config.Eps);
+        for (int b = 0; b < _blocks.Length; b++)
+        {
+            x = _blocks[b].Forward(x, _attnScale, Config.Dropout, training, _rng, Config.Eps, probe, b);
+            probe?.RecordBlock(b, x.Data);
+        }
 
         var xf = Ag.LayerNorm(x, _lnFG, _lnFB, Config.Eps);
         return Ag.MatMul(xf, _wout);                                       // [seq, vocab]
@@ -143,7 +153,8 @@ public sealed class DecoderLM
             yield return _w1; yield return _b1; yield return _w2; yield return _b2;
         }
 
-        public Tensor Forward(Tensor x, float attnScale, float dropout, bool training, Random rng, float eps)
+        public Tensor Forward(Tensor x, float attnScale, float dropout, bool training, Random rng, float eps,
+                              ActivationProbe? probe, int blockIndex)
         {
             // Multi-head causal self-attention (pre-norm + residual).
             var h1 = Ag.LayerNorm(x, _ln1G, _ln1B, eps);
@@ -154,7 +165,9 @@ public sealed class DecoderLM
                 var k       = Ag.MatMul(h1, _wk[h]);
                 var v       = Ag.MatMul(h1, _wv[h]);
                 var scores  = Ag.Scale(Ag.MatMul(q, Ag.Transpose(k)), attnScale);     // [seq, seq]
-                var headOut = Ag.MatMul(Ag.SoftmaxRowsCausal(scores), v);             // [seq, headDim]
+                var probs   = Ag.SoftmaxRowsCausal(scores);
+                probe?.RecordCausalAttention(blockIndex, h, probs.Data, probs.Rows);
+                var headOut = Ag.MatMul(probs, v);                                    // [seq, headDim]
                 var proj    = Ag.MatMul(headOut, _wo[h]);                             // [seq, dim]
                 attn = attn is null ? proj : Ag.Add(attn, proj);
             }
