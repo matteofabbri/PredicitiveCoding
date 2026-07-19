@@ -1,4 +1,5 @@
 using System.Numerics;
+using PredictiveCoding.LLM.Infrastructure;
 
 namespace PredictiveCoding.LLM.Autograd;
 
@@ -58,28 +59,62 @@ public sealed class Tensor
     }
 }
 
+/// <summary>Which engine runs MatMul forwards (backwards always run inline in fp32).</summary>
+public enum MatMulRoute
+{
+    /// <summary>The in-op SIMD loop — the historical default, bit-identical.</summary>
+    Inline,
+
+    /// <summary>Route through the pluggable <see cref="Gemm.Provider"/>, full float32.</summary>
+    Provider,
+
+    /// <summary>
+    /// Route through the provider's mixed path (16-bit operands, float32
+    /// accumulation) — CPU rounding oracle or CUDA tensor cores.
+    /// </summary>
+    ProviderMixed,
+}
+
 /// <summary>Differentiable operations producing new tensors wired for backprop.</summary>
 public static class Ag
 {
+    /// <summary>
+    /// Routes MatMul FORWARDS to the pluggable GEMM backend — the "route the
+    /// GEMM-heavy consumer to mixed" landing of ROADMAP-MixedPrecision Phase 5
+    /// (the trainable DecoderLM stack is that consumer; the inference GptModel
+    /// is token-at-a-time matvec, where mixed does not pay). Backward passes
+    /// always run inline in fp32: gradients and master weights stay full
+    /// precision (mixed forward, full-precision backward, exactly like the
+    /// core Network's mixed twins). Default = Inline, the historical path.
+    /// </summary>
+    public static MatMulRoute MatMulRoute { get; set; } = MatMulRoute.Inline;
+
     public static Tensor MatMul(Tensor a, Tensor b)
     {
         int m = a.Rows, k = a.Cols, n = b.Cols;
         var o = new Tensor(m, n) { Parents = [a, b] };
         float[] A = a.Data, B = b.Data, C = o.Data;
 
-        // Forward C = A·B in i-k-j order: the inner axpy over j is contiguous and
-        // SIMD-vectorised, and rows of C are independent so they parallelise cleanly.
-        RunRows(m, i =>
-        {
-            var crow = C.AsSpan(i * n, n);
-            crow.Clear();
-            int abase = i * k;
-            for (int l = 0; l < k; l++)
+        // Forward C = A·B. Inline: i-k-j order, the inner axpy over j is
+        // contiguous and SIMD-vectorised, rows of C are independent so they
+        // parallelise cleanly. Otherwise the product is delegated to the
+        // Gemm.Provider backend (float or mixed) and copied into place.
+        if (MatMulRoute == MatMulRoute.Inline)
+            RunRows(m, i =>
             {
-                float av = A[abase + l];
-                if (av != 0f) AddScaled(crow, B.AsSpan(l * n, n), av);          // crow += av · B[l,:]
-            }
-        });
+                var crow = C.AsSpan(i * n, n);
+                crow.Clear();
+                int abase = i * k;
+                for (int l = 0; l < k; l++)
+                {
+                    float av = A[abase + l];
+                    if (av != 0f) AddScaled(crow, B.AsSpan(l * n, n), av);      // crow += av · B[l,:]
+                }
+            });
+        else
+            Array.Copy(MatMulRoute == MatMulRoute.ProviderMixed
+                ? Gemm.Provider.MatMulMixed(A, m, k, B, n)
+                : Gemm.Provider.MatMul(A, m, k, B, n), C, C.Length);
 
         o.BackwardFn = () =>
         {
@@ -486,6 +521,44 @@ public static class Ag
                 }
                 s.Grad[i] += acc;
             }
+        };
+        return o;
+    }
+
+    /// <summary>The selected rows of x, in order (backward scatters the gradients back).</summary>
+    public static Tensor GatherRows(Tensor x, int[] rows)
+    {
+        int n = x.Cols;
+        var o = new Tensor(rows.Length, n) { Parents = [x] };
+        for (int i = 0; i < rows.Length; i++)
+            Array.Copy(x.Data, rows[i] * n, o.Data, i * n, n);
+        o.BackwardFn = () =>
+        {
+            for (int i = 0; i < rows.Length; i++)
+                for (int j = 0; j < n; j++)
+                    x.Grad[rows[i] * n + j] += o.Grad[i * n + j];
+        };
+        return o;
+    }
+
+    /// <summary>
+    /// Adds src's rows at the given indices into a [totalRows, cols] zero
+    /// tensor — the inverse of <see cref="GatherRows"/>. Together they let a
+    /// computation run on a routed subset of rows (FLOP-sparse MoE).
+    /// Duplicate indices sum, mirroring the backward accumulation.
+    /// </summary>
+    public static Tensor ScatterRows(Tensor src, int[] rows, int totalRows)
+    {
+        int n = src.Cols;
+        var o = new Tensor(totalRows, n) { Parents = [src] };
+        for (int i = 0; i < rows.Length; i++)
+            for (int j = 0; j < n; j++)
+                o.Data[rows[i] * n + j] += src.Data[i * n + j];
+        o.BackwardFn = () =>
+        {
+            for (int i = 0; i < rows.Length; i++)
+                for (int j = 0; j < n; j++)
+                    src.Grad[i * n + j] += o.Grad[rows[i] * n + j];
         };
         return o;
     }

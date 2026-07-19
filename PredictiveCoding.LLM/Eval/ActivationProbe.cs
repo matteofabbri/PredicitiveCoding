@@ -37,12 +37,19 @@ public sealed class ActivationProbe
     /// </summary>
     public int LoopsUsed { get; set; }
 
+    /// <summary>
+    /// Row×expert FFN executions of the last MoE forward — the FLOP-sparsity
+    /// meter: rows·TopK per MoE block, against rows·NumExperts for dense.
+    /// </summary>
+    public long MoeRowsComputed { get; set; }
+
     /// <summary>Clears all recordings so the probe can observe another forward pass.</summary>
     public void Reset()
     {
         Blocks.Clear();
         Sinks.Clear();
         LoopsUsed = 0;
+        MoeRowsComputed = 0;
     }
 
     /// <summary>Records mean/max absolute activation of one block's output.</summary>

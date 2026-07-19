@@ -165,8 +165,26 @@ public sealed class LmStudioSource : IDisposable
         };
         Authorize(request);
         using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        string content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                $"{path} returned {(int)response.StatusCode} ({response.StatusCode}): {ExtractErrorMessage(content)}",
+                inner: null, response.StatusCode);
+        return content;
+    }
+
+    /// <summary>The server's <c>error.message</c> when the body carries one, else the raw body.</summary>
+    private static string ExtractErrorMessage(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("error", out JsonElement error))
+                return (error.ValueKind == JsonValueKind.Object && error.TryGetProperty("message", out JsonElement message)
+                    ? message.GetString() : error.GetString()) ?? body;
+        }
+        catch (JsonException) { }
+        return body;
     }
 
     private void Authorize(HttpRequestMessage request)

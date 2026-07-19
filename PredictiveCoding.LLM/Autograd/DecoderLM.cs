@@ -456,32 +456,40 @@ public sealed class DecoderLM
 
             // Feed-forward (pre-norm + residual): dense, or sparse experts.
             var h2 = Ag.LayerNorm(x, _ln2G, _ln2B, eps);
-            var ff = _router is null ? DenseFfn(h2) : MoeFfn(h2, auxLosses);
+            var ff = _router is null ? DenseFfn(h2) : MoeFfn(h2, auxLosses, probe);
             return Ag.Add(x, Ag.Dropout(ff, dropout, training, rng));
         }
 
         private Tensor DenseFfn(Tensor h2)
             => Ag.AddBias(Ag.MatMul(Ag.Gelu(Ag.AddBias(Ag.MatMul(h2, _w1!), _b1!)), _w2!), _b2!);
 
-        // Sparse mixture of experts (roadmap Phase 6). Router → softmax gates →
-        // hard top-k mask (a CONSTANT built from the gate values, so gradients
-        // flow only through the surviving gates and the selected experts) →
-        // output = Σ_e gate_e · FFN_e. Semantics are exactly top-k sparse; at
-        // toy scale every expert still computes (whole-tensor autograd), so the
-        // saving is in ACTIVE parameters, not FLOPs — see the roadmap note.
-        private Tensor MoeFfn(Tensor h2, List<Tensor>? auxLosses)
+        // Sparse mixture of experts (roadmap Phase 6, FLOP-sparse execution).
+        // Router → softmax gates → hard top-k mask (a CONSTANT built from the
+        // gate values, so gradients flow only through the surviving gates and
+        // the selected experts). Each expert then runs ONLY on the rows routed
+        // to it (GatherRows → FFN_e → gate-scale → ScatterRows); an expert with
+        // no rows costs nothing at all. Skipped contributions were exact zeros
+        // in the masked-dense formulation, so the outputs are bit-identical.
+        private Tensor MoeFfn(Tensor h2, List<Tensor>? auxLosses, ActivationProbe? probe)
         {
-            int e     = _ew1!.Length;
+            int e    = _ew1!.Length;
+            int rows = h2.Rows;
             var gates = Ag.SoftmaxRows(Ag.MatMul(h2, _router!));                      // [seq, E]
-            var mask  = TopKMask(gates.Data, h2.Rows, e, _topK);                      // constant 0/1
+            var mask  = TopKMask(gates.Data, rows, e, _topK);                         // constant 0/1
             var kept  = Ag.Mul(gates, mask);
 
             Tensor? outSum = null;
             for (int k = 0; k < e; k++)
             {
-                var expert = Ag.AddBias(Ag.MatMul(Ag.Gelu(Ag.AddBias(Ag.MatMul(h2, _ew1[k]), _eb1![k])), _ew2![k]), _eb2![k]);
-                var scaled = Ag.ScaleRows(expert, Ag.Column(kept, k));
-                outSum = outSum is null ? scaled : Ag.Add(outSum, scaled);
+                var routed = RoutedRows(mask.Data, rows, e, k);
+                if (routed.Length == 0) continue;                                     // the FLOP saving
+                if (probe is not null) probe.MoeRowsComputed += routed.Length;
+
+                var sub     = Ag.GatherRows(h2, routed);
+                var expert  = Ag.AddBias(Ag.MatMul(Ag.Gelu(Ag.AddBias(Ag.MatMul(sub, _ew1[k]), _eb1![k])), _ew2![k]), _eb2![k]);
+                var gateCol = Ag.GatherRows(Ag.Column(kept, k), routed);              // [r, 1]
+                var placed  = Ag.ScatterRows(Ag.ScaleRows(expert, gateCol), routed, rows);
+                outSum = outSum is null ? placed : Ag.Add(outSum, placed);
             }
 
             // Switch-style load balancing: L = E · Σ_e f_e · P_e, with f_e the
@@ -535,6 +543,16 @@ public sealed class DecoderLM
                     if (mask[i * experts + j] != 0f) f[j] += 1f;
             for (int j = 0; j < experts; j++) f[j] /= rows * topK;
             return f;
+        }
+
+        private static int[] RoutedRows(float[] mask, int rows, int experts, int expert)
+        {
+            int count = 0;
+            for (int i = 0; i < rows; i++) if (mask[i * experts + expert] != 0f) count++;
+            var routed = new int[count];
+            int w = 0;
+            for (int i = 0; i < rows; i++) if (mask[i * experts + expert] != 0f) routed[w++] = i;
+            return routed;
         }
     }
 

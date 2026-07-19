@@ -20,6 +20,7 @@ Console.WriteLine("  6  Face Recognition demo (LFW benchmark · LBP · PC · Arc
 Console.WriteLine("  7  Language ID demo (PC network vs naive-Bayes · PredictiveCoding.Data)");
 Console.WriteLine("  8  People counting (live cam / video · YOLOX ONNX · per-frame count)");
 Console.WriteLine("  9  Thousand Brains demo (sensorimotor object recognition · columns voting)");
+Console.WriteLine(" 10  LM distillation demo (live LM Studio teacher → sparse-MoE student)");
 Console.Write("\n  Choice [1]: ");
 string? choice = Console.ReadLine()?.Trim();
 
@@ -68,6 +69,12 @@ if (choice == "8")
 if (choice == "9")
 {
     ThousandBrainsDemo.Run();
+    return;
+}
+
+if (choice == "10")
+{
+    LmDistillationDemo.Run();
     return;
 }
 

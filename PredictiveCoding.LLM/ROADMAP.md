@@ -25,12 +25,14 @@ Design invariants across every phase:
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: **ROADMAP CLOSED** — Phases 0–8 all ✅ (927/927 green), HTML
+*Status as of 2026-07-19: **ROADMAP CLOSED** — Phases 0–8 all ✅ (935/935 green), HTML
 report included. The network-variant family (incl. the PC-level MoE trio) now lives in
 core under `PredicitiveCoding/Networks/` — the Expanded project was dissolved the same
-day. What stays open beyond this roadmap: FLOP-sparse MoE execution and GEMM routing to
-mixed precision (see `PredicitiveCoding/ROADMAP-MixedPrecision.md`, Phase 5), and a real
-LM Studio distillation run (the wiring is a one-line delegate).*
+day. The three post-roadmap openings closed the same evening: FLOP-sparse MoE execution
+(`Ag.GatherRows`/`ScatterRows`, bit-identical — see the Phase 6 scale note), GEMM routing
+to mixed precision (`Ag.MatMulRoute` — see ROADMAP-MixedPrecision Phase 5), and a real
+LM Studio distillation run (demo option 10, `LmDistillationDemo` — verified end-to-end
+against the live server).*
 
 ### Paper anchors → phases
 
@@ -180,10 +182,11 @@ The PC-level MoE family already exists and lives in core (`Networks/MoE`:
 | Config + accounting | ✅ | `NumExperts` (0 = dense, bit-identical, old checkpoints load) / `MoeTopK` / `MoeBalanceWeight`; `ParameterCount` + `ActiveParameterCountPerToken` — the Step-3.5-Flash headline metric. |
 | Tests | ✅ | `LlmMoeTests` (6): off ≡ vanilla bit-for-bit, config validation, active-param math (k=E ⇒ all active), exact balance fixed point, MoE model trains, router-ops grad check. |
 
-**Scale note.** Semantics are exactly top-k sparse (masked gates ⇒ no gradient to unselected
-experts), but at toy scale every expert still computes — whole-tensor autograd has no
-gather. The saving is in *active parameters*, the metric; FLOP-sparse execution belongs
-with the perf work.
+**Scale note — resolved 2026-07-19.** Execution is now FLOP-sparse too: `Ag.GatherRows`
+/ `Ag.ScatterRows` let each expert run only on the rows routed to it (an expert with no
+rows costs nothing), certified bit-identical to the masked-dense formulation — forward
+AND gradients — in `LlmMoeSparseTests`, with `ActivationProbe.MoeRowsComputed` counting
+exactly rows·topK row executions per MoE block (never rows·E).
 
 ## Phase 7 — On-policy distillation from the local teacher · ✅ done 2026-07-19
 
@@ -193,7 +196,7 @@ the generative sequel to `PcDistilledFaceEmbedder`.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| `LmDistiller` — offline KD | ✅ | `Training/LmDistiller.cs` — teacher is any `Func<string,string>` so the LLM project stays dependency-free; the LM Studio hookup is a one-line delegate in app code (`p => lm.ChatAsync(p)…`). `ChatTemplate` context + masked CE on completion tokens + EOS (sequence-level KD; logit-matching only if the endpoint ever exposes logprobs). |
+| `LmDistiller` — offline KD | ✅ | `Training/LmDistiller.cs` — teacher is any `Func<string,string>` so the LLM project stays dependency-free; the LM Studio hookup is a one-line delegate in app code (`p => lm.ChatAsync(p)…`). `ChatTemplate` context + masked CE on completion tokens + EOS (sequence-level KD; logit-matching only if the endpoint ever exposes logprobs). LIVE run wired 2026-07-19: demo option 10 (`Main/Demos/LmDistillationDemo.cs`) distils the real LM Studio teacher into a sparse-MoE, mixed-routed student — offline KD + on-policy rounds verified against the live server. |
 | On-policy round (SEED-style) | ✅ | `OnPolicyRound`: student greedy-drafts → `teacherCorrect(prompt, draft)` sees the student's own trajectory → student trains on the correction from its own prefix. |
 | Dataset cache | ✅ | one file per prompt (SHA-256 key) under `~/.predictivecoding/lm-distill` (runtime data, out of git); delete a file to re-ask the teacher. |
 | Tests | ✅ | `LlmDistillTests` (4, canned teacher — zero network in CI): cache hit/miss counting, context-mask/completion-target layout, offline KD halves the loss, on-policy rounds converge and the teacher provably receives the draft. |
@@ -225,8 +228,9 @@ memorise it. Very predictive-coding: inference is settling, not optimisation to 
 - **Order rationale.** 0–1 give the yardstick and the cheapest PC-native win; 2–4 are
   self-contained LM upgrades with hard equivalence tests; 5–6 change the architecture and
   lean on new ops; 7 needs the LM to be worth distilling into; 8 is research.
-- **Mixed-precision hand-off.** Phase 4's Half KV cache and (later) routing the
-  attention/FFN GEMMs through `Gemm.Provider.MatMulMixed` are the LLM-side landings of
+- **Mixed-precision hand-off.** Phase 4's Half KV cache and `Ag.MatMulRoute` (2026-07-19:
+  opt-in routing of every DecoderLM MatMul forward through `Gemm.Provider` — float or
+  `MatMulMixed`; backwards stay inline fp32) are the LLM-side landings of
   ROADMAP-MixedPrecision Phase 5 — the tensor-core verification on real CUDA hardware
   stays tracked *there*, not here.
 

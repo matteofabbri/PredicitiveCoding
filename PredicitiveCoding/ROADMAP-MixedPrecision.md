@@ -81,7 +81,7 @@ Puts the number on the memory/bandwidth win (CPU) and, later, the GPU speedup.
 | cuBLAS mixed GEMM (`cublasGemmEx`) | ✅ | `Interop/Cublas.cs` binding + `CudaGemmProvider.MatMulMixed`/`MatMulMixedDevice`: A,B in R16F, C accumulated in Compute32F on the tensor cores; CPU fallback. |
 | Mixed on the GEMM abstraction | ✅ | `IGemmProvider.MatMulMixed` (default = float) + `CpuGemmProvider` real mixed override (doubles as the CUDA CPU fallback and test oracle). |
 | GPU verification | ⏳ | compiles + CPU-fallback + numeric parity green here (874/874); **the tensor-core run must be confirmed on CUDA hardware** — `dotnet test --filter MixedGemmTests` on a GPU box. |
-| Route GEMM-heavy consumers to mixed | ❌ | opt-in mixed path for the LLM (`Gemm.Provider`) / batched inference. |
+| Route GEMM-heavy consumers to mixed | ✅ | `Ag.MatMulRoute` (2026-07-19): the trainable DecoderLM stack — THE GEMM-heavy consumer — routes MatMul forwards through `Gemm.Provider` (`Provider` = float, `ProviderMixed` = 16-bit operands/fp32 accumulation); backwards stay inline fp32 (master-precision gradients, same no-loss-scaling story as the core). Default `Inline` is bit-identical. Tests: `LlmGemmRouteTests` (4 — spy provider, bit-for-bit float route, mixed tolerance, mixed training). The inference `GptModel` stays unrouted by design: token-at-a-time matvec, see caveat below. |
 | Batched PC forward on GPU | ❌ | required for the predictive-coding forward to benefit from the GPU. |
 
 **Caveat — why batching matters.** The predictive-coding forward is many small
