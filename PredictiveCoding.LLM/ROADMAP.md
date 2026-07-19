@@ -162,7 +162,7 @@ hybrids win on cache/compute, not recall. What is certified instead: the tempora
 demonstrably carries information (echo task solved with zero attention) and the cache is
 O(1) where attention's is O(n). The efficiency-vs-recall trade is Phase 4+5's whole point.
 
-## Phase 6 — Sparse experts (MoE feed-forward) · ❌
+## Phase 6 — Sparse experts (MoE feed-forward) · ✅ done 2026-07-19
 
 *PC angle: routing as precision-weighted gating — send the token to the expert expected
 to predict it best; the conceptual sibling of `LearnGated` and of Cortex's area routing.
@@ -173,10 +173,15 @@ The PC-level MoE family already exists and lives in core (`Networks/MoE`:
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| `ExpertsFfn` | ❌ | N expert MLPs + softmax router, top-k selection, outputs weighted by gate probability (differentiable through the taken path). |
-| Load-balancing aux loss | ❌ | standard fraction·probability penalty to prevent expert collapse. |
-| Config + accounting | ❌ | `NumExperts`/`TopK` (1/dense = vanilla); report **active params per token** — the Step-3.5-Flash headline metric. |
-| Tests | ❌ | k=N matches dense reference within tolerance; balance loss spreads load on the toy corpus; accounting correct. |
+| Sparse expert FFN | ✅ | inside `Block` (attention blocks; T-blocks keep dense FFN): router → `SoftmaxRows` gates → hard top-k mask (constant, so gradients flow only through surviving gates + selected experts) → gate-weighted expert sum. New autograd ops: `SoftmaxRows`, `Column`, `ScaleRows`, `Mean` (numeric grad check green). |
+| Load-balancing aux loss | ✅ | Switch-style `E·Σ f_e·P_e` collected per block into `Loss` via `MoeBalanceWeight`; uniform routing gives **exactly 1.0 per block** — tested against the all-zero model (loss = ln V + w·blocks). |
+| Config + accounting | ✅ | `NumExperts` (0 = dense, bit-identical, old checkpoints load) / `MoeTopK` / `MoeBalanceWeight`; `ParameterCount` + `ActiveParameterCountPerToken` — the Step-3.5-Flash headline metric. |
+| Tests | ✅ | `LlmMoeTests` (6): off ≡ vanilla bit-for-bit, config validation, active-param math (k=E ⇒ all active), exact balance fixed point, MoE model trains, router-ops grad check. |
+
+**Scale note.** Semantics are exactly top-k sparse (masked gates ⇒ no gradient to unselected
+experts), but at toy scale every expert still computes — whole-tensor autograd has no
+gather. The saving is in *active parameters*, the metric; FLOP-sparse execution belongs
+with the perf work.
 
 ## Phase 7 — On-policy distillation from the local teacher · ❌
 

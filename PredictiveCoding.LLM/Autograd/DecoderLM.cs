@@ -41,7 +41,10 @@ public sealed record DecoderLmConfig(
     float LoopExitTau = 0f,
     float MtpWeight = 0f,
     int MtpHorizon = 2,
-    string? BlockPattern = null)
+    string? BlockPattern = null,
+    int NumExperts = 0,
+    int MoeTopK = 1,
+    float MoeBalanceWeight = 0.01f)
 {
     public int HeadDim => Dim / NumHeads;
 
@@ -67,6 +70,12 @@ public sealed record DecoderLmConfig(
                 if (c != 'A' && c != 'T')
                     throw new ArgumentException($"BlockPattern may only contain 'A' (attention) or 'T' (temporal), found '{c}'.");
         }
+        if (NumExperts < 0)
+            throw new ArgumentException($"NumExperts ({NumExperts}) must be >= 0 (0 = dense feed-forward).");
+        if (NumExperts > 0 && (MoeTopK < 1 || MoeTopK > NumExperts))
+            throw new ArgumentException($"MoeTopK ({MoeTopK}) must be in [1, NumExperts ({NumExperts})].");
+        if (MoeBalanceWeight < 0f)
+            throw new ArgumentException($"MoeBalanceWeight ({MoeBalanceWeight}) must be >= 0 (0 disables the balance loss).");
     }
 }
 
@@ -133,7 +142,7 @@ public sealed class DecoderLM
     /// default) leaves the pass untouched.
     /// </summary>
     public Tensor Forward(int[] tokens, bool training = false, ActivationProbe? probe = null)
-        => Ag.MatMul(Hidden(tokens, training, probe), _wout);              // [seq, vocab]
+        => Ag.MatMul(Hidden(tokens, training, probe, auxLosses: null), _wout);   // [seq, vocab]
 
     /// <summary>
     /// Forward pass returning both heads (roadmap Phase 3): the main next-token
@@ -143,14 +152,17 @@ public sealed class DecoderLM
     /// the same idea as the core's temporal path, one level up.
     /// </summary>
     public (Tensor main, Tensor? mtp) ForwardMtp(int[] tokens, bool training = false, ActivationProbe? probe = null)
+        => Heads(tokens, training, probe, auxLosses: null);
+
+    private (Tensor main, Tensor? mtp) Heads(int[] tokens, bool training, ActivationProbe? probe, List<Tensor>? auxLosses)
     {
-        var xf = Hidden(tokens, training, probe);
+        var xf = Hidden(tokens, training, probe, auxLosses);
         return (Ag.MatMul(xf, _wout), _woutMtp is null ? null : Ag.MatMul(xf, _woutMtp));
     }
 
     // Embedding → looped block stack → final layer-norm: the shared trunk under
     // every head.
-    private Tensor Hidden(int[] tokens, bool training, ActivationProbe? probe)
+    private Tensor Hidden(int[] tokens, bool training, ActivationProbe? probe, List<Tensor>? auxLosses)
     {
         int seq = tokens.Length;
         if (seq > Config.MaxSeq)
@@ -178,7 +190,7 @@ public sealed class DecoderLM
 
             for (int b = 0; b < _blocks.Length; b++)
             {
-                x = _blocks[b].Forward(x, _attnScale, Config.Dropout, training, _rng, Config.Eps, probe, b);
+                x = _blocks[b].Forward(x, _attnScale, Config.Dropout, training, _rng, Config.Eps, probe, b, auxLosses);
                 probe?.RecordBlock(b, x.Data);
             }
             loopsUsed = k + 1;
@@ -220,18 +232,57 @@ public sealed class DecoderLM
     /// </summary>
     public Tensor Loss(int[] tokens, int[] targets, int ignoreIndex, bool training = false)
     {
-        if (_woutMtp is null)
-            return Ag.CrossEntropy(Forward(tokens, training), targets, ignoreIndex);
+        // Collect the per-block router balance terms only when they can matter.
+        var aux = Config.NumExperts > 0 && Config.MoeBalanceWeight > 0f ? new List<Tensor>() : null;
 
-        var (main, mtp) = ForwardMtp(tokens, training);
+        var (main, mtp) = Heads(tokens, training, probe: null, aux);
         var loss = Ag.CrossEntropy(main, targets, ignoreIndex);
 
-        var auxTargets = MtpTargets(targets, ignoreIndex);
-        bool anyValid  = false;
-        foreach (int t in auxTargets) if (t != ignoreIndex) { anyValid = true; break; }
-        if (!anyValid) return loss;                       // sequence too short for the horizon
+        if (mtp is not null)
+        {
+            var auxTargets = MtpTargets(targets, ignoreIndex);
+            bool anyValid  = false;
+            foreach (int t in auxTargets) if (t != ignoreIndex) { anyValid = true; break; }
+            if (anyValid)                                  // else: sequence too short for the horizon
+                loss = Ag.Add(loss, Ag.Scale(Ag.CrossEntropy(mtp, auxTargets, ignoreIndex), Config.MtpWeight));
+        }
 
-        return Ag.Add(loss, Ag.Scale(Ag.CrossEntropy(mtp!, auxTargets, ignoreIndex), Config.MtpWeight));
+        if (aux is { Count: > 0 })
+        {
+            var balance = aux[0];
+            for (int i = 1; i < aux.Count; i++) balance = Ag.Add(balance, aux[i]);
+            loss = Ag.Add(loss, Ag.Scale(balance, Config.MoeBalanceWeight));
+        }
+        return loss;
+    }
+
+    /// <summary>Total trainable scalars.</summary>
+    public long ParameterCount
+    {
+        get
+        {
+            long n = 0;
+            foreach (var p in Parameters()) n += p.Data.Length;
+            return n;
+        }
+    }
+
+    /// <summary>
+    /// Parameters active per token (the Step-3.5-Flash headline metric): with
+    /// sparse experts, each token runs only MoeTopK of the NumExperts expert
+    /// FFNs, so the inactive experts' weights don't count. Equals
+    /// <see cref="ParameterCount"/> for dense models.
+    /// </summary>
+    public long ActiveParameterCountPerToken
+    {
+        get
+        {
+            if (Config.NumExperts == 0) return ParameterCount;
+            long perExpert = (long)Config.Dim * Config.FfDim + Config.FfDim
+                           + (long)Config.FfDim * Config.Dim + Config.Dim;
+            int attentionBlocks = Config.BlockPattern is { } p ? p.Count(c => c == 'A') : Config.NumBlocks;
+            return ParameterCount - attentionBlocks * (Config.NumExperts - Config.MoeTopK) * perExpert;
+        }
     }
 
     /// <summary>
@@ -254,7 +305,7 @@ public sealed class DecoderLM
     {
         IEnumerable<Tensor> Parameters();
         Tensor Forward(Tensor x, float attnScale, float dropout, bool training, Random rng, float eps,
-                       ActivationProbe? probe, int blockIndex);
+                       ActivationProbe? probe, int blockIndex, List<Tensor>? auxLosses);
     }
 
     private sealed class Block : IDecoderBlock
@@ -262,7 +313,10 @@ public sealed class DecoderLM
         private readonly int      _heads;
         private readonly Tensor   _ln1G, _ln1B, _ln2G, _ln2B;
         private readonly Tensor[] _wq, _wk, _wv, _wo;          // per-head projections
-        private readonly Tensor   _w1, _b1, _w2, _b2;          // feed-forward
+        private readonly Tensor?  _w1, _b1, _w2, _b2;          // dense feed-forward (null when MoE)
+        private readonly Tensor?   _router;                    // [dim, E] — MoE gate (roadmap Phase 6)
+        private readonly Tensor[]? _ew1, _eb1, _ew2, _eb2;     // per-expert feed-forwards
+        private readonly int       _topK;
 
         public Block(DecoderLmConfig cfg, Random rng)
         {
@@ -280,8 +334,26 @@ public sealed class DecoderLM
                 _wo[h] = AgInit.Randn(cfg.HeadDim, cfg.Dim, rng);
             }
 
-            _w1 = AgInit.Randn(cfg.Dim, cfg.FfDim, rng); _b1 = new Tensor(1, cfg.FfDim);
-            _w2 = AgInit.Randn(cfg.FfDim, cfg.Dim, rng); _b2 = new Tensor(1, cfg.Dim);
+            if (cfg.NumExperts > 0)
+            {
+                // Sparse experts replace the dense FFN entirely (dense tensors
+                // stay null, so NumExperts = 0 keeps the old parameter list).
+                int e   = cfg.NumExperts;
+                _topK   = cfg.MoeTopK;
+                _router = AgInit.Randn(cfg.Dim, e, rng);
+                _ew1 = new Tensor[e]; _eb1 = new Tensor[e];
+                _ew2 = new Tensor[e]; _eb2 = new Tensor[e];
+                for (int k = 0; k < e; k++)
+                {
+                    _ew1[k] = AgInit.Randn(cfg.Dim, cfg.FfDim, rng); _eb1[k] = new Tensor(1, cfg.FfDim);
+                    _ew2[k] = AgInit.Randn(cfg.FfDim, cfg.Dim, rng); _eb2[k] = new Tensor(1, cfg.Dim);
+                }
+            }
+            else
+            {
+                _w1 = AgInit.Randn(cfg.Dim, cfg.FfDim, rng); _b1 = new Tensor(1, cfg.FfDim);
+                _w2 = AgInit.Randn(cfg.FfDim, cfg.Dim, rng); _b2 = new Tensor(1, cfg.Dim);
+            }
         }
 
         public IEnumerable<Tensor> Parameters()
@@ -292,11 +364,22 @@ public sealed class DecoderLM
                 yield return _wq[h]; yield return _wk[h]; yield return _wv[h]; yield return _wo[h];
             }
             yield return _ln2G; yield return _ln2B;
-            yield return _w1; yield return _b1; yield return _w2; yield return _b2;
+            if (_router is not null)
+            {
+                yield return _router;
+                for (int k = 0; k < _ew1!.Length; k++)
+                {
+                    yield return _ew1[k]; yield return _eb1![k]; yield return _ew2![k]; yield return _eb2![k];
+                }
+            }
+            else
+            {
+                yield return _w1!; yield return _b1!; yield return _w2!; yield return _b2!;
+            }
         }
 
         public Tensor Forward(Tensor x, float attnScale, float dropout, bool training, Random rng, float eps,
-                              ActivationProbe? probe, int blockIndex)
+                              ActivationProbe? probe, int blockIndex, List<Tensor>? auxLosses)
         {
             // Multi-head causal self-attention (pre-norm + residual).
             var h1 = Ag.LayerNorm(x, _ln1G, _ln1B, eps);
@@ -315,11 +398,87 @@ public sealed class DecoderLM
             }
             x = Ag.Add(x, Ag.Dropout(attn!, dropout, training, rng));
 
-            // Feed-forward (pre-norm + residual).
-            var h2  = Ag.LayerNorm(x, _ln2G, _ln2B, eps);
-            var ff1 = Ag.Gelu(Ag.AddBias(Ag.MatMul(h2, _w1), _b1));
-            var ff2 = Ag.Dropout(Ag.AddBias(Ag.MatMul(ff1, _w2), _b2), dropout, training, rng);
-            return Ag.Add(x, ff2);
+            // Feed-forward (pre-norm + residual): dense, or sparse experts.
+            var h2 = Ag.LayerNorm(x, _ln2G, _ln2B, eps);
+            var ff = _router is null ? DenseFfn(h2) : MoeFfn(h2, auxLosses);
+            return Ag.Add(x, Ag.Dropout(ff, dropout, training, rng));
+        }
+
+        private Tensor DenseFfn(Tensor h2)
+            => Ag.AddBias(Ag.MatMul(Ag.Gelu(Ag.AddBias(Ag.MatMul(h2, _w1!), _b1!)), _w2!), _b2!);
+
+        // Sparse mixture of experts (roadmap Phase 6). Router → softmax gates →
+        // hard top-k mask (a CONSTANT built from the gate values, so gradients
+        // flow only through the surviving gates and the selected experts) →
+        // output = Σ_e gate_e · FFN_e. Semantics are exactly top-k sparse; at
+        // toy scale every expert still computes (whole-tensor autograd), so the
+        // saving is in ACTIVE parameters, not FLOPs — see the roadmap note.
+        private Tensor MoeFfn(Tensor h2, List<Tensor>? auxLosses)
+        {
+            int e     = _ew1!.Length;
+            var gates = Ag.SoftmaxRows(Ag.MatMul(h2, _router!));                      // [seq, E]
+            var mask  = TopKMask(gates.Data, h2.Rows, e, _topK);                      // constant 0/1
+            var kept  = Ag.Mul(gates, mask);
+
+            Tensor? outSum = null;
+            for (int k = 0; k < e; k++)
+            {
+                var expert = Ag.AddBias(Ag.MatMul(Ag.Gelu(Ag.AddBias(Ag.MatMul(h2, _ew1[k]), _eb1![k])), _ew2![k]), _eb2![k]);
+                var scaled = Ag.ScaleRows(expert, Ag.Column(kept, k));
+                outSum = outSum is null ? scaled : Ag.Add(outSum, scaled);
+            }
+
+            // Switch-style load balancing: L = E · Σ_e f_e · P_e, with f_e the
+            // (constant) fraction of row-selections expert e received and P_e
+            // its mean gate probability. Uniform routing ⇒ L = 1 exactly.
+            if (auxLosses is not null)
+            {
+                var fractions = SelectionFractions(mask.Data, h2.Rows, e, _topK);
+                Tensor? bal = null;
+                for (int k = 0; k < e; k++)
+                {
+                    if (fractions[k] == 0f) continue;
+                    var term = Ag.Scale(Ag.Mean(Ag.Column(gates, k)), e * fractions[k]);
+                    bal = bal is null ? term : Ag.Add(bal, term);
+                }
+                if (bal is not null) auxLosses.Add(bal);
+            }
+
+            return outSum!;
+        }
+
+        // 0/1 keep-mask with the k largest gates per row. A plain constant
+        // tensor (no parents): the discrete routing decision is not a
+        // differentiable quantity.
+        private static Tensor TopKMask(float[] gates, int rows, int experts, int topK)
+        {
+            var mask = new Tensor(rows, experts);
+            for (int i = 0; i < rows; i++)
+            {
+                for (int chosen = 0; chosen < topK; chosen++)
+                {
+                    int best = -1;
+                    float bestVal = float.NegativeInfinity;
+                    for (int j = 0; j < experts; j++)
+                    {
+                        if (mask.Data[i * experts + j] != 0f) continue;
+                        float g = gates[i * experts + j];
+                        if (g > bestVal) { bestVal = g; best = j; }
+                    }
+                    mask.Data[i * experts + best] = 1f;
+                }
+            }
+            return mask;
+        }
+
+        private static float[] SelectionFractions(float[] mask, int rows, int experts, int topK)
+        {
+            var f = new float[experts];
+            for (int i = 0; i < rows; i++)
+                for (int j = 0; j < experts; j++)
+                    if (mask[i * experts + j] != 0f) f[j] += 1f;
+            for (int j = 0; j < experts; j++) f[j] /= rows * topK;
+            return f;
         }
     }
 
@@ -365,10 +524,11 @@ public sealed class DecoderLM
         }
 
         public Tensor Forward(Tensor x, float attnScale, float dropout, bool training, Random rng, float eps,
-                              ActivationProbe? probe, int blockIndex)
+                              ActivationProbe? probe, int blockIndex, List<Tensor>? auxLosses)
         {
             // Gated recurrence (pre-norm + residual). attnScale is unused —
-            // there is no attention here, and no sink to meter.
+            // there is no attention here, and no sink to meter. The FFN stays
+            // dense (MoE lives in the attention blocks for now).
             var h1 = Ag.LayerNorm(x, _ln1G, _ln1B, eps);
             var a  = Ag.Sigmoid(Ag.AddBias(Ag.MatMul(h1, _wa), _ba));
             var i  = Ag.Sigmoid(Ag.AddBias(Ag.MatMul(h1, _wi), _bi));

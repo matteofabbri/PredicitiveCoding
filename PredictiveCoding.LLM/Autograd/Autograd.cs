@@ -428,6 +428,83 @@ public static class Ag
         return o;
     }
 
+    /// <summary>Row-wise softmax over full rows (the MoE router's gate distribution).</summary>
+    public static Tensor SoftmaxRows(Tensor x)
+    {
+        int m = x.Rows, n = x.Cols;
+        var o = new Tensor(m, n) { Parents = [x] };
+        for (int i = 0; i < m; i++)
+        {
+            float max = float.NegativeInfinity;
+            for (int j = 0; j < n; j++) max = MathF.Max(max, x.Data[i * n + j]);
+            float sum = 0f;
+            for (int j = 0; j < n; j++) { float e = MathF.Exp(x.Data[i * n + j] - max); o.Data[i * n + j] = e; sum += e; }
+            float inv = 1f / sum;
+            for (int j = 0; j < n; j++) o.Data[i * n + j] *= inv;
+        }
+        o.BackwardFn = () =>
+        {
+            for (int i = 0; i < m; i++)
+            {
+                float dot = 0f;
+                for (int j = 0; j < n; j++) dot += o.Grad[i * n + j] * o.Data[i * n + j];
+                for (int j = 0; j < n; j++) x.Grad[i * n + j] += o.Data[i * n + j] * (o.Grad[i * n + j] - dot);
+            }
+        };
+        return o;
+    }
+
+    /// <summary>Column <paramref name="j"/> of x as an [m, 1] tensor; backward scatters into that column.</summary>
+    public static Tensor Column(Tensor x, int j)
+    {
+        int m = x.Rows, n = x.Cols;
+        var o = new Tensor(m, 1) { Parents = [x] };
+        for (int i = 0; i < m; i++) o.Data[i] = x.Data[i * n + j];
+        o.BackwardFn = () =>
+        {
+            for (int i = 0; i < m; i++) x.Grad[i * n + j] += o.Grad[i];
+        };
+        return o;
+    }
+
+    /// <summary>o[i,·] = x[i,·] · s[i], with s an [m, 1] per-row scale; gradients flow to both.</summary>
+    public static Tensor ScaleRows(Tensor x, Tensor s)
+    {
+        int m = x.Rows, n = x.Cols;
+        var o = new Tensor(m, n) { Parents = [x, s] };
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j < n; j++) o.Data[i * n + j] = x.Data[i * n + j] * s.Data[i];
+        o.BackwardFn = () =>
+        {
+            for (int i = 0; i < m; i++)
+            {
+                float acc = 0f;
+                for (int j = 0; j < n; j++)
+                {
+                    x.Grad[i * n + j] += o.Grad[i * n + j] * s.Data[i];
+                    acc += o.Grad[i * n + j] * x.Data[i * n + j];
+                }
+                s.Grad[i] += acc;
+            }
+        };
+        return o;
+    }
+
+    /// <summary>Mean of every element, as a [1, 1] scalar.</summary>
+    public static Tensor Mean(Tensor x)
+    {
+        var o = new Tensor(1, 1) { Parents = [x] };
+        double sum = 0d;
+        for (int i = 0; i < x.Data.Length; i++) sum += x.Data[i];
+        o.Data[0] = (float)(sum / x.Data.Length);
+        o.BackwardFn = () =>
+        {
+            float g = o.Grad[0] / x.Data.Length;
+            for (int i = 0; i < x.Data.Length; i++) x.Grad[i] += g;
+        };
+        return o;
+    }
+
     /// <summary>
     /// Gated linear recurrence over the rows (time): h_t = a_t ⊙ h_{t−1} + b_t
     /// with h_{−1} = 0 — the diagonal state-space scan hybrid architectures
