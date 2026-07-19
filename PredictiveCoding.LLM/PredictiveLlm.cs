@@ -143,7 +143,9 @@ public sealed class PredictiveLlm
                 $"Corpus too small: no training window of {seqLen}+1 tokens. Shorten SeqLen or feed more text.");
         if (evalSet.Count == 0) evalSet = [fallback?.Invoke() ?? trainSet[^1]];
 
-        double before = PerplexityEvaluator.Evaluate(Model, evalSet).Perplexity;
+        var beforeEval = PerplexityEvaluator.Evaluate(Model, evalSet);
+        double before  = beforeEval.Perplexity;
+        Odometer.Evaluated += beforeEval.Tokens;
 
         var batches    = trainSet.Chunk(opts.BatchWindows).ToArray();
         int totalSteps = opts.Epochs * batches.Length;
@@ -216,7 +218,13 @@ public sealed class PredictiveLlm
         }
         finally { Ag.MatMulRoute = keepRoute; }
 
-        double after = PerplexityEvaluator.Evaluate(Model, evalSet).Perplexity;
+        var afterEval = PerplexityEvaluator.Evaluate(Model, evalSet);
+        double after  = afterEval.Perplexity;
+        Odometer.Evaluated += afterEval.Tokens;
+        long epochTokens = 0;
+        foreach (var (input, _) in trainSet) epochTokens += input.Length;
+        Odometer.Trained += epochTokens * opts.Epochs;
+
         return new TrainingReport(before, after, first, last, step, trainSet.Count, evalSet.Count)
         {
             BestPerplexity     = bestDir is null ? double.NaN : bestPpl,
@@ -234,6 +242,16 @@ public sealed class PredictiveLlm
     /// Persisted with the model when present.
     /// </summary>
     public EpisodicMemory? Memory { get; set; }
+
+    /// <summary>
+    /// The model's lifetime token counter, by activity (trained / evaluated /
+    /// absorbed / prompted / generated) — persisted with the model, so it keeps
+    /// counting across sessions. Compute-side counters live on
+    /// <see cref="DecoderLM.ForwardTokens"/> (and <c>GptModel.ForwardTokens</c>
+    /// for the served stack). Train's periodic checkpoint probes are not
+    /// itemized — only the before/after pair counts as Evaluated.
+    /// </summary>
+    public TokenOdometer Odometer { get; } = new();
 
     /// <summary>
     /// Mean-pooled final hidden state of <paramref name="text"/> [Dim] — the
@@ -318,6 +336,8 @@ public sealed class PredictiveLlm
             var run = SelfSpeculative.Generate(Model, ctxIds, maxNewTokens, eos);
             string text = Tokenizer.Decode(run.Tokens[ctxIds.Count..]);
             CutAtStop(ref text, opts.StopSequences);
+            Odometer.Prompted  += ctxIds.Count;
+            Odometer.Generated += run.Tokens.Length - ctxIds.Count;
             return new GenerationResult(text, run.Forwards, run.Drafted, run.Accepted);
         }
         finally
@@ -354,6 +374,8 @@ public sealed class PredictiveLlm
             text = Tokenizer.Decode(generated);
             if (CutAtStop(ref text, opts.StopSequences)) break;
         }
+        Odometer.Prompted  += ctxIds.Count;
+        Odometer.Generated += generated.Count;
         return new GenerationResult(text, forwards, Drafted: 0, Accepted: 0);
     }
 
@@ -396,7 +418,11 @@ public sealed class PredictiveLlm
 
     /// <summary>Perplexity of the model on <paramref name="text"/> (the Phase 0 yardstick).</summary>
     public PerplexityResult Evaluate(string text, int? maxWindows = null)
-        => PerplexityEvaluator.Evaluate(Model, TextWindows(text), maxWindows: maxWindows);
+    {
+        var result = PerplexityEvaluator.Evaluate(Model, TextWindows(text), maxWindows: maxWindows);
+        Odometer.Evaluated += result.Tokens;
+        return result;
+    }
 
     /// <summary>
     /// Bits per byte of <paramref name="text"/> — the tokenizer-independent
@@ -412,6 +438,7 @@ public sealed class PredictiveLlm
         if (windows.Count == 0) windows = [WholeTextWindow(text)];
 
         var ppl = PerplexityEvaluator.Evaluate(Model, windows);
+        Odometer.Evaluated += ppl.Tokens;
         long bytes = 0;
         foreach (var (_, target) in windows)
             bytes += Encoding.UTF8.GetByteCount(Tokenizer.Decode(target));
@@ -441,6 +468,11 @@ public sealed class PredictiveLlm
         var windows = TextWindows(text);
         _onlineOptimizer ??= new Adam();
         var ps = Model.Parameters();
+
+        long windowTokens = 0;
+        foreach (var (input, _) in windows) windowTokens += input.Length;
+        Odometer.Absorbed  += windowTokens * steps;
+        Odometer.Evaluated += windowTokens * 2;           // the before/after surprise probes
 
         float before = MeanLoss(windows);
         for (int s = 0; s < steps; s++)
@@ -539,6 +571,10 @@ public sealed class PredictiveLlm
         if (_onlineOptimizer is not null)
             OptimizerCheckpoint.Save(onlineOptPath, Model.Parameters(), _onlineOptimizer);
         else if (File.Exists(onlineOptPath)) File.Delete(onlineOptPath);
+
+        // The odometer travels too: a real odometer keeps counting across sessions.
+        File.WriteAllText(Path.Combine(directory, "odometer.json"),
+            JsonSerializer.Serialize(Odometer.ToSnapshot()));
     }
 
     /// <summary>
@@ -603,6 +639,13 @@ public sealed class PredictiveLlm
             var opt = new Adam();
             OptimizerCheckpoint.Load(onlineOptPath, llm.Model.Parameters(), opt);
             llm._onlineOptimizer = opt;
+        }
+
+        string odoPath = Path.Combine(directory, "odometer.json");
+        if (File.Exists(odoPath))
+        {
+            var snap = JsonSerializer.Deserialize<TokenOdometer.Snapshot>(File.ReadAllText(odoPath));
+            if (snap is not null) llm.Odometer.LoadSnapshot(snap);
         }
         return llm;
     }

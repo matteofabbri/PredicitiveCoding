@@ -33,6 +33,9 @@ public sealed class GptModel
     internal INormLayer         FinalNorm      => _lnFinal;
     internal Linear?            LmHead         => _lmHead;
 
+    /// <summary>Compute odometer: tokens stepped through this model, lifetime (one per incremental Step).</summary>
+    public long ForwardTokens { get; private set; }
+
     public GptModel(TransformerConfig cfg, Random rng)
     {
         cfg.Validate();
@@ -63,6 +66,7 @@ public sealed class GptModel
     /// </summary>
     public DenseTensor<float> Step(int token, int position, KvCache cache, ActivationProbe? probe = null)
     {
+        ForwardTokens++;
         var x = _embedding.Lookup(token);
         _positional?.AddTo(x, position);
 

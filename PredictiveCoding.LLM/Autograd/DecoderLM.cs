@@ -174,6 +174,14 @@ public sealed class DecoderLM
         return (Ag.MatMul(xf, _wout), _woutMtp is null ? null : Ag.MatMul(xf, _woutMtp));
     }
 
+    /// <summary>
+    /// Compute odometer: token positions fed to this model's forwards, lifetime
+    /// (every Loss/Evaluate/Generate/Embed pass adds its sequence length — a
+    /// full-reforward generation pays O(n²) here). Not synchronized: parallel
+    /// training replicas are separate instances, each counts its own.
+    /// </summary>
+    public long ForwardTokens { get; private set; }
+
     // Embedding → looped block stack → final layer-norm: the shared trunk under
     // every head.
     private Tensor Hidden(int[] tokens, bool training, ActivationProbe? probe, List<Tensor>? auxLosses)
@@ -181,6 +189,7 @@ public sealed class DecoderLM
         int seq = tokens.Length;
         if (seq > Config.MaxSeq)
             throw new ArgumentException($"Sequence length {seq} exceeds MaxSeq {Config.MaxSeq}.");
+        ForwardTokens += seq;
 
         var oneHot = new Tensor(seq, Config.Vocab);
         for (int i = 0; i < seq; i++) oneHot.Data[i * Config.Vocab + tokens[i]] = 1f;
