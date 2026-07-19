@@ -191,7 +191,7 @@ and Group G's `CortexSubcorticalTests` (3), `CortexRewardTests` (3), `CortexAsso
 
 ---
 
-## Opening (2026-07-19) — the language area could become real
+## Opening (2026-07-19) — the language area could become real · ✅ DONE same day
 
 `PredictiveLlm` (PredictiveCoding.LLM) is now a finished product: trainable hybrid
 LLM with online learning. Today `Language/WernickeArea` and `Language/BrocaArea`
@@ -201,3 +201,20 @@ perplexity/surprise signal, production = its generation), keeping the anatomical
 routing intact. This improves the Cortex, not the LLM, which is why it lives here
 and not in `PredictiveCoding.LLM/ROADMAP-Pro.md` (whose Phase 7 covers the reverse
 graft: hippocampal episodic memory FOR the LM).
+
+**Realized 2026-07-19.** Both areas gained an LLM mode (`new WernickeArea(llm)` /
+`new BrocaArea(llm)`; Cortex now references PredictiveCoding.LLM — no cycle, both
+rest on the core):
+
+- **Wernicke** — `Comprehend(text)` → semantic latent [Dim] (the LLM embedding, the
+  meaning vector the rest of the cortex consumes); `Surprise(text)` in nats/token
+  (the framework's universal currency: trained-corpus text scores measurably lower
+  than alien strings — tested); `Listen(text)` = online learning while hearing
+  (surprise drops, the area changes — tested).
+- **Broca** — `Produce(prompt)` generates; `ProduceFromMeaning(semantic, prompt,
+  planGain)` injects Wernicke's meaning as the LLM's **latent plan** (2026 roadmap
+  Phase 8) before decoding — meaning conditions production top-down, the dual-stream
+  story made literal. Gain 0 ≡ unconditioned (tested bit-for-bit), the plan is
+  restored after (stateless), plan-less models are refused loudly.
+- The toy vector mode is untouched (same tests, same bits); wrong-mode calls throw
+  with a clear message. Tests: `CortexLlmLanguageTests` (5).

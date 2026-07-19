@@ -12,6 +12,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PredicitiveCoding\PredictiveCoding.csproj" />
+    <!-- The real language area (Cortex ROADMAP opening, 2026-07-19): Wernicke/Broca
+         can run on PredictiveLlm. No cycle: both projects rest on the core only. -->
+    <ProjectReference Include="..\PredictiveCoding.LLM\PredictiveCoding.LLM.csproj" />
   </ItemGroup>
 
 </Project>
