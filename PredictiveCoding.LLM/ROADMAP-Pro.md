@@ -133,6 +133,15 @@ we actually train. Tests: `LlmProPhase1Tests` (4).
 | Parallel micro-batch | ✅ | `Trainer.StepParallel` — the batch is sharded across N model replicas (independent param/grad buffers, weights synced from the primary each step), gradients merged into the primary in a FIXED worker order. **Bit-stability policy:** 1 worker ≡ serial `Step` bit-for-bit (tested); N > 1 re-associates the float accumulation → reproducible across runs (tested) but not identical to serial — the standard data-parallel trade. `TrainingOptions.Workers` (1 = serial, 0 = auto = `ProcessorCount`, capped at batch size). |
 | GEMM routing by default | ✅ | `MatMulRoute.Auto` + `Ag.ProviderCrossoverMacs` (default 2²⁰): inline SIMD below the crossover (no output-buffer alloc), `Gemm.Provider` above — where a CUDA backend repays its overhead. Opt-in per run via `TrainingOptions.AutoGemmRoute` (restored after). Numerically ≡ inline with the CPU provider (tested); a real speed win only with an accelerated provider, honestly. |
 | Sequence bucketing | ➖ | not needed: `StreamingTextDataset` emits fixed-length windows (all = `SeqLen`), so there is no padding waste to bucket away. Recorded as N/A rather than built. |
+
+**Finding (2026-07-19, found by the online-resume equivalence test).** `Trainer.Step`
+accumulated `p.Grad` after `loss.Backward()`, but Backward zeroes only the tensors
+INSIDE the current graph — with a sparse model (MoE: unrouted experts) out-of-graph
+parameters kept a stale gradient from the previous example/call and got summed, double-
+counting an expert whenever consecutive examples routed differently. Fixed with an
+explicit `Adam.ZeroGrad(parameters)` before every per-example Backward, in all three
+Step overloads (serial ×2 + parallel workers). Dense models are bit-unchanged (Backward
+already zeroed everything reachable); sparse training is now mathematically clean.
 | Yardstick | ✅ | `LlmProPhase3Tests.ParallelTraining_ThroughputYardstick` logs serial vs parallel wall-clock. Measured (24-dim/3-block toy on a 28-core box): 1474 ms → 405 ms, **×3.64**. Below the aspirational ×4 — the toy model is small and replica sync + merge cost is fixed overhead; the ratio grows with model/batch size. Correctness (loss reduction) is the asserted part; the ratio is informational. |
 
 ## Phase 4 — Data pipeline · ✅ done 2026-07-19
@@ -152,7 +161,7 @@ we actually train. Tests: `LlmProPhase1Tests` (4).
 | Task | Status | Notes |
 |------|:------:|-------|
 | Periodic + best-on-val | ✅ | `TrainingOptions.CheckpointEverySteps`/`CheckpointDir`/`KeepBestByPerplexity`: every N steps evaluate held-out ppl and (keeping the best) write a full resumable dir; `TrainingReport.BestCheckpointPath`/`BestPerplexity` record it. |
-| True resume | ✅ | `OptimizerCheckpoint` serialises Adam's moments + step counter (`optimizer.bin`) next to the weights; `PredictiveLlm.LoadWithOptimizer` restores both, `TrainingOptions.ResumeOptimizer` continues from them. `Adam` gained `StepCount`/`RestoreStepCount`/`MomentsFor`/`SetMoments`. |
+| True resume | ✅ | `OptimizerCheckpoint` serialises Adam's moments + step counter (`optimizer.bin`) next to the weights; `PredictiveLlm.LoadWithOptimizer` restores both, `TrainingOptions.ResumeOptimizer` continues from them. `Adam` gained `StepCount`/`RestoreStepCount`/`MomentsFor`/`SetMoments`. **Extended 2026-07-19:** the ONLINE `Learn` optimizer travels too (`online-optimizer.bin`, written by `Save`, restored by `Load`) — a reloaded lifelong learner CONTINUES its momentum; tested interrupted ≡ uninterrupted, with the no-moments control diverging. |
 | Quantized checkpoints | ✅ | `Checkpoint.Save(dir, params, WeightStoragePrecision)` consumes the mixed-precision enum: Half/BFloat16 halve the file, Int8 (per-row min+scale affine — anchored to [min,max] so near-constant rows far from zero survive) quarters it; `Load` widens back to fp32. `PredictiveLlm.Save(dir, precision)` exposes it. |
 | Tests | ✅ | `LlmProPhase5Tests` (7): resume ≡ uninterrupted 20-step run to 4 decimals, control that a FRESH optimizer diverges (so the equivalence is really carried by the moments), quantized reload within format tolerance (Half/bf16 5e-2, int8 1e-1), Half file < Float32, Train writes best-on-val + `LoadWithOptimizer` restores step count. |
 

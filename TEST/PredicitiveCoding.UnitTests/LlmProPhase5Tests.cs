@@ -168,6 +168,63 @@ public class LlmProPhase5Tests : IDisposable
         Assert.Equal(llm.Config.Vocab, reloaded.Config.Vocab);
     }
 
+    // ── The online-learning optimizer survives save/load too ────────────────
+    //
+    // The LLM→FASTER checkpoint originally saved only the weights; the online
+    // Learn() optimizer's Adam moments restarted on Load. Now they persist, so a
+    // reloaded lifelong learner CONTINUES its momentum. Interrupted ≡ uninterrupted.
+
+    private const string OnlineText =
+        "the north wind and the sun disputed which was the stronger of the two";
+
+    [Fact]
+    public void OnlineOptimizer_SurvivesSaveLoad_ContinuesNotRestarts()
+    {
+        // Uninterrupted: six online Learn steps.
+        var reference = PredictiveLlm.Create2026(dim: 16, blocks: 2, heads: 2, ffDim: 32, maxSeq: 48, seed: 5);
+        for (int i = 0; i < 6; i++) reference.Learn(OnlineText, steps: 1, learningRate: 0.01f);
+
+        // Interrupted: three, save, reload, three more.
+        var a = PredictiveLlm.Create2026(dim: 16, blocks: 2, heads: 2, ffDim: 32, maxSeq: 48, seed: 5);
+        for (int i = 0; i < 3; i++) a.Learn(OnlineText, steps: 1, learningRate: 0.01f);
+        string dir = Path.Combine(_dir, "online");
+        a.Save(dir);
+        Assert.True(File.Exists(Path.Combine(dir, "online-optimizer.bin")));   // moments were written
+
+        var b = PredictiveLlm.Load(dir);
+        for (int i = 0; i < 3; i++) b.Learn(OnlineText, steps: 1, learningRate: 0.01f);
+
+        var rp = reference.Model.Parameters(); var bp = b.Model.Parameters();
+        for (int k = 0; k < rp.Length; k++)
+            for (int j = 0; j < rp[k].Data.Length; j++)
+                Assert.Equal(rp[k].Data[j], bp[k].Data[j], precision: 4);   // continue ≡ uninterrupted
+    }
+
+    [Fact]
+    public void WithoutRestoringOnlineMoments_ResumeDiverges()
+    {
+        // Control: reload the WEIGHTS only (fresh online optimizer) and the sixth
+        // step differs — proving the equivalence above is carried by the moments.
+        var reference = PredictiveLlm.Create2026(dim: 16, blocks: 2, heads: 2, ffDim: 32, maxSeq: 48, seed: 6);
+        for (int i = 0; i < 6; i++) reference.Learn(OnlineText, steps: 1, learningRate: 0.01f);
+
+        var a = PredictiveLlm.Create2026(dim: 16, blocks: 2, heads: 2, ffDim: 32, maxSeq: 48, seed: 6);
+        for (int i = 0; i < 3; i++) a.Learn(OnlineText, steps: 1, learningRate: 0.01f);
+        string dir = Path.Combine(_dir, "weightsonly");
+        a.Save(dir);
+        File.Delete(Path.Combine(dir, "online-optimizer.bin"));   // drop the moments → fresh optimizer on Load
+
+        var b = PredictiveLlm.Load(dir);
+        for (int i = 0; i < 3; i++) b.Learn(OnlineText, steps: 1, learningRate: 0.01f);
+
+        var rp = reference.Model.Parameters(); var bp = b.Model.Parameters();
+        double maxDiff = 0;
+        for (int k = 0; k < rp.Length; k++)
+            for (int j = 0; j < rp[k].Data.Length; j++)
+                maxDiff = Math.Max(maxDiff, Math.Abs(rp[k].Data[j] - bp[k].Data[j]));
+        Assert.True(maxDiff > 1e-4, $"without the moments the resume should differ; max diff was {maxDiff:E2}");
+    }
+
     private static long DirSize(string dir) =>
         Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
 }

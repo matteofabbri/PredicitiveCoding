@@ -39,13 +39,13 @@
 <body>
 
 <h1>PredictiveLlm — architettura a strati, dal prodotto a FasterKV</h1>
-<p class="sub">Stato al 2026-07-19 · ROADMAP-Pro fasi 0–2 complete · generato dallo schema di sessione</p>
+<p class="sub">Stato al 2026-07-19 · ROADMAP-Pro completa (fasi 0–8) · il ponte LLM→FasterKV esiste su due vie: Checkpoint (TensorStore) e memoria episodica</p>
 
 <div class="stk">
   <div class="box llm prod">
     <h3>PredictiveLlm</h3>
     <div class="chips">
-      <span class="chip">Create2026</span><span class="chip">Train</span><span class="chip">Generate</span><span class="chip">Learn (online)</span><span class="chip">Evaluate · bits/byte</span><span class="chip">DistillFrom</span><span class="chip">StartChat</span><span class="chip">CreateServer</span><span class="chip">Save/Load</span><span class="chip">Report</span>
+      <span class="chip">Create2026</span><span class="chip">Train</span><span class="chip">Generate</span><span class="chip">Learn (online)</span><span class="chip">Memory (episodica)</span><span class="chip">Evaluate · bits/byte</span><span class="chip">DistillFrom</span><span class="chip">StartChat</span><span class="chip">CreateServer</span><span class="chip">Save/Load</span><span class="chip">Report</span>
     </div>
   </div>
   <div class="arrow">▼</div>
@@ -58,7 +58,7 @@
     <div class="box llm"><h4>Data + Training</h4><ul>
       <li class="mono">StreamingTextDataset · EvalCorpus</li>
       <li class="mono">Trainer → Adam · LrSchedule</li>
-      <li class="mono">LmDistiller · Checkpoint (file)</li></ul></div>
+      <li class="mono">LmDistiller · Checkpoint → FasterKV</li></ul></div>
     <div class="box llm"><h4>DecoderLM (trainabile)</h4><ul>
       <li>Block T/A · loop · MTP · MoE · plan</li>
       <li class="mono">Ag: MatMulRoute · RecurrentScan</li>
@@ -93,7 +93,7 @@
       <li>fallback CPU automatico</li></ul></div>
   </div>
 
-  <div class="note">Confine: il LLM persiste i pesi via <span class="mono">Checkpoint</span> (file). FasterKV è la persistenza della <b>rete predictive-coding</b> del core — stesse fondazioni, ramo gemello. Il ponte pianificato è la fase 7 (memoria episodica ippocampale).</div>
+  <div class="note">Il ponte esiste: <span class="mono">Checkpoint</span> del LLM persiste i pesi attraverso un <span class="mono">TensorStore</span> <b>FasterKV</b> — lo stesso motore della rete predictive-coding — e la fase 7 ha saldato anche il lato cognitivo: <span class="mono">EpisodicMemory</span> (su <span class="mono">Networks/Memory.MemoryBank</span>) è l'ippocampo del LLM.</div>
   <div class="lbl">Ramo predictive-coding — dove vive FasterKV</div>
 
   <div class="side">
@@ -109,10 +109,10 @@
       <div class="box pc kv"><h4>FasterKV&lt;int, SpanByte&gt;</h4><ul><li>upsert/read per layer · recovery</li><li>checkpoint completo su Dispose</li></ul></div>
     </div>
     <div class="chain" style="max-width:280px">
-      <div class="box pc" style="border-style:dashed"><h4>Networks.*</h4><ul>
+      <div class="box pc"><h4>Networks.*</h4><ul>
         <li>MoE trio · Ensemble · Attentive</li>
         <li class="mono">Hopfield · Memory · Gated · Spiking…</li>
-        <li>→ fase 7: memoria episodica del LLM</li></ul></div>
+        <li>✓ fase 7: <span class="mono">EpisodicMemory</span> = Remember/Recall del LLM (<span class="mono">UseMemory</span> in generazione)</li></ul></div>
     </div>
   </div>
 </div>
@@ -122,8 +122,8 @@
   <ul>
     <li><b>La dorsale blu</b> è il prodotto: da <code>PredictiveLlm</code> si scende nei sei sottosistemi (tokenizer, dati/training, modello trainabile, generazione/chat, serving, eval) — la strada percorsa dalle fasi 0–2 della ROADMAP-Pro.</li>
     <li><b>La fascia verde</b> è il pavimento comune: tensori SIMD, GEMM e CUDA. Tutto ciò che sta sopra — LLM <i>e</i> rete predictive-coding — poggia lì.</li>
-    <li><b>La colonna ambra</b> è la discesa fino a <code>FasterKV</code>: appartiene alla <b>rete predictive-coding</b> (<code>Network → Layer → LayerStore → LayerSerializer → FasterKV</code>, coi formati fp32/Half/bf16/int8 della roadmap mixed-precision). Il LLM oggi <b>non</b> ci passa: salva i pesi via <code>Checkpoint</code> su file.</li>
-    <li><b>Il punto di saldatura futuro</b> è il box tratteggiato: la famiglia <code>Networks.*</code> (Hopfield/Memory), che nella fase 7 della ROADMAP-Pro diventerà la memoria episodica del LLM — a quel punto un ricordo del LLM finirà davvero dentro FasterKV.</li>
+    <li><b>La colonna ambra</b> è la discesa fino a <code>FasterKV</code>: la catena nativa è quella della <b>rete predictive-coding</b> (<code>Network → Layer → LayerStore → LayerSerializer → FasterKV</code>, coi formati fp32/Half/bf16/int8 della roadmap mixed-precision) — e da roadmap-Pro fase 5 anche il <code>Checkpoint</code> del LLM vi persiste i pesi, attraverso il <code>TensorStore</code> FASTER: un solo motore di storage per tutta la soluzione.</li>
+    <li><b>La saldatura cognitiva</b> è il box <code>Networks.*</code>: con la fase 7 la famiglia Hopfield/Memory è diventata la <code>EpisodicMemory</code> del LLM — <code>Remember(testo)</code> archivia per embedding, <code>Recall</code> ritrova per similarità, <code>UseMemory</code> inietta i ricordi in generazione. Un ricordo del LLM vive davvero nel ramo predictive-coding.</li>
   </ul>
 </div>
 

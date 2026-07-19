@@ -29,7 +29,9 @@ public sealed class PredictiveLlm
 
     // Long-lived optimizer for online learning: Learn() keeps absorbing across
     // calls with its momentum intact — the model is a lifelong learner, not a
-    // train-once artifact. (Not persisted by Save: moments restart on Load.)
+    // train-once artifact. Persisted by Save (online-optimizer.bin) and restored
+    // by Load, so the momentum survives a save/reload too — a reloaded learner
+    // continues, it does not restart.
     private Adam? _onlineOptimizer;
 
     // Seed of the primary model — reused (offset per worker) to build the
@@ -528,6 +530,15 @@ public sealed class PredictiveLlm
         string memPath = Path.Combine(directory, "memory.bin");
         if (Memory is not null) Memory.Save(memPath);
         else if (File.Exists(memPath)) File.Delete(memPath);
+
+        // The online-learning optimizer's momentum travels too: without it a
+        // reloaded lifelong learner would restart its Adam moments and take the
+        // next Learn step less stably than an uninterrupted one. (The training
+        // optimizer of Train is separate — resumed via TrainingOptions.ResumeOptimizer.)
+        string onlineOptPath = Path.Combine(directory, "online-optimizer.bin");
+        if (_onlineOptimizer is not null)
+            OptimizerCheckpoint.Save(onlineOptPath, Model.Parameters(), _onlineOptimizer);
+        else if (File.Exists(onlineOptPath)) File.Delete(onlineOptPath);
     }
 
     /// <summary>
@@ -583,6 +594,16 @@ public sealed class PredictiveLlm
 
         string memPath = Path.Combine(directory, "memory.bin");
         if (File.Exists(memPath)) llm.Memory = EpisodicMemory.Load(memPath, cfg.Dim);
+
+        // Restore the online-learning optimizer so lifelong Learn continues its
+        // momentum instead of restarting it (keyed onto the reloaded parameters).
+        string onlineOptPath = Path.Combine(directory, "online-optimizer.bin");
+        if (File.Exists(onlineOptPath))
+        {
+            var opt = new Adam();
+            OptimizerCheckpoint.Load(onlineOptPath, llm.Model.Parameters(), opt);
+            llm._onlineOptimizer = opt;
+        }
         return llm;
     }
 

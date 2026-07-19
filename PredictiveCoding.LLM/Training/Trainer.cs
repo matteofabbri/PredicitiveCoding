@@ -32,8 +32,13 @@ public static class Trainer
         double total = 0d;
         foreach (var (tokens, targets) in batch)
         {
+            // Backward() only zeroes tensors inside the CURRENT graph — with a
+            // sparse model (MoE: unrouted experts) parameters outside it would
+            // keep a stale gradient from the previous example and get summed.
+            // Clear everything first so accumulation sees exactly this example.
+            Adam.ZeroGrad(ps);
             var loss = model.Loss(tokens, targets, training);
-            loss.Backward();                              // zeroes + fills this micro-example's grads
+            loss.Backward();
             total += loss.Data[0];
             for (int k = 0; k < ps.Length; k++)
                 for (int i = 0; i < ps[k].Grad.Length; i++) accum[k][i] += ps[k].Grad[i];
@@ -70,8 +75,11 @@ public static class Trainer
         double total = 0d;
         foreach (var (tokens, targets) in batch)
         {
+            // Stale-gradient guard (see the TinyTransformerLM overload): sparse
+            // models leave out-of-graph parameters unzeroed by Backward().
+            Adam.ZeroGrad(parameters);
             var loss = lossFn(tokens, targets, training);
-            loss.Backward();                              // zeroes + fills this micro-example's grads
+            loss.Backward();
             total += loss.Data[0];
             for (int k = 0; k < parameters.Count; k++)
                 for (int i = 0; i < parameters[k].Grad.Length; i++) accum[k][i] += parameters[k].Grad[i];
@@ -147,6 +155,7 @@ public static class Trainer
             for (int e = bounds[w]; e < bounds[w + 1]; e++)
             {
                 var (tokens, targets) = batch[e];
+                Adam.ZeroGrad(ps);                        // stale-gradient guard (sparse models)
                 var loss = lossFns[w](tokens, targets, training);
                 loss.Backward();
                 sum += loss.Data[0];
