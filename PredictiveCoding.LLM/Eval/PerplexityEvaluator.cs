@@ -90,6 +90,44 @@ public static class PerplexityEvaluator
             if (i++ % every != 0) yield return w;
     }
 
+    /// <summary>
+    /// Content-hashed held-out slice (roadmap-Pro Phase 4): a window is held out
+    /// iff a stable hash of its input tokens is ≡ 0 (mod <paramref name="every"/>).
+    /// Unlike <see cref="HeldOut"/> this is independent of position, so the SAME
+    /// windows land in eval across runs even if the corpus is reordered, re-mixed
+    /// or grown — perplexity numbers stay comparable between sessions. Pair with
+    /// <see cref="TrainingSplitHashed"/> for the exact complement.
+    /// </summary>
+    public static IEnumerable<(int[] input, int[] target)> HeldOutHashed(
+        IEnumerable<(int[] input, int[] target)> windows, int every = 10)
+    {
+        if (every < 2) throw new ArgumentOutOfRangeException(nameof(every), every, "every must be >= 2.");
+        foreach (var w in windows)
+            if (WindowHash(w.input) % (uint)every == 0) yield return w;
+    }
+
+    /// <summary>The training-side complement of <see cref="HeldOutHashed"/> (same <paramref name="every"/>).</summary>
+    public static IEnumerable<(int[] input, int[] target)> TrainingSplitHashed(
+        IEnumerable<(int[] input, int[] target)> windows, int every = 10)
+    {
+        if (every < 2) throw new ArgumentOutOfRangeException(nameof(every), every, "every must be >= 2.");
+        foreach (var w in windows)
+            if (WindowHash(w.input) % (uint)every != 0) yield return w;
+    }
+
+    // FNV-1a 32-bit over the window's token ids — stable across sessions/platforms.
+    private static uint WindowHash(int[] tokens)
+    {
+        const uint offset = 2166136261u, prime = 16777619u;
+        uint h = offset;
+        foreach (int t in tokens)
+        {
+            uint v = (uint)t;
+            for (int b = 0; b < 4; b++) { h ^= (v >> (b * 8)) & 0xFFu; h *= prime; }
+        }
+        return h;
+    }
+
     // Stable −log softmax(logits)[target]: log-sum-exp − logit_target.
     private static double RowNll(float[] data, int off, int vocab, int target)
     {

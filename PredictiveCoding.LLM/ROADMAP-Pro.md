@@ -24,9 +24,9 @@ Design invariants (inherited from every previous roadmap):
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–3 ✅ done (real BPE tokenizer travelling with the
+*Status as of 2026-07-19: Phases 0–4 ✅ done (real BPE tokenizer travelling with the
 model, the O(n) serving path, real sampling + chat, parallel training + adaptive GEMM
-routing); Phases 4–8 ❌ to build.*
+routing, streaming data pipeline with mixing/hygiene/hashed split); Phases 5–8 ❌ to build.*
 
 *Architecture map: **`ARCHITECTURE.html`** — the layered diagram from `PredictiveLlm`
 down to FasterKV (product subsystems → shared tensor foundations → the PC branch),
@@ -131,16 +131,17 @@ we actually train. Tests: `LlmProPhase1Tests` (4).
 | Sequence bucketing | ➖ | not needed: `StreamingTextDataset` emits fixed-length windows (all = `SeqLen`), so there is no padding waste to bucket away. Recorded as N/A rather than built. |
 | Yardstick | ✅ | `LlmProPhase3Tests.ParallelTraining_ThroughputYardstick` logs serial vs parallel wall-clock. Measured (24-dim/3-block toy on a 28-core box): 1474 ms → 405 ms, **×3.64**. Below the aspirational ×4 — the toy model is small and replica sync + merge cost is fixed overhead; the ratio grows with model/batch size. Correctness (loss reduction) is the asserted part; the ratio is informational. |
 
-## Phase 4 — Data pipeline · ❌
+## Phase 4 — Data pipeline · ✅ done 2026-07-19
 
-*Training on `string corpus` doesn't scale past a pasted paragraph.*
+*Training on `string corpus` doesn't scale past a pasted paragraph — now it feeds from disk.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| File/folder corpora | ❌ | `Train(CorpusSource)`: files, folders, glob — streaming (the dataset already streams), UTF-8, size accounting. |
-| Mixing & weighting | ❌ | multiple sources with sampling weights (e.g. 80% domain, 20% yardstick for stability). |
-| Deterministic split | ❌ | held-out selection stable across runs (hash-based, not index-based) so ppl numbers are comparable between sessions. |
-| Hygiene | ❌ | line dedup + length filters — cheap, measurable on held-out ppl. |
+| File/folder corpora | ✅ | `Data/CorpusSource` — `FromText`/`FromFile`/`FromFolder`(sorted, recursive)/`FromGlob`, a re-enumerable lazy line factory (streams; two passes for the split). `Stats` tallies lines + UTF-8 bytes as pulled. `PredictiveLlm.Train(CorpusSource)` feeds it straight into `StreamingTextDataset`. |
+| Mixing & weighting | ✅ | `CorpusSource.Mix((src, weight)…)` — deterministic weighted interleave (no RNG: at each step pull from the source lowest on its emitted/weight ratio, so 80/20 stays ≈80/20 throughout; exhausted sources drop out). |
+| Deterministic split | ✅ | `PerplexityEvaluator.HeldOutHashed`/`TrainingSplitHashed` — a window is held out iff FNV-1a(its tokens) ≡ 0 (mod every). Position-independent, so reorder/re-mix/grow keeps the same windows in eval (tested: reversal doesn't move the split); `Train(CorpusSource)` uses it. |
+| Hygiene | ✅ | `.Deduplicated()` (64-bit content hash, memory bounded by distinct-line count) + `.WithLengthFilter(min,max)` — composable decorators. |
+| Tests | ✅ | `LlmProPhase4Tests` (8): folder order + accounting, recursive glob, dedup, length filter, weighted-mix ratio, weight validation, hashed-split complement + reorder-stability, end-to-end train from a mixed/deduped folder corpus. |
 
 ## Phase 5 — Checkpointing, professionally · ❌
 

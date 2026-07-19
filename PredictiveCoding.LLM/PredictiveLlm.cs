@@ -101,14 +101,44 @@ public sealed class PredictiveLlm
         var opts   = options ?? new TrainingOptions();
         int seqLen = Math.Min(opts.SeqLen, Config.MaxSeq);
         var data   = new StreamingTextDataset(corpus.Split('\n'), Tokenizer, seqLen, opts.Stride);
+        return TrainCore(data, opts, seqLen, hashSplit: false, () => WholeTextWindow(corpus));
+    }
 
-        var evalSet  = PerplexityEvaluator.HeldOut(data.Windows(), opts.HeldOutEvery).ToList();
-        var trainSet = PerplexityEvaluator.TrainingSplit(data.Windows(), opts.HeldOutEvery).ToList();
+    /// <summary>
+    /// End-to-end training from a <see cref="CorpusSource"/> (roadmap-Pro Phase 4):
+    /// files/folders/globs, weighted mixing and hygiene, streamed. The held-out
+    /// split is CONTENT-HASHED, so the same windows stay in eval across runs even
+    /// when the corpus is reordered, re-mixed or grown — perplexity stays
+    /// comparable between sessions.
+    /// </summary>
+    public TrainingReport Train(CorpusSource source, TrainingOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var opts   = options ?? new TrainingOptions();
+        int seqLen = Math.Min(opts.SeqLen, Config.MaxSeq);
+        var data   = new StreamingTextDataset(source.Lines(), Tokenizer, seqLen, opts.Stride);
+        return TrainCore(data, opts, seqLen, hashSplit: true, fallback: null);
+    }
+
+    // Shared training core. hashSplit selects the content-hashed held-out split
+    // (Phase 4) over the positional one; fallback supplies an eval window when the
+    // corpus is too small to spare one (null ⇒ borrow the last training window).
+    private TrainingReport TrainCore(
+        StreamingTextDataset data, TrainingOptions opts, int seqLen, bool hashSplit,
+        Func<(int[] input, int[] target)>? fallback)
+    {
+        var evalSet = hashSplit
+            ? PerplexityEvaluator.HeldOutHashed(data.Windows(), opts.HeldOutEvery).ToList()
+            : PerplexityEvaluator.HeldOut(data.Windows(), opts.HeldOutEvery).ToList();
+        var trainSet = hashSplit
+            ? PerplexityEvaluator.TrainingSplitHashed(data.Windows(), opts.HeldOutEvery).ToList()
+            : PerplexityEvaluator.TrainingSplit(data.Windows(), opts.HeldOutEvery).ToList();
+
         if (opts.MaxWindows is { } cap && trainSet.Count > cap) trainSet = trainSet.GetRange(0, cap);
         if (trainSet.Count == 0)
             throw new InvalidOperationException(
                 $"Corpus too small: no training window of {seqLen}+1 tokens. Shorten SeqLen or feed more text.");
-        if (evalSet.Count == 0) evalSet = [WholeTextWindow(corpus)];
+        if (evalSet.Count == 0) evalSet = [fallback?.Invoke() ?? trainSet[^1]];
 
         double before = PerplexityEvaluator.Evaluate(Model, evalSet).Perplexity;
 
