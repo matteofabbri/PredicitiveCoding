@@ -40,7 +40,8 @@ public sealed record DecoderLmConfig(
     int NumLoops = 1,
     float LoopExitTau = 0f,
     float MtpWeight = 0f,
-    int MtpHorizon = 2)
+    int MtpHorizon = 2,
+    string? BlockPattern = null)
 {
     public int HeadDim => Dim / NumHeads;
 
@@ -58,6 +59,14 @@ public sealed record DecoderLmConfig(
             throw new ArgumentException($"MtpWeight ({MtpWeight}) must be >= 0 (0 disables multi-token prediction).");
         if (MtpWeight > 0f && MtpHorizon < 2)
             throw new ArgumentException($"MtpHorizon ({MtpHorizon}) must be >= 2 when MtpWeight is on (2 = predict t+2).");
+        if (BlockPattern is { } p)
+        {
+            if (p.Length != NumBlocks)
+                throw new ArgumentException($"BlockPattern length ({p.Length}) must equal NumBlocks ({NumBlocks}).");
+            foreach (char c in p)
+                if (c != 'A' && c != 'T')
+                    throw new ArgumentException($"BlockPattern may only contain 'A' (attention) or 'T' (temporal), found '{c}'.");
+        }
     }
 }
 
@@ -65,10 +74,10 @@ public sealed class DecoderLM
 {
     public DecoderLmConfig Config { get; }
 
-    private readonly float     _attnScale;
-    private readonly Random    _rng;
-    private readonly Tensor    _wemb;          // [vocab, dim]
-    private readonly Block[]   _blocks;
+    private readonly float          _attnScale;
+    private readonly Random         _rng;
+    private readonly Tensor         _wemb;     // [vocab, dim]
+    private readonly IDecoderBlock[] _blocks;
     private readonly Tensor[]? _loopBias;      // [NumLoops] × [1, dim] — loop-step conditioning; null when NumLoops == 1
     private readonly Tensor    _lnFG, _lnFB;   // final layer-norm
     private readonly Tensor    _wout;          // [dim, vocab]
@@ -82,8 +91,11 @@ public sealed class DecoderLM
         _attnScale = 1f / MathF.Sqrt(cfg.HeadDim);
 
         _wemb   = AgInit.Randn(cfg.Vocab, cfg.Dim, rng);
-        _blocks = new Block[cfg.NumBlocks];
-        for (int b = 0; b < cfg.NumBlocks; b++) _blocks[b] = new Block(cfg, rng);
+        _blocks = new IDecoderBlock[cfg.NumBlocks];
+        for (int b = 0; b < cfg.NumBlocks; b++)
+            _blocks[b] = cfg.BlockPattern is { } p && p[b] == 'T'
+                ? new TemporalBlock(cfg, rng)
+                : new Block(cfg, rng);
         if (cfg.NumLoops > 1)
         {
             // Zero-initialised, so a fresh looped model starts as a pure
@@ -236,9 +248,16 @@ public sealed class DecoderLM
         return aux;
     }
 
-    // ── one transformer block ────────────────────────────────────────────────────
+    // ── decoder blocks ───────────────────────────────────────────────────────────
 
-    private sealed class Block
+    private interface IDecoderBlock
+    {
+        IEnumerable<Tensor> Parameters();
+        Tensor Forward(Tensor x, float attnScale, float dropout, bool training, Random rng, float eps,
+                       ActivationProbe? probe, int blockIndex);
+    }
+
+    private sealed class Block : IDecoderBlock
     {
         private readonly int      _heads;
         private readonly Tensor   _ln1G, _ln1B, _ln2G, _ln2B;
@@ -297,6 +316,68 @@ public sealed class DecoderLM
             x = Ag.Add(x, Ag.Dropout(attn!, dropout, training, rng));
 
             // Feed-forward (pre-norm + residual).
+            var h2  = Ag.LayerNorm(x, _ln2G, _ln2B, eps);
+            var ff1 = Ag.Gelu(Ag.AddBias(Ag.MatMul(h2, _w1), _b1));
+            var ff2 = Ag.Dropout(Ag.AddBias(Ag.MatMul(ff1, _w2), _b2), dropout, training, rng);
+            return Ag.Add(x, ff2);
+        }
+    }
+
+    // ── temporal-state block (roadmap Phase 5) ──────────────────────────────────
+    //
+    // Replaces attention with a gated diagonal linear recurrence:
+    //   a_t = σ(h1·Wa + ba)        decay gate   (how much past survives)
+    //   i_t = σ(h1·Wi + bi)        input gate   (how much present enters)
+    //   u_t = h1·Wu + bu           input projection
+    //   s_t = a_t ⊙ s_{t−1} + i_t ⊙ u_t        (Ag.RecurrentScan)
+    //   out = s·Wo + bo
+    // The persistent state s is the LM-side sibling of the core network's
+    // temporal hidden state: O(1) memory instead of a growing transcript.
+    // Causality is inherent — the scan only ever looks backwards.
+
+    private sealed class TemporalBlock : IDecoderBlock
+    {
+        private readonly Tensor _ln1G, _ln1B, _ln2G, _ln2B;
+        private readonly Tensor _wa, _ba, _wi, _bi, _wu, _bu, _wo, _bo;   // recurrence
+        private readonly Tensor _w1, _b1, _w2, _b2;                       // feed-forward
+
+        public TemporalBlock(DecoderLmConfig cfg, Random rng)
+        {
+            _ln1G = AgInit.Ones(1, cfg.Dim); _ln1B = new Tensor(1, cfg.Dim);
+            _ln2G = AgInit.Ones(1, cfg.Dim); _ln2B = new Tensor(1, cfg.Dim);
+
+            _wa = AgInit.Randn(cfg.Dim, cfg.Dim, rng); _ba = new Tensor(1, cfg.Dim);
+            _wi = AgInit.Randn(cfg.Dim, cfg.Dim, rng); _bi = new Tensor(1, cfg.Dim);
+            _wu = AgInit.Randn(cfg.Dim, cfg.Dim, rng); _bu = new Tensor(1, cfg.Dim);
+            _wo = AgInit.Randn(cfg.Dim, cfg.Dim, rng); _bo = new Tensor(1, cfg.Dim);
+
+            _w1 = AgInit.Randn(cfg.Dim, cfg.FfDim, rng); _b1 = new Tensor(1, cfg.FfDim);
+            _w2 = AgInit.Randn(cfg.FfDim, cfg.Dim, rng); _b2 = new Tensor(1, cfg.Dim);
+        }
+
+        public IEnumerable<Tensor> Parameters()
+        {
+            yield return _ln1G; yield return _ln1B;
+            yield return _wa; yield return _ba; yield return _wi; yield return _bi;
+            yield return _wu; yield return _bu; yield return _wo; yield return _bo;
+            yield return _ln2G; yield return _ln2B;
+            yield return _w1; yield return _b1; yield return _w2; yield return _b2;
+        }
+
+        public Tensor Forward(Tensor x, float attnScale, float dropout, bool training, Random rng, float eps,
+                              ActivationProbe? probe, int blockIndex)
+        {
+            // Gated recurrence (pre-norm + residual). attnScale is unused —
+            // there is no attention here, and no sink to meter.
+            var h1 = Ag.LayerNorm(x, _ln1G, _ln1B, eps);
+            var a  = Ag.Sigmoid(Ag.AddBias(Ag.MatMul(h1, _wa), _ba));
+            var i  = Ag.Sigmoid(Ag.AddBias(Ag.MatMul(h1, _wi), _bi));
+            var u  = Ag.AddBias(Ag.MatMul(h1, _wu), _bu);
+            var s  = Ag.RecurrentScan(a, Ag.Mul(i, u));
+            var t  = Ag.AddBias(Ag.MatMul(s, _wo), _bo);
+            x = Ag.Add(x, Ag.Dropout(t, dropout, training, rng));
+
+            // Feed-forward (pre-norm + residual), same shape as the attention block.
             var h2  = Ag.LayerNorm(x, _ln2G, _ln2B, eps);
             var ff1 = Ag.Gelu(Ag.AddBias(Ag.MatMul(h2, _w1), _b1));
             var ff2 = Ag.Dropout(Ag.AddBias(Ag.MatMul(ff1, _w2), _b2), dropout, training, rng);

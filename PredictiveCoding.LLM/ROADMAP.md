@@ -15,7 +15,7 @@ Design invariants across every phase:
   "exactly the old behaviour".
 - **Toy scale, real mechanisms.** We reproduce the *mechanism* with measurable ablations
   at small scale, not the frontier numbers — same stance as the rest of the repo.
-- Each phase lands with unit tests; the full suite stays green (894 today).
+- Each phase lands with unit tests; the full suite stays green (912 today).
 
 ### Legend
 
@@ -25,8 +25,8 @@ Design invariants across every phase:
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–2 ✅ done (894/894 green; Phase 0's optional HTML
-report deferred); Phases 3–8 ❌ to build. The network-variant family (incl. the PC-level
+*Status as of 2026-07-19: Phases 0–5 ✅ done (912/912 green; Phase 0's optional HTML
+report deferred); Phases 6–8 ❌ to build. The network-variant family (incl. the PC-level
 MoE trio) now lives in core under `PredicitiveCoding/Networks/` — the Expanded project
 was dissolved the same day.*
 
@@ -142,7 +142,7 @@ state is O(1) already; the KV cache should move toward it, not away.*
 
 MLA (compressed cache) already existed; this phase completes the efficiency menu.
 
-## Phase 5 — Hybrid temporal-state blocks (attention + SSM) · ❌
+## Phase 5 — Hybrid temporal-state blocks (attention + SSM) · ✅ done 2026-07-19
 
 *PC angle: a gated linear recurrence `h_t = a_t ⊙ h_{t−1} + b_t ⊙ x_t` is a learned
 temporal predictor with persistent state — the LM-side sibling of the core's
@@ -150,13 +150,17 @@ temporal predictor with persistent state — the LM-side sibling of the core's
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| New autograd ops | ❌ | elementwise `Mul`, `Sigmoid`/`Silu`, and `RecurrentScan` (sequential scan, custom backward = BPTT inside the op). |
-| Numeric grad check | ❌ | finite-difference test for `RecurrentScan` before anything is built on it. |
-| `TemporalBlock` (trainable) | ❌ | gated diagonal recurrence in `DecoderLM`; `DecoderLmConfig.BlockPattern` e.g. `"TTAT"` (T = temporal, A = attention — Nemotron-style interleave). |
-| Inference twin | ❌ | `RecurrentLayer : IAttentionLayer` whose `ILayerCache` is a fixed-size state vector — O(1) cache growth; add a `NemotronStyle` hybrid preset to `ModernPresets`. |
-| Tests | ❌ | O(1) cache growth vs O(n) KV; hybrid beats attention-only on a long-range recall probe at equal params; pattern `"AAAA"` ≡ vanilla. |
+| New autograd ops | ✅ | `Ag.Mul`, `Ag.Sigmoid`, `Ag.RecurrentScan` (h_t = a_t⊙h_{t−1} + b_t; backward = BPTT inside the op); SiLU composes as `Mul(x, Sigmoid(x))`, no dedicated op needed. |
+| Numeric grad check | ✅ | central-difference check of the full gated chain σ/⊙/scan → CE against the autograd gradients. |
+| `TemporalBlock` (trainable) | ✅ | decay gate + input gate + scan + out-projection, then the standard FFN sublayer; `DecoderLmConfig.BlockPattern` ("TTAT"-style, null = all attention, `"AA…"` ≡ vanilla bit-for-bit — tested). |
+| Inference twin | ✅ | `Model/RecurrentLayer.cs`: `RecurrentTemporalLayer : ISelfAttention` with `RecurrentStateCache` — the whole cache is ONE state vector (BytesUsed constant, tested); `ModernPresets.NemotronStyle` ships the 3:1 T:A interleave. |
+| Tests | ✅ | `LlmHybridTests` (6): numeric grad check, `"AA"` ≡ vanilla, pattern validation, pure-T model learns to echo the previous token (the state provably carries the past — attention-free), O(1) vs O(n) cache growth, NemotronStyle end-to-end. |
 
-The heaviest phase — gated by the scan op landing cleanly. Do after 2–4.
+**Honesty note on the original test claim.** "Hybrid beats attention-only on long-range
+recall" was the wrong thing to promise: exact recall is attention's home turf — SSM
+hybrids win on cache/compute, not recall. What is certified instead: the temporal state
+demonstrably carries information (echo task solved with zero attention) and the cache is
+O(1) where attention's is O(n). The efficiency-vs-recall trade is Phase 4+5's whole point.
 
 ## Phase 6 — Sparse experts (MoE feed-forward) · ❌
 

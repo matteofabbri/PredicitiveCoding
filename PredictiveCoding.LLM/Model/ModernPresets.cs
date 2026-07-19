@@ -5,6 +5,8 @@ namespace PredictiveCoding.LLM.Model;
 //
 //   • Llama3Style : RMSNorm + SwiGLU + RoPE + grouped-query attention
 //     (Llama 3 / Qwen2-3 / Mistral).
+//   • NemotronStyle : the above with a 3:1 temporal:attention hybrid interleave
+//     (Nemotron 3 / Mamba-hybrid, 2026) — O(1) cache on the temporal layers.
 //   • DeepSeekStyle : the above, plus Multi-head Latent Attention (DeepSeek-V2/V3),
 //     QK-Norm (OLMo 2 / Gemma 2 / Qwen3) and attention/final logit soft-capping
 //     (Gemma 2).
@@ -28,6 +30,28 @@ public static class ModernPresets
             NumKvHeads = kvHeads, NumLayers = layers, FeedForwardDim = ff,
             Norm = NormKind.RmsNorm, Ffn = FeedForwardKind.SwiGlu, Positional = PositionalKind.Rotary,
         };
+
+    /// <summary>
+    /// Nemotron-3-style hybrid (2026): attention interleaved with gated
+    /// temporal-state layers — 3 temporal : 1 attention, O(1) cache on the
+    /// temporal layers — plus RMSNorm + SwiGLU + RoPE + GQA.
+    /// </summary>
+    public static TransformerConfig NemotronStyle(
+        int vocab = 260, int maxSeq = 256, int embed = 128, int heads = 4,
+        int kvHeads = 2, int layers = 4, int ff = 512)
+    {
+        // 3:1 temporal:attention interleave, attention every 4th layer.
+        var pattern = new char[layers];
+        for (int l = 0; l < layers; l++) pattern[l] = (l + 1) % 4 == 0 ? 'A' : 'T';
+
+        return new TransformerConfig
+        {
+            VocabSize = vocab, MaxSeqLen = maxSeq, EmbedDim = embed, NumHeads = heads,
+            NumKvHeads = kvHeads, NumLayers = layers, FeedForwardDim = ff,
+            Norm = NormKind.RmsNorm, Ffn = FeedForwardKind.SwiGlu, Positional = PositionalKind.Rotary,
+            BlockPattern = new string(pattern),
+        };
+    }
 
     /// <summary>DeepSeek-V3 style: MLA + SwiGLU + RMSNorm + QK-Norm + Gemma-2 soft-caps.</summary>
     public static TransformerConfig DeepSeekStyle(

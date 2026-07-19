@@ -70,11 +70,11 @@ public sealed class TransformerBlock
     private readonly ISelfAttention _attn;
     private readonly IFeedForward   _ffn;
 
-    public TransformerBlock(TransformerConfig cfg, Random rng)
+    public TransformerBlock(TransformerConfig cfg, Random rng, bool temporal = false)
     {
         _ln1  = Norms.Create(cfg);
         _ln2  = Norms.Create(cfg);
-        _attn = Attentions.Create(cfg, rng);
+        _attn = temporal ? new RecurrentTemporalLayer(cfg, rng) : Attentions.Create(cfg, rng);
         _ffn  = FeedForwards.Create(cfg, rng);
     }
 

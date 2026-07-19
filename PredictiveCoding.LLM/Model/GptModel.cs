@@ -35,7 +35,8 @@ public sealed class GptModel
         _embedding  = new Embedding(cfg.VocabSize, cfg.EmbedDim, rng);
         _positional = cfg.Positional == PositionalKind.Sinusoidal ? new PositionalEncoding(cfg.EmbedDim) : null;
         _blocks     = new TransformerBlock[cfg.NumLayers];
-        for (int l = 0; l < cfg.NumLayers; l++) _blocks[l] = new TransformerBlock(cfg, rng);
+        for (int l = 0; l < cfg.NumLayers; l++)
+            _blocks[l] = new TransformerBlock(cfg, rng, temporal: cfg.BlockPattern?[l] == 'T');
         _lnFinal    = Norms.Create(cfg);
         _lmHead     = cfg.TieEmbeddings ? null : new Linear(cfg.EmbedDim, cfg.VocabSize, rng);
     }

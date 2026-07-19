@@ -132,6 +132,15 @@ public sealed record TransformerConfig
     /// </summary>
     public bool KvCacheHalf { get; init; } = false;
 
+    // ── Hybrid attention + temporal-state layers (roadmap Phase 5) ─────────────
+
+    /// <summary>
+    /// Per-layer kind string, one char per layer: 'A' = attention,
+    /// 'T' = gated temporal-state recurrence (O(1) cache — Nemotron-style
+    /// hybrid interleave). Null = all attention (the default).
+    /// </summary>
+    public string? BlockPattern { get; init; } = null;
+
     /// <summary>Per-head dimensionality = EmbedDim / NumHeads.</summary>
     public int HeadDim => EmbedDim / NumHeads;
 
@@ -167,6 +176,14 @@ public sealed record TransformerConfig
             throw new InvalidOperationException("NumSinkTokens needs WindowSize > 0 (sinks only matter when the window evicts).");
         if (WindowSize > 0 && Attention == AttentionKind.Latent)
             throw new InvalidOperationException("Sliding-window attention applies to the standard KV path; MLA already compresses its cache.");
+        if (BlockPattern is { } bp)
+        {
+            if (bp.Length != NumLayers)
+                throw new InvalidOperationException($"BlockPattern length ({bp.Length}) must equal NumLayers ({NumLayers}).");
+            foreach (char c in bp)
+                if (c != 'A' && c != 'T')
+                    throw new InvalidOperationException($"BlockPattern may only contain 'A' (attention) or 'T' (temporal), found '{c}'.");
+        }
         if (NumLayers < 1)       throw new InvalidOperationException("NumLayers must be >= 1.");
         if (FeedForwardDim < 1)  throw new InvalidOperationException("FeedForwardDim must be >= 1.");
         if (LayerNormEps <= 0f)  throw new InvalidOperationException("LayerNormEps must be > 0.");

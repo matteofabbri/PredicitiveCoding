@@ -396,4 +396,68 @@ public static class Ag
         };
         return o;
     }
+
+    // ── Temporal-state ops (roadmap Phase 5) ─────────────────────────────────
+
+    /// <summary>Elementwise product a ⊙ b (same shape).</summary>
+    public static Tensor Mul(Tensor a, Tensor b)
+    {
+        var o = new Tensor(a.Rows, a.Cols) { Parents = [a, b] };
+        for (int i = 0; i < o.Data.Length; i++) o.Data[i] = a.Data[i] * b.Data[i];
+        o.BackwardFn = () =>
+        {
+            for (int i = 0; i < o.Data.Length; i++)
+            {
+                a.Grad[i] += o.Grad[i] * b.Data[i];
+                b.Grad[i] += o.Grad[i] * a.Data[i];
+            }
+        };
+        return o;
+    }
+
+    /// <summary>Elementwise logistic sigmoid σ(x); dσ = σ·(1−σ).</summary>
+    public static Tensor Sigmoid(Tensor x)
+    {
+        var o = new Tensor(x.Rows, x.Cols) { Parents = [x] };
+        for (int i = 0; i < o.Data.Length; i++) o.Data[i] = 1f / (1f + MathF.Exp(-x.Data[i]));
+        o.BackwardFn = () =>
+        {
+            for (int i = 0; i < o.Data.Length; i++)
+                x.Grad[i] += o.Grad[i] * o.Data[i] * (1f - o.Data[i]);
+        };
+        return o;
+    }
+
+    /// <summary>
+    /// Gated linear recurrence over the rows (time): h_t = a_t ⊙ h_{t−1} + b_t
+    /// with h_{−1} = 0 — the diagonal state-space scan hybrid architectures
+    /// build on. The backward pass is BPTT run inside the op:
+    ///   g_t = ∂L/∂h_t + a_{t+1} ⊙ g_{t+1},   ∂L/∂b_t = g_t,   ∂L/∂a_t = g_t ⊙ h_{t−1}.
+    /// </summary>
+    public static Tensor RecurrentScan(Tensor a, Tensor b)
+    {
+        int T = a.Rows, d = a.Cols;
+        var o = new Tensor(T, d) { Parents = [a, b] };
+
+        for (int i = 0; i < d; i++) o.Data[i] = b.Data[i];               // h_0 (empty past)
+        for (int t = 1; t < T; t++)
+            for (int i = 0; i < d; i++)
+                o.Data[t * d + i] = a.Data[t * d + i] * o.Data[(t - 1) * d + i] + b.Data[t * d + i];
+
+        o.BackwardFn = () =>
+        {
+            var g = new float[d];                                        // carries g_{t+1} down the time axis
+            for (int t = T - 1; t >= 0; t--)
+            {
+                for (int i = 0; i < d; i++)
+                {
+                    float gt = o.Grad[t * d + i] + (t + 1 < T ? a.Data[(t + 1) * d + i] * g[i] : 0f);
+                    b.Grad[t * d + i] += gt;
+                    if (t > 0) a.Grad[t * d + i] += gt * o.Data[(t - 1) * d + i];
+                    g[i] = gt;
+                }
+            }
+        };
+        return o;
+    }
 }
