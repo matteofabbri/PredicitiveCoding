@@ -25,7 +25,7 @@ Design invariants across every phase:
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: **ROADMAP CLOSED** — Phases 0–8 all ✅ (935/935 green), HTML
+*Status as of 2026-07-19: **ROADMAP CLOSED** — Phases 0–8 all ✅ (962/962 green), HTML
 report included. The network-variant family (incl. the PC-level MoE trio) now lives in
 core under `PredicitiveCoding/Networks/` — the Expanded project was dissolved the same
 day. The three post-roadmap openings closed the same evening: FLOP-sparse MoE execution
@@ -33,6 +33,17 @@ day. The three post-roadmap openings closed the same evening: FLOP-sparse MoE ex
 to mixed precision (`Ag.MatMulRoute` — see ROADMAP-MixedPrecision Phase 5), and a real
 LM Studio distillation run (demo option 10, `LmDistillationDemo` — verified end-to-end
 against the live server).*
+
+**The finished product: `PredictiveLlm`** (`PredictiveCoding.LLM/PredictiveLlm.cs`) —
+the ingredients above composed into one class, six verbs: `Create2026()` (hybrid T/A
+pattern + looped depth + t+2 head + FLOP-sparse MoE + latent plan, all on at once),
+`Train` (windowed dataset, held-out split, LR schedule, perplexity before/after),
+`Generate`/`GenerateDetailed` (self-speculative decoding, optional plan settling —
+restored afterwards, so the model stays stateless between calls), `Evaluate`,
+`DistillFrom`/`DistillOnPolicy` (teacher = one delegate), `Save`/`Load` (config JSON +
+checkpoint, bit-faithful), `Report` (the Phase 0 observatory as one HTML file).
+Driven end-to-end by `PredictiveLlmTests` (8) — including train-improves-perplexity
+with every feature enabled simultaneously.
 
 ### Paper anchors → phases
 
