@@ -24,11 +24,13 @@ Design invariants (inherited from every previous roadmap):
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–7 ✅ done (real BPE tokenizer travelling with the
-model, the O(n) serving path, real sampling + chat, parallel training + adaptive GEMM
-routing, streaming data pipeline with mixing/hygiene/hashed split, professional
-checkpointing with true resume + quantized weights, robust continual learning with
-replay + surprise-lr + forgetting guardrail, episodic memory graft); Phase 8 ❌ to build.*
+*Status as of 2026-07-19: **ROADMAP-Pro CLOSED** — Phases 0–8 all ✅ (1015 tests green).
+Real BPE tokenizer travelling with the model, the O(n) serving path, real sampling + chat,
+parallel training + adaptive GEMM routing, streaming data pipeline with mixing/hygiene/hashed
+split, professional checkpointing with true resume + quantized weights, robust continual
+learning with replay + surprise-lr + forgetting guardrail, the episodic-memory graft, and the
+multi-metric eval + Report v2 + regression harness. PredictiveLlm is now professional-grade
+at toy scale — every mechanism real, measured, and covered by tests.*
 
 *Architecture map: **`ARCHITECTURE.html`** — the layered diagram from `PredictiveLlm`
 down to FasterKV (product subsystems → shared tensor foundations → the PC branch),
@@ -182,13 +184,14 @@ hippocampal `MemoryBank` as episodic store. No SE(3)/Thousand-Brains (no pose st
 language) and no Cortex areas inside the forward (different compute regime); the useful cortical
 ideas are already carried natively (MoE = gating, T-blocks = temporal state, effort = settling).
 
-## Phase 8 — Pro evaluation & observability · ❌
+## Phase 8 — Pro evaluation & observability · ✅ done 2026-07-19
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Multi-metric eval | ❌ | bits/byte, per-domain ppl, probe tasks (echo/recall/induction — the Phase-5 probes productized), tokens/s train + serve. |
-| Report v2 | ❌ | the HTML observatory grows: training curves, memory hit-rate, speculative acceptance, MoE expert load, cache bytes — still one light-theme file, no external refs. |
-| Regression harness | ❌ | one command that runs the full yardstick and diffs against the last committed numbers — the "did I make it worse?" button. |
+| Multi-metric eval | ✅ | `Eval/ProEval.Run` → `ProEvalReport`: bits/byte on a reference text, per-domain perplexity (name → held-out text), behavioural probes (echo + induction as teacher-forced next-token accuracy — the Phase-0 probes turned into scores), serve tokens/s. |
+| Report v2 | ✅ | `HtmlReport.RenderPro`/`SavePro` — the multi-metric observatory (headline cards + per-domain ppl table + optional activation/spike table) as one self-contained light-theme page, no external refs (tested: no `http(s)://`). |
+| Regression harness | ✅ | `Eval/RegressionHarness` — `Flatten` a report to a metric dict, `Save`/`Load` JSON baseline, `Diff` with a per-metric sense of direction (ppl & bits/byte lower-is-better; probes & tok/s higher-is-better) → the `MetricRegression` list, `Summarize` for the one-line "did I make it worse?" verdict. |
+| Tests | ✅ | `LlmProPhase8Tests` (6): all metrics finite + named, direction-aware diff (a worsened ppl AND a dropped probe both flagged, an improvement never is), clean run = no regressions, baseline JSON round-trip = self-clean, Report v2 self-contained. |
 
 ---
 
