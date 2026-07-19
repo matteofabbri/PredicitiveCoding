@@ -24,8 +24,8 @@ Design invariants (inherited from every previous roadmap):
 | 🟡 | **Partial** — building block exists, needs extension. |
 | ❌ | **To build** — not present yet. |
 
-*Status as of 2026-07-19: Phases 0–1 ✅ done (real BPE tokenizer travelling with the
-model + the O(n) serving path); Phases 2–8 ❌ to build.*
+*Status as of 2026-07-19: Phases 0–2 ✅ done (real BPE tokenizer travelling with the
+model, the O(n) serving path, real sampling + chat); Phases 3–8 ❌ to build.*
 
 **Where this starts from** (all ✅, see `ROADMAP.md`): `PredictiveLlm` with hybrid
 T/A blocks, looped depth, t+2 head + self-speculative decoding, FLOP-sparse MoE,
@@ -103,16 +103,16 @@ talk. Train with one, serve with the other.*
 The highest power-per-line phase: every Phase-4 cache feature finally serves the model
 we actually train. Tests: `LlmProPhase1Tests` (4).
 
-## Phase 2 — Sampling & chat · ❌
+## Phase 2 — Sampling & chat · ✅ done 2026-07-19
 
 *Greedy only is a demo, not a product.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| Sampling in the product | ❌ | temperature, top-k, top-p, repetition penalty in `GenerationOptions` (the `Sampling` helpers exist on the GptModel side — port/share). Greedy stays the deterministic default. |
-| Speculative + sampling | ❌ | drafts verified by acceptance-threshold instead of exact match (standard speculative sampling) — or honestly documented greedy-only if the math doesn't pay at our scale. |
-| `Chat()` surface | ❌ | history + system turn via `ChatTemplate`, stop sequences, per-turn `LearnFromPrompt` opt-in (learn from the user, never from the assistant turn — the self-feeding rule extended to chat). |
-| Tests | ❌ | temperature 0 ≡ greedy bit-for-bit; top-k/p bounds; stop sequences; chat template round-trip. |
+| Sampling in the product | ✅ | `GenerationOptions.Sampling` exposes the EXISTING `Generation.SamplingOptions`/`Sampler` (temperature, top-k, top-p, repetition/presence/frequency penalties, seed — zero duplication); null = the deterministic greedy/speculative path, bit-identical by construction; product sampling is reproducible by default (seed 42 when unset). Same knobs on the served path: `LlmServer.Generate(prompt, n, GenerationOptions)` — incremental sampling through the KV cache. |
+| Speculative + sampling | ✅ | honestly greedy-only, as the task allowed: exact-match draft verification is a greedy notion; acceptance-threshold speculative sampling doesn't pay at toy scale. Sampling decodes token-by-token; the speculative path stays the greedy default. |
+| `Chat()` surface | ✅ | `StartChat(system)` → `ChatSession`: role-tagged history via `ChatTemplate`, replies stop at the next role tag, caller stop sequences merge in. The self-feeding rule extends to chat: `learnFromUser` absorbs ONLY the user's words — never the formatted history, never the assistant's own turns. Window overflow throws clearly (history compression is a later phase). |
+| Tests | ✅ | `LlmProPhase2Tests` (7): greedy-flag and top-k=1 ≡ default greedy, per-seed reproducibility + cross-seed variety, repetition penalty breaks the learned loop, stop sequences cut greedy AND end sampling early (forwards saved, asserted), server takes the same knobs, chat history/role-tag hygiene, learn-from-user drops the user's surprise. |
 
 ## Phase 3 — Training throughput · ❌
 

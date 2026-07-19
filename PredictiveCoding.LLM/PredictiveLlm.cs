@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using PredictiveCoding.Core;
 using PredictiveCoding.LLM.Autograd;
 using PredictiveCoding.LLM.Data;
 using PredictiveCoding.LLM.Eval;
@@ -171,15 +172,66 @@ public sealed class PredictiveLlm
 
         try
         {
+            if (opts.Sampling is { } so)
+                return SampleLoop(ctxIds, maxNewTokens, opts, so);
+
             int eos = opts.StopAtEos ? Tokenizer.Eos : -1;
             var run = SelfSpeculative.Generate(Model, ctxIds, maxNewTokens, eos);
             string text = Tokenizer.Decode(run.Tokens[ctxIds.Count..]);
+            CutAtStop(ref text, opts.StopSequences);
             return new GenerationResult(text, run.Forwards, run.Drafted, run.Accepted);
         }
         finally
         {
             if (savedPlan is not null) Model.SetPlan(savedPlan);
         }
+    }
+
+    // Stochastic decoding (Pro roadmap Phase 2): token-by-token sampling via the
+    // Generation.Sampler — penalties see the whole visible sequence (prompt +
+    // generated), stop sequences end the loop early and save the forwards.
+    private GenerationResult SampleLoop(IReadOnlyList<int> ctxIds, int maxNewTokens, GenerationOptions opts, SamplingOptions so)
+    {
+        var sampler   = new Sampler(so.Seed ?? 42);        // reproducible by default in the product
+        var seq       = new List<int>(ctxIds);
+        var generated = new List<int>();
+        int vocab     = Config.Vocab;
+        int forwards  = 0;
+        string text   = "";
+
+        while (generated.Count < maxNewTokens && seq.Count < Config.MaxSeq)
+        {
+            var logits = Model.Forward([.. seq]);
+            forwards++;
+
+            var row = new DenseTensor<float>(vocab);
+            Array.Copy(logits.Data, (seq.Count - 1) * vocab, row.Buffer, 0, vocab);
+            int next = sampler.Sample(row, seq, so);
+
+            if (opts.StopAtEos && next == Tokenizer.Eos) break;
+            generated.Add(next);
+            seq.Add(next);
+
+            text = Tokenizer.Decode(generated);
+            if (CutAtStop(ref text, opts.StopSequences)) break;
+        }
+        return new GenerationResult(text, forwards, Drafted: 0, Accepted: 0);
+    }
+
+    // Cuts the text just before the first stop sequence; true when a cut happened.
+    private static bool CutAtStop(ref string text, string[]? stops)
+    {
+        if (stops is null) return false;
+        int cut = -1;
+        foreach (string s in stops)
+        {
+            if (string.IsNullOrEmpty(s)) continue;
+            int i = text.IndexOf(s, StringComparison.Ordinal);
+            if (i >= 0 && (cut < 0 || i < cut)) cut = i;
+        }
+        if (cut < 0) return false;
+        text = text[..cut];
+        return true;
     }
 
     // ── Serve ────────────────────────────────────────────────────────────────
@@ -192,6 +244,14 @@ public sealed class PredictiveLlm
     /// later training or Learn calls need a new server.
     /// </summary>
     public LlmServer CreateServer() => new(GptExporter.Export(Model), Tokenizer);
+
+    /// <summary>
+    /// Opens a chat session on this model (Pro roadmap Phase 2): role-tagged
+    /// history via <see cref="Generation.ChatTemplate"/>, replies stopped at the
+    /// next role tag. Learning during chat follows the self-feeding rule: only
+    /// the USER's words can be absorbed, never the assistant's own output.
+    /// </summary>
+    public ChatSession StartChat(string? system = null) => new(this, system);
 
     // ── Evaluate ─────────────────────────────────────────────────────────────
 
