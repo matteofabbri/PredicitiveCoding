@@ -38,8 +38,8 @@ public sealed class PredictiveLlm
     // (getta se il Model non e' denso/PC-compatibile — vedi CreatePc).
     private Training.PcDecoderTrainer? _pc;
 
-    /// <summary>Ancora Adam nel training PC: ogni quanti step PC un burst (0 = spenta). Applicata quando LearnPc crea il trainer.</summary>
-    public int PcAnchorEvery { get; set; }
+    /// <summary>Ancora Adam nel training PC: ogni quanti step PC un burst (0 = spenta). Applicata quando LearnPc crea il trainer. Default: <see cref="Training.PcDecoderTrainer.DefaultAnchorEvery"/>.</summary>
+    public int PcAnchorEvery { get; set; } = Training.PcDecoderTrainer.DefaultAnchorEvery;
     /// <summary>Passi di Adam per scatto d'ancora.</summary>
     public int PcAnchorBurst { get; set; } = 3;
 

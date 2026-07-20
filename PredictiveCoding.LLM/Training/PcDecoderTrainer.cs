@@ -51,8 +51,15 @@ public sealed class PcDecoderTrainer
     // Ogni AnchorEvery step, un breve burst di backprop+Adam "rimette in riga"
     // il PC (il suo gradiente locale è biased: l'ancora ri-centra sulla loss
     // vera). m/v di Adam RE-INIZIALIZZATI a ogni scatto (niente stato stantio).
-    /// <summary>Ogni quanti step un burst di ancora (0 = spenta).</summary>
-    public int AnchorEvery { get; init; } = 0;
+    /// <summary>
+    /// L'UNICA sorgente del default della cadenza d'ancora (ogni quanti step PC
+    /// scatta un burst di Adam). Gli altri strati (PredictiveLlm, LlmOptions)
+    /// NON ridefiniscono questo numero: lo riferiscono o lo lasciano com'è.
+    /// </summary>
+    public const int DefaultAnchorEvery = 2048;
+
+    /// <summary>Ogni quanti step un burst di ancora (0 = spenta). Default: <see cref="DefaultAnchorEvery"/>.</summary>
+    public int AnchorEvery { get; init; } = DefaultAnchorEvery;
     /// <summary>Passi di Adam per scatto d'ancora.</summary>
     public int AnchorBurst { get; init; } = 3;
     /// <summary>Learning-rate dell'ancora Adam.</summary>
