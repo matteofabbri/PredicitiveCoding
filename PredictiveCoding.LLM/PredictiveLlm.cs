@@ -78,6 +78,23 @@ public sealed class PredictiveLlm
         return new PredictiveLlm(Config2026(tok.VocabSize, dim, blocks, heads, ffDim, maxSeq), tok, seed);
     }
 
+    /// <summary>
+    /// ROADMAP-Scale B1 — the ~30M-class model on a real tokenizer: the vocab
+    /// comes from <paramref name="tokenizer"/> (train a 16k BPE with
+    /// <see cref="BpeTokenizer.TrainFromCorpus"/> first). Dense GPT-2-style
+    /// config, meant for real pretraining, not the mechanism showcase.
+    /// </summary>
+    public static PredictiveLlm CreateSmall(ITokenizer tokenizer, int maxSeq = 512, int seed = 42) =>
+        new(DecoderLmConfig.Small(tokenizer.VocabSize, maxSeq), tokenizer, seed);
+
+    /// <summary>
+    /// ROADMAP-Scale B1 — the GPT-2-small-class model (~135M @ 32k vocab) on a
+    /// real tokenizer. Sized for one RTX 4070 with mixed precision + gradient
+    /// accumulation (see the B3 memory table in ROADMAP-Scale.md).
+    /// </summary>
+    public static PredictiveLlm CreateBase(ITokenizer tokenizer, int maxSeq = 1024, int seed = 42) =>
+        new(DecoderLmConfig.Base(tokenizer.VocabSize, maxSeq), tokenizer, seed);
+
     private static DecoderLmConfig Config2026(int vocab, int dim, int blocks, int heads, int ffDim, int maxSeq)
     {
         var pattern = new char[blocks];

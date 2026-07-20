@@ -16,7 +16,7 @@ namespace PredictiveCoding.LLM.Autograd;
 // LayerNorm, Gelu, Add, AddBias, Dropout).
 //
 // Forward (pre-norm + residual, GPT-style):
-//   x  = onehot(tokens)·Wemb + positional
+//   x  = Wemb[tokens] + positional      (row gather ≡ onehot(tokens)·Wemb)
 //   repeat NumLoops times (weight-tied; + per-loop bias when NumLoops > 1):
 //     for each block:
 //       x += Dropout( Σ_h  softmaxCausal((h1·Wq_h)(h1·Wk_h)ᵀ·scale)·(h1·Wv_h) · Wo_h )
@@ -77,6 +77,41 @@ public sealed record DecoderLmConfig(
             throw new ArgumentException($"MoeTopK ({MoeTopK}) must be in [1, NumExperts ({NumExperts})].");
         if (MoeBalanceWeight < 0f)
             throw new ArgumentException($"MoeBalanceWeight ({MoeBalanceWeight}) must be >= 0 (0 disables the balance loss).");
+    }
+
+    // ── Scale presets (ROADMAP-Scale B1) ─────────────────────────────────────
+    //
+    // Plain GPT-2-style dense decoders: every block is attention, dense FFN
+    // (4×dim), head dim 64, no loops/MTP/MoE/plan — the 2026 toy stays the
+    // showcase of every mechanism; these are the configs meant to be TRAINED
+    // for real on one RTX 4070, where pretraining throughput and a clean
+    // GPT-2 comparison matter more than mechanism coverage. Any 2026 feature
+    // can still be switched on per-run via `with { … }` (it is a record).
+    //
+    // Parameters (dense, untied embeddings — see ParameterFormula):
+    //   2·vocab·dim + blocks·(4·dim² + 2·dim·ffn + ffn + 5·dim) + 2·dim
+    //   Small: 26.8M @ vocab 16k   (39.4M @ 32k)
+    //   Base:  135.4M @ vocab 32k  (GPT-2-small class: 768×12, ctx 1024)
+
+    /// <summary>~30M-class preset (dim 384, 8 blocks, 6 heads, ffn 1536): 26.8M parameters at a 16k vocab.</summary>
+    public static DecoderLmConfig Small(int vocab, int maxSeq = 512) =>
+        new(vocab, Dim: 384, NumBlocks: 8, NumHeads: 6, FfDim: 1536, MaxSeq: maxSeq);
+
+    /// <summary>GPT-2-small-class preset (dim 768, 12 blocks, 12 heads, ffn 3072): 135.4M parameters at a 32k vocab.</summary>
+    public static DecoderLmConfig Base(int vocab, int maxSeq = 1024) =>
+        new(vocab, Dim: 768, NumBlocks: 12, NumHeads: 12, FfDim: 3072, MaxSeq: maxSeq);
+
+    /// <summary>
+    /// Exact parameter count for a DENSE config (no loops/MTP/MoE/plan) without
+    /// instantiating the tensors — must match <see cref="DecoderLM.ParameterCount"/>;
+    /// the B3 memory budget builds on it.
+    /// </summary>
+    public long DenseParameterFormula()
+    {
+        if (NumExperts > 0 || NumLoops > 1 || MtpWeight > 0f || UsePlan || BlockPattern is not null)
+            throw new InvalidOperationException("DenseParameterFormula only covers the plain dense-attention config.");
+        long perBlock = 4L * Dim * Dim + 2L * Dim * FfDim + FfDim + 5L * Dim;
+        return 2L * Vocab * Dim + NumBlocks * perBlock + 2L * Dim;
     }
 }
 
@@ -191,10 +226,11 @@ public sealed class DecoderLM
             throw new ArgumentException($"Sequence length {seq} exceeds MaxSeq {Config.MaxSeq}.");
         ForwardTokens += seq;
 
-        var oneHot = new Tensor(seq, Config.Vocab);
-        for (int i = 0; i < seq; i++) oneHot.Data[i * Config.Vocab + tokens[i]] = 1f;
-
-        var x = Ag.MatMul(oneHot, _wemb);                                  // [seq, dim]
+        // Embedding as a row gather — the same maths as onehot(tokens)·Wemb
+        // (forward copies row t; backward scatter-adds dx into row t) without
+        // materialising a [seq, vocab] one-hot: at a real vocab (16k-32k,
+        // ROADMAP-Scale B1) the one-hot matmul would dominate the whole step.
+        var x = Ag.GatherRows(_wemb, tokens);                              // [seq, dim]
         x = Ag.Add(x, AgPositional.Sinusoidal(seq, Config.Dim));           // + positions
         if (_plan is not null)
             x = Ag.AddBias(x, _plan);                                      // latent plan conditioning (Phase 8)
