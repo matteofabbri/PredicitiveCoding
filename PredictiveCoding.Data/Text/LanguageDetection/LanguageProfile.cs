@@ -1,84 +1,42 @@
-using System.IO.Compression;
-using System.Text;
+// Copyright 2014 Pēteris Ņikiforovs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+using System.Text.Json.Serialization;
 
 namespace PredictiveCoding.Data.Text;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LanguageProfile  —  the offline language-detection model.
+// LanguageProfile  —  one embedded langdetect profile (Resources/LangProfiles/<code>).
 //
-// A character-n-gram naïve-Bayes model (Nakatani-Shuyo style): for each 1–3 char
-// n-gram (keyed by its CaseSensitiveHash32) the per-language probability. The data
-// is the model bundled in Catalyst, extracted once into a compact deflate-compressed
-// file by tools/CatalystImport and embedded here, so detection runs fully offline
-// with no Catalyst dependency at runtime.
+// The native JSON format of the original language-detection project (Nakatani
+// Shuyo): per-language counts of 1–3 char n-grams over Wikipedia text, plus the
+// total n-gram count per order. The 53 profile files are imported verbatim from
+// Maddalena.Cognitive (production-proven); only the parser changed (Newtonsoft →
+// System.Text.Json), the data is byte-identical.
 // ─────────────────────────────────────────────────────────────────────────────
 
-public sealed class LanguageProfile
+internal sealed class LanguageProfile
 {
-    private const uint Magic = 0x50434C44;   // "PCLD"
+    /// <summary>ISO 639-1 code of the profile (e.g. "it"; Chinese uses "zh-cn"/"zh-tw").</summary>
+    [JsonPropertyName("name")]
+    public string Code { get; set; } = "";
 
-    /// <summary>Language labels, indexed by the language index used in <see cref="Probabilities"/>.</summary>
-    public string[] Languages { get; }
+    /// <summary>n-gram → occurrence count. Keys keep case and word-boundary spaces (" ca", "ne ").</summary>
+    [JsonPropertyName("freq")]
+    public Dictionary<string, int> Frequencies { get; set; } = new();
 
-    /// <summary>n-gram hash → array of (language index, probability).</summary>
-    public IReadOnlyDictionary<int, (int Lang, double Prob)[]> Probabilities { get; }
-
-    private LanguageProfile(string[] languages, Dictionary<int, (int, double)[]> probabilities)
-    {
-        Languages = languages;
-        Probabilities = probabilities;
-    }
-
-    /// <summary>Loads the model embedded in this assembly (the default offline profile).</summary>
-    public static LanguageProfile LoadEmbedded()
-    {
-        var assembly = typeof(LanguageProfile).Assembly;
-        string name = Array.Find(assembly.GetManifestResourceNames(),
-                          n => n.EndsWith("langdetect.bin", StringComparison.Ordinal))
-                      ?? throw new InvalidOperationException(
-                          "Embedded language model 'langdetect.bin' not found. Run tools/CatalystImport and rebuild.");
-        using var stream = assembly.GetManifestResourceStream(name)!;
-        return Load(stream);
-    }
-
-    /// <summary>Loads a model from a file produced by tools/CatalystImport.</summary>
-    public static LanguageProfile Load(string path)
-    {
-        using var fs = File.OpenRead(path);
-        return Load(fs);
-    }
-
-    /// <summary>Loads a model from a (deflate-compressed) stream.</summary>
-    public static LanguageProfile Load(Stream compressed)
-    {
-        using var deflate = new DeflateStream(compressed, CompressionMode.Decompress);
-        using var br = new BinaryReader(deflate, Encoding.UTF8);
-
-        if (br.ReadUInt32() != Magic)
-            throw new InvalidDataException("Not a PredictiveCoding language profile.");
-        int format = br.ReadInt32();
-        if (format != 1)
-            throw new InvalidDataException($"Unsupported language-profile format {format}.");
-
-        int langCount = br.ReadInt32();
-        var languages = new string[langCount];
-        for (int i = 0; i < langCount; i++) languages[i] = br.ReadString();
-
-        int entryCount = br.ReadInt32();
-        var probabilities = new Dictionary<int, (int, double)[]>(entryCount);
-        for (int e = 0; e < entryCount; e++)
-        {
-            int hash = br.ReadInt32();
-            int k = br.ReadInt32();
-            var perLang = new (int, double)[k];
-            for (int j = 0; j < k; j++)
-            {
-                int langIndex = br.ReadInt32();
-                double prob = br.ReadDouble();
-                perLang[j] = (langIndex, prob);
-            }
-            probabilities[hash] = perLang;
-        }
-        return new LanguageProfile(languages, probabilities);
-    }
+    /// <summary>Total n-gram occurrences per order; index 0 = 1-grams, 1 = 2-grams, 2 = 3-grams.</summary>
+    [JsonPropertyName("n_words")]
+    public long[] WordCount { get; set; } = [];
 }

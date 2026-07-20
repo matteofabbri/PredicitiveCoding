@@ -36,10 +36,13 @@
     <ProjectReference Include="..\PredictiveCoding.Imaging\PredictiveCoding.Imaging.csproj" />
   </ItemGroup>
 
-  <!-- Offline language-detection assets. langdetect.bin: model extracted from Catalyst
-       by tools/CatalystImport. language-samples.tsv: seed corpus for the native n-gram classifier. -->
+  <!-- Offline language-detection assets. LangProfiles/*: the original langdetect
+       n-gram profiles (53 languages, Nakatani Shuyo, Apache 2.0) plus languages.xml
+       (ISO-639 table), imported verbatim from Maddalena.Cognitive.
+       language-samples.tsv: seed corpus for the native trainable n-gram classifier. -->
   <ItemGroup>
-    <EmbeddedResource Include="Resources\langdetect.bin" />
+    <EmbeddedResource Include="Resources\LangProfiles\*" />
+    <EmbeddedResource Include="Resources\languages.xml" />
     <EmbeddedResource Include="Resources\language-samples.tsv" />
   </ItemGroup>
 

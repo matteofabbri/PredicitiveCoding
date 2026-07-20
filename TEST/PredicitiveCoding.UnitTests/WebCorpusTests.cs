@@ -99,8 +99,8 @@ public class WebCorpusTests : IDisposable
         {
             MaxPages = 10, PerHostDelay = TimeSpan.Zero, MinPageChars = 50,
             Languages = ["English"],
-            // The embedded detector is too weak on short text (tracked
-            // separately); the crawler's filter MECHANISM is what this covers.
+            // Injected classifier: this test isolates the filter MECHANISM from
+            // the detector (the embedded default has its own test right below).
             LanguageClassifier = text => text.Contains(" è ") ? "Italian" : "English",
         }, out _);
 
@@ -109,6 +109,26 @@ public class WebCorpusTests : IDisposable
 
         Assert.Equal(4, report.PagesFetched);                             // incl. the dead /about link
         Assert.Equal(1, report.PagesSkippedLanguage);                     // the Italian page
+        Assert.All(pages, p => Assert.Equal("English", p.Language));
+        Assert.DoesNotContain(pages, p => p.Blocks.Any(b => b.Contains("macchina predittiva")));
+    }
+
+    [Fact]
+    public async Task Crawl_LanguageFilter_EmbeddedDefaultDetector_FiltersTheItalianPage()
+    {
+        // No injected classifier: the embedded langdetect default (seeded inside
+        // the crawler) must tell the Italian page from the English ones on its own.
+        using var crawler = NewCrawler(new CrawlOptions
+        {
+            MaxPages = 10, PerHostDelay = TimeSpan.Zero, MinPageChars = 50,
+            Languages = ["English"],
+        }, out _);
+
+        var pages = new List<CrawledPage>();
+        var report = await crawler.CrawlAsync(["http://test.local/"], pages.Add);
+
+        Assert.Equal(2, report.PagesKept);                                // "/" and "/a"
+        Assert.Equal(1, report.PagesSkippedLanguage);                     // the Italian "/b"
         Assert.All(pages, p => Assert.Equal("English", p.Language));
         Assert.DoesNotContain(pages, p => p.Blocks.Any(b => b.Contains("macchina predittiva")));
     }

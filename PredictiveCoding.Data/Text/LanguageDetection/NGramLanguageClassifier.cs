@@ -11,9 +11,9 @@ namespace PredictiveCoding.Data.Text;
 // with Lidstone smoothing and a per-language fallback for unseen n-grams. The
 // best-scoring language wins; PredictAll returns a softmax probability ranking.
 //
-// Unlike the small embedded model in LanguageDetector, this is trained on whatever
-// corpus you give it, so its accuracy scales with the data — it reliably separates
-// close languages (e.g. Spanish vs French on short text) given decent samples.
+// Unlike the fixed langdetect profiles behind LanguageDetector, this is trained on
+// whatever corpus you give it, so it can cover languages and domains the embedded
+// profiles don't — and its accuracy scales with the data.
 //
 //   var clf  = NGramLanguageClassifier.CreateDefault();   // trained on the bundled seed corpus
 //   string l = clf.Predict("Hola, ¿qué tal?");            // "Spanish"

@@ -27,10 +27,10 @@ public sealed record CrawlOptions
     public IReadOnlyList<string>? Languages { get; init; }
 
     /// <summary>
-    /// text → language label, used when <see cref="Languages"/> is set. Null
-    /// uses the library's embedded detector — which today is weak on short web
-    /// text (its seed corpus is tiny), so a real crawl should inject a stronger
-    /// classifier until the embedded profile is retrained.
+    /// text → language label, used when <see cref="Languages"/> is set. Null uses
+    /// the library's embedded detector (langdetect, 53 languages) — reliable down
+    /// to short paragraphs; pages in languages it has no profile for come back
+    /// "Unknown" and are filtered out. Inject your own only for special needs.
     /// </summary>
     public Func<string, string>? LanguageClassifier { get; init; }
 
@@ -71,7 +71,7 @@ public sealed class WebCrawler : IDisposable
     private readonly HttpClient _http;
     private readonly bool _ownsHttp;
     private readonly HtmlSource _parser = new(new HttpClient());   // used as a parser only
-    // Seeded: the corpus a crawl keeps must not depend on RNG luck.
+    // Seeded: detection is randomised and the corpus a crawl keeps must not depend on RNG luck.
     private readonly Lazy<Func<string, string>> _classify;
 
     public WebCrawler(CrawlOptions? options = null, HttpClient? httpClient = null)

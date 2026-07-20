@@ -1,0 +1,1926 @@
+﻿<?xml version="1.0" encoding="utf-8" ?> 
+ 
+<ArrayOfArrayOfString xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <ArrayOfString>
+  <string>Language  family</string>
+  <string>ISO language name</string>
+  <string>Native name (endonym)</string>
+  <string>639-1</string>
+  <string>639-2/T</string>
+  <string>639-2/B</string>
+  <string>639-3</string>
+  <string>Notes</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Northwest Caucasian</string>
+  <string>Abkhazian</string>
+  <string>&#1072;&#1191;&#1089;&#1091;&#1072;&#1073;&#1099;&#1079;&#1096;&#1241;&#1072;,&#1072;&#1191;&#1089;&#1096;&#1241;&#1072;</string>
+  <string>ab</string>
+  <string>abk</string>
+  <string>abk</string>
+  <string>abk</string>
+  <string>also known as Abkhaz</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Afro-Asiatic</string>
+  <string>Afar</string>
+  <string>Afaraf</string>
+  <string>aa</string>
+  <string>aar</string>
+  <string>aar</string>
+  <string>aar</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Afrikaans</string>
+  <string>Afrikaans</string>
+  <string>af</string>
+  <string>afr</string>
+  <string>afr</string>
+  <string>afr</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Akan</string>
+  <string>Akan</string>
+  <string>ak</string>
+  <string>aka</string>
+  <string>aka</string>
+  <string>aka + 2</string>
+  <string>macrolanguage, Twi is [tw/twi], Fanti is [fat]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Albanian</string>
+  <string>Shqip</string>
+  <string>sq</string>
+  <string>sqi</string>
+  <string>alb</string>
+  <string>sqi + 4</string>
+  <string>macrolanguage,
+  &quot;Albanian Phylozone&quot; in 639-6</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Afro-Asiatic</string>
+  <string>Amharic</string>
+  <string>&#4768;&#4635;&#4653;&#4763;</string>
+  <string>am</string>
+  <string>amh</string>
+  <string>amh</string>
+  <string>amh</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Afro-Asiatic</string>
+  <string>Arabic</string>
+  <string>
+  &#1575;&#1604;&#1593;&#1585;&#1576;&#1610;&#1577;
+  </string>
+  <string>ar</string>
+  <string>ara</string>
+  <string>ara</string>
+  <string>ara + 30</string>
+  <string>macrolanguage, Standard Arabic is [arb]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Aragonese</string>
+  <string>aragonés</string>
+  <string>an</string>
+  <string>arg</string>
+  <string>arg</string>
+  <string>arg</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Armenian</string>
+  <string>&#1344;&#1377;&#1397;&#1381;&#1408;&#1381;&#1398;</string>
+  <string>hy</string>
+  <string>hye</string>
+  <string>arm</string>
+  <string>hye</string>
+  <string>also known as
+  &#1344;&#1377;&#1397;&#1381;&#1408;&#1383;&#1398;; ISO 639-3 code
+  &quot;hye&quot; is for Eastern Armenian, &quot;hyw&quot; is for Western
+  Armenian, and &quot;xcl&quot; is for Classical Armenian</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Assamese</string>
+  <string>&#2437;&#2488;&#2478;&#2496;&#2479;&#2492;&#2494;</string>
+  <string>as</string>
+  <string>asm</string>
+  <string>asm</string>
+  <string>asm</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Northeast Caucasian</string>
+  <string>Avaric</string>
+  <string>&#1072;&#1074;&#1072;&#1088;
+  &#1084;&#1072;&#1094;&#1216;,
+  &#1084;&#1072;&#1075;&#1216;&#1072;&#1088;&#1091;&#1083;
+  &#1084;&#1072;&#1094;&#1216;</string>
+  <string>av</string>
+  <string>ava</string>
+  <string>ava</string>
+  <string>ava</string>
+  <string>also known as Avar</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Avestan</string>
+  <string>avesta</string>
+  <string>ae</string>
+  <string>ave</string>
+  <string>ave</string>
+  <string>ave</string>
+  <string>ancient</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Aymaran</string>
+  <string>Aymara</string>
+  <string>aymar aru</string>
+  <string>ay</string>
+  <string>aym</string>
+  <string>aym</string>
+  <string>aym + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Azerbaijani</string>
+  <string>az&#601;rbaycan dili</string>
+  <string>az</string>
+  <string>aze</string>
+  <string>aze</string>
+  <string>aze + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Bambara</string>
+  <string>bamanankan</string>
+  <string>bm</string>
+  <string>bam</string>
+  <string>bam</string>
+  <string>bam</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Bashkir</string>
+  <string>&#1073;&#1072;&#1096;&#1185;&#1086;&#1088;&#1090;
+  &#1090;&#1077;&#1083;&#1077;</string>
+  <string>ba</string>
+  <string>bak</string>
+  <string>bak</string>
+  <string>bak</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Language isolate</string>
+  <string>Basque</string>
+  <string>euskara, euskera</string>
+  <string>eu</string>
+  <string>eus</string>
+  <string>baq</string>
+  <string>eus</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Belarusian</string>
+  <string>&#1073;&#1077;&#1083;&#1072;&#1088;&#1091;&#1089;&#1082;&#1072;&#1103;
+  &#1084;&#1086;&#1074;&#1072;</string>
+  <string>be</string>
+  <string>bel</string>
+  <string>bel</string>
+  <string>bel</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Bengali</string>
+  <string>&#2476;&#2494;&#2434;&#2482;&#2494;</string>
+  <string>bn</string>
+  <string>ben</string>
+  <string>ben</string>
+  <string>ben</string>
+  <string>also known as Bangla</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Bihari languages</string>
+  <string>&#2349;&#2379;&#2332;&#2346;&#2369;&#2352;&#2368;</string>
+  <string>bh</string>
+  <string>bih</string>
+  <string>bih</string>
+  <string> </string>
+  <string>collective language code for Bhojpuri, Magahi, and Maithili</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Creole</string>
+  <string>Bislama</string>
+  <string>Bislama</string>
+  <string>bi</string>
+  <string>bis</string>
+  <string>bis</string>
+  <string>bis</string>
+  <string>Language formed from
+  English and Ni-Vanuatu, with some French influence.</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Bosnian</string>
+  <string>bosanski jezik</string>
+  <string>bs</string>
+  <string>bos</string>
+  <string>bos</string>
+  <string>bos</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Breton</string>
+  <string>brezhoneg</string>
+  <string>br</string>
+  <string>bre</string>
+  <string>bre</string>
+  <string>bre</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Bulgarian</string>
+  <string>&#1073;&#1098;&#1083;&#1075;&#1072;&#1088;&#1089;&#1082;&#1080;
+  &#1077;&#1079;&#1080;&#1082;</string>
+  <string>bg</string>
+  <string>bul</string>
+  <string>bul</string>
+  <string>bul</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Sino-Tibetan</string>
+  <string>Burmese</string>
+  <string>&#4119;&#4121;&#4140;&#4101;&#4140;</string>
+  <string>my</string>
+  <string>mya</string>
+  <string>bur</string>
+  <string>mya</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Catalan, Valencian</string>
+  <string>català, valencià</string>
+  <string>ca</string>
+  <string>cat</string>
+  <string>cat</string>
+  <string>cat</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Chamorro</string>
+  <string>Chamoru</string>
+  <string>ch</string>
+  <string>cha</string>
+  <string>cha</string>
+  <string>cha</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Northeast Caucasian</string>
+  <string>Chechen</string>
+  <string>&#1085;&#1086;&#1093;&#1095;&#1080;&#1081;&#1085;
+  &#1084;&#1086;&#1090;&#1090;</string>
+  <string>ce</string>
+  <string>che</string>
+  <string>che</string>
+  <string>che</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Chichewa, Chewa, Nyanja</string>
+  <string>chiChe&#373;a, chinyanja</string>
+  <string>ny</string>
+  <string>nya</string>
+  <string>nya</string>
+  <string>nya</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Sino-Tibetan</string>
+  <string>Chinese</string>
+  <string>&#20013;&#25991; (Zh&#333;ngwén), &#27721;&#35821;, &#28450;&#35486;</string>
+  <string>zh</string>
+  <string>zho</string>
+  <string>chi</string>
+  <string>zho + 14</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Chuvash</string>
+  <string>&#1095;&#1233;&#1074;&#1072;&#1096;
+  &#1095;&#1239;&#1083;&#1093;&#1080;</string>
+  <string>cv</string>
+  <string>chv</string>
+  <string>chv</string>
+  <string>chv</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Cornish</string>
+  <string>Kernewek</string>
+  <string>kw</string>
+  <string>cor</string>
+  <string>cor</string>
+  <string>cor</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Corsican</string>
+  <string>corsu, lingua corsa</string>
+  <string>co</string>
+  <string>cos</string>
+  <string>cos</string>
+  <string>cos</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Algonquian</string>
+  <string>Cree</string>
+  <string>&#5312;&#5158;&#5123;&#5421;&#5133;&#5135;&#5155;</string>
+  <string>cr</string>
+  <string>cre</string>
+  <string>cre</string>
+  <string>cre + 6</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Croatian</string>
+  <string>hrvatski jezik</string>
+  <string>hr</string>
+  <string>hrv</string>
+  <string>hrv</string>
+  <string>hrv</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Czech</string>
+  <string>&#269;eština, &#269;eský jazyk</string>
+  <string>cs</string>
+  <string>ces</string>
+  <string>cze</string>
+  <string>ces</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Danish</string>
+  <string>dansk</string>
+  <string>da</string>
+  <string>dan</string>
+  <string>dan</string>
+  <string>dan</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Divehi, Dhi vehi, Maldivian</string>
+  <string>&#1931;&#1960;&#1928;&#1964;&#1920;&#1960;</string>
+  <string>dv</string>
+  <string>div</string>
+  <string>div</string>
+  <string>div</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Dutch, Flemish</string>
+  <string>Nederlands, Vlaams</string>
+  <string>nl</string>
+  <string>nld</string>
+  <string>dut</string>
+  <string>nld</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Sino-Tibetan</string>
+  <string>Dzongkha</string>
+  <string>&#3938;&#4011;&#3964;&#3908;&#3851;&#3905;</string>
+  <string>dz</string>
+  <string>dzo</string>
+  <string>dzo</string>
+  <string>dzo</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>English</string>
+  <string>English</string>
+  <string>en</string>
+  <string>eng</string>
+  <string>eng</string>
+  <string>eng</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Constructed</string>
+  <string>Esperanto</string>
+  <string>Esperanto</string>
+  <string>eo</string>
+  <string>epo</string>
+  <string>epo</string>
+  <string>epo</string>
+  <string>constructed, initiated from L.L. Zamenhof, 1887</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Uralic</string>
+  <string>Estonian</string>
+  <string>eesti, eesti keel</string>
+  <string>et</string>
+  <string>est</string>
+  <string>est</string>
+  <string>est + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Ewe</string>
+  <string>E&#651;egbe</string>
+  <string>ee</string>
+  <string>ewe</string>
+  <string>ewe</string>
+  <string>ewe</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Faroese</string>
+  <string>føroyskt</string>
+  <string>fo</string>
+  <string>fao</string>
+  <string>fao</string>
+  <string>fao</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Fijian</string>
+  <string>vosa Vakaviti</string>
+  <string>fj</string>
+  <string>fij</string>
+  <string>fij</string>
+  <string>fij</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Uralic</string>
+  <string>Finnish</string>
+  <string>suomi, suomen kieli</string>
+  <string>fi</string>
+  <string>fin</string>
+  <string>fin</string>
+  <string>fin</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>French</string>
+  <string>français, langue française</string>
+  <string>fr</string>
+  <string>fra</string>
+  <string>fre</string>
+  <string>fra</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Fulah</string>
+  <string>Fulfulde, Pulaar, Pular</string>
+  <string>ff</string>
+  <string>ful</string>
+  <string>ful</string>
+  <string>ful + 9</string>
+  <string>macrolanguage,
+  also known as Fula</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Galician</string>
+  <string>Galego</string>
+  <string>gl</string>
+  <string>glg</string>
+  <string>glg</string>
+  <string>glg</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Kartvelian</string>
+  <string>Georgian</string>
+  <string>&#4325;&#4304;&#4320;&#4311;&#4323;&#4314;&#4312;</string>
+  <string>ka</string>
+  <string>kat</string>
+  <string>geo</string>
+  <string>kat</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>German</string>
+  <string>Deutsch</string>
+  <string>de</string>
+  <string>deu</string>
+  <string>ger</string>
+  <string>deu</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Greek, Modern (1453-)</string>
+  <string>&#949;&#955;&#955;&#951;&#957;&#953;&#954;&#940;</string>
+  <string>el</string>
+  <string>ell</string>
+  <string>gre</string>
+  <string>ell</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Tupian</string>
+  <string>Guarani</string>
+  <string>Avañe'&#7869;</string>
+  <string>gn</string>
+  <string>grn</string>
+  <string>grn</string>
+  <string>grn + 5</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Gujarati</string>
+  <string>&#2711;&#2753;&#2716;&#2736;&#2750;&#2724;&#2752;</string>
+  <string>gu</string>
+  <string>guj</string>
+  <string>guj</string>
+  <string>guj</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Creole</string>
+  <string>Haitian, Haitian Creole</string>
+  <string>Kreyòl ayisyen</string>
+  <string>ht</string>
+  <string>hat</string>
+  <string>hat</string>
+  <string>hat</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Afro-Asiatic</string>
+  <string>Hausa</string>
+  <string>
+  (Hausa) &#1607;&#1614;&#1608;&#1615;&#1587;&#1614;
+  </string>
+  <string>ha</string>
+  <string>hau</string>
+  <string>hau</string>
+  <string>hau</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Afro-Asiatic</string>
+  <string>Hebrew</string>
+  <string>
+  &#1506;&#1489;&#1512;&#1497;&#1514;
+  </string>
+  <string>he</string>
+  <string>heb</string>
+  <string>heb</string>
+  <string>heb</string>
+  <string>Modern Hebrew. Code changed in 1989 from original ISO
+  639:1988, iw.[1]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Herero</string>
+  <string>Otjiherero</string>
+  <string>hz</string>
+  <string>her</string>
+  <string>her</string>
+  <string>her</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Hindi</string>
+  <string>&#2361;&#2367;&#2344;&#2381;&#2342;&#2368;,
+  &#2361;&#2367;&#2306;&#2342;&#2368;</string>
+  <string>hi</string>
+  <string>hin</string>
+  <string>hin</string>
+  <string>hin</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Hiri Motu</string>
+  <string>Hiri Motu</string>
+  <string>ho</string>
+  <string>hmo</string>
+  <string>hmo</string>
+  <string>hmo</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Uralic</string>
+  <string>Hungarian</string>
+  <string>magyar</string>
+  <string>hu</string>
+  <string>hun</string>
+  <string>hun</string>
+  <string>hun</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Constructed</string>
+  <string>Interlingua (International Auxiliary Language Association)</string>
+  <string>Interlingua</string>
+  <string>ia</string>
+  <string>ina</string>
+  <string>ina</string>
+  <string>ina</string>
+  <string>constructed by International Auxiliary Language
+  Association</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Indonesian</string>
+  <string>Bahasa Indonesia</string>
+  <string>id</string>
+  <string>ind</string>
+  <string>ind</string>
+  <string>ind</string>
+  <string>Covered by macrolanguage [ms/msa]. Changed in 1989 from
+  original ISO 639:1988, in[1].</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Constructed</string>
+  <string>Interlingue, Occidental</string>
+  <string>(originally:) Occidental, (after WWII:) Interlingue</string>
+  <string>ie</string>
+  <string>ile</string>
+  <string>ile</string>
+  <string>ile</string>
+  <string>constructed by Edgar de Wahl, first published in 1922</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Irish</string>
+  <string>Gaeilge</string>
+  <string>ga</string>
+  <string>gle</string>
+  <string>gle</string>
+  <string>gle</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Igbo</string>
+  <string>As&#7909;s&#7909; Igbo</string>
+  <string>ig</string>
+  <string>ibo</string>
+  <string>ibo</string>
+  <string>ibo</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Eskimo–Aleut</string>
+  <string>Inupiaq</string>
+  <string>Iñupiaq, Iñupiatun</string>
+  <string>ik</string>
+  <string>ipk</string>
+  <string>ipk</string>
+  <string>ipk + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Constructed</string>
+  <string>Ido</string>
+  <string>Ido</string>
+  <string>io</string>
+  <string>ido</string>
+  <string>ido</string>
+  <string>ido</string>
+  <string>constructed by De Beaufront, 1907, as
+  variation of Esperanto</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Icelandic</string>
+  <string>Íslenska</string>
+  <string>is</string>
+  <string>isl</string>
+  <string>ice</string>
+  <string>isl</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Italian</string>
+  <string>Italiano</string>
+  <string>it</string>
+  <string>ita</string>
+  <string>ita</string>
+  <string>ita</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Eskimo–Aleut</string>
+  <string>Inuktitut</string>
+  <string>&#5123;&#5316;&#5251;&#5198;&#5200;&#5222;</string>
+  <string>iu</string>
+  <string>iku</string>
+  <string>iku</string>
+  <string>iku + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Japonic</string>
+  <string>Japanese</string>
+  <string>&#26085;&#26412;&#35486; (&#12395;&#12411;&#12435;&#12372;)</string>
+  <string>ja</string>
+  <string>jpn</string>
+  <string>jpn</string>
+  <string>jpn</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Javanese</string>
+  <string>&#43431;&#43441;&#43415;&#43438;,
+  Basa Jawa</string>
+  <string>jv</string>
+  <string>jav</string>
+  <string>jav</string>
+  <string>jav</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Eskimo–Aleut</string>
+  <string>Kalaallisut, Greenlandic</string>
+  <string>kalaallisut, kalaallit oqaasii</string>
+  <string>kl</string>
+  <string>kal</string>
+  <string>kal</string>
+  <string>kal</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Dravidian</string>
+  <string>Kannada</string>
+  <string>&#3221;&#3240;&#3277;&#3240;&#3233;</string>
+  <string>kn</string>
+  <string>kan</string>
+  <string>kan</string>
+  <string>kan</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Nilo-Saharan</string>
+  <string>Kanuri</string>
+  <string>Kanuri</string>
+  <string>kr</string>
+  <string>kau</string>
+  <string>kau</string>
+  <string>kau + 3</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Kashmiri</string>
+  <string>&#2325;&#2358;&#2381;&#2350;&#2368;&#2352;&#2368;, &#1603;&#1588;&#1605;&#1610;&#1585;&#1610;&#8206;</string>
+  <string>ks</string>
+  <string>kas</string>
+  <string>kas</string>
+  <string>kas</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Kazakh</string>
+  <string>&#1179;&#1072;&#1079;&#1072;&#1179;
+  &#1090;&#1110;&#1083;&#1110;</string>
+  <string>kk</string>
+  <string>kaz</string>
+  <string>kaz</string>
+  <string>kaz</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austroasiatic</string>
+  <string>Central Khmer</string>
+  <string>&#6017;&#6098;&#6040;&#6082;&#6042;,
+  &#6017;&#6081;&#6040;&#6042;&#6039;&#6070;&#6047;&#6070;,
+  &#6039;&#6070;&#6047;&#6070;&#6017;&#6098;&#6040;&#6082;&#6042;</string>
+  <string>km</string>
+  <string>khm</string>
+  <string>khm</string>
+  <string>khm</string>
+  <string>also known as Khmer or
+  Cambodian</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Kikuyu, Gikuyu</string>
+  <string>G&#297;k&#361;y&#361;</string>
+  <string>ki</string>
+  <string>kik</string>
+  <string>kik</string>
+  <string>kik</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Kinyarwanda</string>
+  <string>Ikinyarwanda</string>
+  <string>rw</string>
+  <string>kin</string>
+  <string>kin</string>
+  <string>kin</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Kirghiz, Kyrgyz</string>
+  <string>&#1050;&#1099;&#1088;&#1075;&#1099;&#1079;&#1095;&#1072;,
+  &#1050;&#1099;&#1088;&#1075;&#1099;&#1079; &#1090;&#1080;&#1083;&#1080;</string>
+  <string>ky</string>
+  <string>kir</string>
+  <string>kir</string>
+  <string>kir</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Uralic</string>
+  <string>Komi</string>
+  <string>&#1082;&#1086;&#1084;&#1080;
+  &#1082;&#1099;&#1074;</string>
+  <string>kv</string>
+  <string>kom</string>
+  <string>kom</string>
+  <string>kom + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Kongo</string>
+  <string>Kikongo</string>
+  <string>kg</string>
+  <string>kon</string>
+  <string>kon</string>
+  <string>kon + 3</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Koreanic</string>
+  <string>Korean</string>
+  <string>&#54620;&#44397;&#50612;</string>
+  <string>ko</string>
+  <string>kor</string>
+  <string>kor</string>
+  <string>kor</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Kurdish</string>
+  <string>Kurdî, &#1705;&#1608;&#1585;&#1583;&#1740;&#8206;</string>
+  <string>ku</string>
+  <string>kur</string>
+  <string>kur</string>
+  <string>kur + 3</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Kuanyama, Kwanyama</string>
+  <string>Kuanyama</string>
+  <string>kj</string>
+  <string>kua</string>
+  <string>kua</string>
+  <string>kua</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Latin</string>
+  <string>latine, lingua latina</string>
+  <string>la</string>
+  <string>lat</string>
+  <string>lat</string>
+  <string>lat</string>
+  <string>ancient</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Luxembourgish, Letzeburgesch</string>
+  <string>Lëtzebuergesch</string>
+  <string>lb</string>
+  <string>ltz</string>
+  <string>ltz</string>
+  <string>ltz</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Ganda</string>
+  <string>Luganda</string>
+  <string>lg</string>
+  <string>lug</string>
+  <string>lug</string>
+  <string>lug</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Limburgan, Limburger, Limburgish</string>
+  <string>Limburgs</string>
+  <string>li</string>
+  <string>lim</string>
+  <string>lim</string>
+  <string>lim</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Lingala</string>
+  <string>Lingála</string>
+  <string>ln</string>
+  <string>lin</string>
+  <string>lin</string>
+  <string>lin</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Tai–Kadai</string>
+  <string>Lao</string>
+  <string>&#3742;&#3762;&#3754;&#3762;&#3749;&#3762;&#3751;</string>
+  <string>lo</string>
+  <string>lao</string>
+  <string>lao</string>
+  <string>lao</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Lithuanian</string>
+  <string>lietuvi&#371; kalba</string>
+  <string>lt</string>
+  <string>lit</string>
+  <string>lit</string>
+  <string>lit</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Luba-Katanga</string>
+  <string>Kiluba</string>
+  <string>lu</string>
+  <string>lub</string>
+  <string>lub</string>
+  <string>lub</string>
+  <string>also known as Luba-Shaba</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Latvian</string>
+  <string>latviešu valoda</string>
+  <string>lv</string>
+  <string>lav</string>
+  <string>lav</string>
+  <string>lav + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Manx</string>
+  <string>Gaelg, Gailck</string>
+  <string>gv</string>
+  <string>glv</string>
+  <string>glv</string>
+  <string>glv</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Macedonian</string>
+  <string>&#1084;&#1072;&#1082;&#1077;&#1076;&#1086;&#1085;&#1089;&#1082;&#1080;
+  &#1112;&#1072;&#1079;&#1080;&#1082;</string>
+  <string>mk</string>
+  <string>mkd</string>
+  <string>mac</string>
+  <string>mkd</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Malagasy</string>
+  <string>fiteny malagasy</string>
+  <string>mg</string>
+  <string>mlg</string>
+  <string>mlg</string>
+  <string>mlg + 11</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Malay</string>
+  <string>Bahasa Melayu, &#1576;&#1607;&#1575;&#1587;
+  &#1605;&#1604;&#1575;&#1610;&#1608;&#8206;</string>
+  <string>ms</string>
+  <string>msa</string>
+  <string>may</string>
+  <string>msa + 36</string>
+  <string>macrolanguage, Standard
+  Malay is [zsm], Indonesian is [id/ind]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Dravidian</string>
+  <string>Malayalam</string>
+  <string>&#3374;&#3378;&#3375;&#3390;&#3379;&#3330;</string>
+  <string>ml</string>
+  <string>mal</string>
+  <string>mal</string>
+  <string>mal</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Afro-Asiatic</string>
+  <string>Maltese</string>
+  <string>Malti</string>
+  <string>mt</string>
+  <string>mlt</string>
+  <string>mlt</string>
+  <string>mlt</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Maori</string>
+  <string>te reo M&#257;ori</string>
+  <string>mi</string>
+  <string>mri</string>
+  <string>mao</string>
+  <string>mri</string>
+  <string>also known as M&#257;ori</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Marathi</string>
+  <string>&#2350;&#2352;&#2366;&#2336;&#2368;</string>
+  <string>mr</string>
+  <string>mar</string>
+  <string>mar</string>
+  <string>mar</string>
+  <string>also known as
+  Mar&#257;&#7789;h&#299;</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Marshallese</string>
+  <string>Kajin M&#807;aje&#316;</string>
+  <string>mh</string>
+  <string>mah</string>
+  <string>mah</string>
+  <string>mah</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Mongolic</string>
+  <string>Mongolian</string>
+  <string>&#1052;&#1086;&#1085;&#1075;&#1086;&#1083;
+  &#1093;&#1101;&#1083;</string>
+  <string>mn</string>
+  <string>mon</string>
+  <string>mon</string>
+  <string>mon + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Nauru</string>
+  <string>Dorerin Naoero</string>
+  <string>na</string>
+  <string>nau</string>
+  <string>nau</string>
+  <string>nau</string>
+  <string>also known as Nauruan</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Dené–Yeniseian</string>
+  <string>Navajo, Navaho</string>
+  <string>Diné bizaad</string>
+  <string>nv</string>
+  <string>nav</string>
+  <string>nav</string>
+  <string>nav</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>North Ndebele</string>
+  <string>isiNdebele</string>
+  <string>nd</string>
+  <string>nde</string>
+  <string>nde</string>
+  <string>nde</string>
+  <string>also known as Northern
+  Ndebele</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Nepali</string>
+  <string>&#2344;&#2375;&#2346;&#2366;&#2354;&#2368;</string>
+  <string>ne</string>
+  <string>nep</string>
+  <string>nep</string>
+  <string>nep + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Ndonga</string>
+  <string>Owambo</string>
+  <string>ng</string>
+  <string>ndo</string>
+  <string>ndo</string>
+  <string>ndo</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Norwegian Bokmål</string>
+  <string>Norsk Bokmål</string>
+  <string>nb</string>
+  <string>nob</string>
+  <string>nob</string>
+  <string>nob</string>
+  <string>Covered by macrolanguage
+  [no/nor]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Norwegian Nynorsk</string>
+  <string>Norsk Nynorsk</string>
+  <string>nn</string>
+  <string>nno</string>
+  <string>nno</string>
+  <string>nno</string>
+  <string>Covered by macrolanguage
+  [no/nor]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Norwegian</string>
+  <string>Norsk</string>
+  <string>no</string>
+  <string>nor</string>
+  <string>nor</string>
+  <string>nor + 2</string>
+  <string>macrolanguage, Bokmål is [nb/nob], Nynorsk is [nn/nno]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Sino-Tibetan</string>
+  <string>Sichuan Yi, Nuosu</string>
+  <string>&#41352;&#41760;&#42175;
+  Nuosuhxop</string>
+  <string>ii</string>
+  <string>iii</string>
+  <string>iii</string>
+  <string>iii</string>
+  <string>Standard form of Yi languages</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>South Ndebele</string>
+  <string>isiNdebele</string>
+  <string>nr</string>
+  <string>nbl</string>
+  <string>nbl</string>
+  <string>nbl</string>
+  <string>also known as Southern Ndebele</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Occitan</string>
+  <string>occitan, lenga d'òc</string>
+  <string>oc</string>
+  <string>oci</string>
+  <string>oci</string>
+  <string>oci</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Algonquian</string>
+  <string>Ojibwa</string>
+  <string>&#5130;&#5314;&#5393;&#5320;&#5167;&#5287;&#5134;&#5328;</string>
+  <string>oj</string>
+  <string>oji</string>
+  <string>oji</string>
+  <string>oji + 7</string>
+  <string>macrolanguage, also known as Ojibwe</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Church Slavic, Old Slavonic,
+  Church Slavonic, Old Bulgarian, Old Church Slavonic</string>
+  <string>&#1129;&#1079;&#1099;&#1082;&#1098;
+  &#1089;&#1083;&#1086;&#1074;&#1123;&#1085;&#1100;&#1089;&#1082;&#1098;</string>
+  <string>cu</string>
+  <string>chu</string>
+  <string>chu</string>
+  <string>chu</string>
+  <string>ancient, in use by Orthodox Church</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Afro-Asiatic</string>
+  <string>Oromo</string>
+  <string>Afaan Oromoo</string>
+  <string>om</string>
+  <string>orm</string>
+  <string>orm</string>
+  <string>orm + 4</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Oriya</string>
+  <string>&#2835;&#2849;&#2876;&#2879;&#2822;</string>
+  <string>or</string>
+  <string>ori</string>
+  <string>ori</string>
+  <string>ori + 2</string>
+  <string>macrolanguage, also known as Odia</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Ossetian, Ossetic</string>
+  <string>&#1080;&#1088;&#1086;&#1085;
+  æ&#1074;&#1079;&#1072;&#1075;</string>
+  <string>os</string>
+  <string>oss</string>
+  <string>oss</string>
+  <string>oss</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Punjabi, Panjabi</string>
+  <string>&#2602;&#2672;&#2588;&#2622;&#2604;&#2624;, &#1662;&#1606;&#1580;&#1575;&#1576;&#1740;&#8206;</string>
+  <string>pa</string>
+  <string>pan</string>
+  <string>pan</string>
+  <string>pan</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Pali</string>
+  <string>&#2346;&#2366;&#2354;&#2367;,
+  &#2346;&#2366;&#2355;&#2367;</string>
+  <string>pi</string>
+  <string>pli</string>
+  <string>pli</string>
+  <string>pli</string>
+  <string>ancient, also known as
+  P&#257;li</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Persian</string>
+  <string>
+  &#1601;&#1575;&#1585;&#1587;&#1740;
+  </string>
+  <string>fa</string>
+  <string>fas</string>
+  <string>per</string>
+  <string>fas + 2</string>
+  <string>macrolanguage, also known as Farsi</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Polish</string>
+  <string>j&#281;zyk polski, polszczyzna</string>
+  <string>pl</string>
+  <string>pol</string>
+  <string>pol</string>
+  <string>pol</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Pashto, Pushto</string>
+  <string>
+  &#1662;&#1690;&#1578;&#1608;
+  </string>
+  <string>ps</string>
+  <string>pus</string>
+  <string>pus</string>
+  <string>pus + 3</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Portuguese</string>
+  <string>Português</string>
+  <string>pt</string>
+  <string>por</string>
+  <string>por</string>
+  <string>por</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Quechuan</string>
+  <string>Quechua</string>
+  <string>Runa Simi, Kichwa</string>
+  <string>qu</string>
+  <string>que</string>
+  <string>que</string>
+  <string>que + 43</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Romansh</string>
+  <string>Rumantsch Grischun</string>
+  <string>rm</string>
+  <string>roh</string>
+  <string>roh</string>
+  <string>roh</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Rundi</string>
+  <string>Ikirundi</string>
+  <string>rn</string>
+  <string>run</string>
+  <string>run</string>
+  <string>run</string>
+  <string>also known as Kirundi</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Moldavian</string>
+  <string>Român&#259;</string>
+  <string>ro</string>
+  <string>ron</string>
+  <string>rum</string>
+  <string>ron</string>
+  <string>The identifiers mo and mol
+  are deprecated, leaving ro and ron (639-2/T) and rum (639-2/B) the current
+  language identifiers to be used for the variant of the Romanian language also
+  known as Moldavian and Moldovan in English and moldave in French. The identifiers
+  mo and mol will not be assigned to different items, and recordings using
+  these identifiers will not be invalid.</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Russian</string>
+  <string>&#1088;&#1091;&#1089;&#1089;&#1082;&#1080;&#1081;</string>
+  <string>ru</string>
+  <string>rus</string>
+  <string>rus</string>
+  <string>rus</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Sanskrit</string>
+  <string>&#2360;&#2306;&#2360;&#2381;&#2325;&#2371;&#2340;&#2350;&#2381;</string>
+  <string>sa</string>
+  <string>san</string>
+  <string>san</string>
+  <string>san</string>
+  <string>ancient, still spoken, also
+  known as Sa&#7747;sk&#7771;ta</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Sardinian</string>
+  <string>sardu</string>
+  <string>sc</string>
+  <string>srd</string>
+  <string>srd</string>
+  <string>srd + 4</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Sindhi</string>
+  <string>&#2360;&#2367;&#2344;&#2381;&#2343;&#2368;, &#1587;&#1606;&#1676;&#1610;&#1548;
+  &#1587;&#1606;&#1583;&#1726;&#1740;&#8206;</string>
+  <string>sd</string>
+  <string>snd</string>
+  <string>snd</string>
+  <string>snd</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Uralic</string>
+  <string>Northern Sami</string>
+  <string>Davvisámegiella</string>
+  <string>se</string>
+  <string>sme</string>
+  <string>sme</string>
+  <string>sme</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Samoan</string>
+  <string>gagana fa'a Samoa</string>
+  <string>sm</string>
+  <string>smo</string>
+  <string>smo</string>
+  <string>smo</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Creole</string>
+  <string>Sango</string>
+  <string>yângâ tî sängö</string>
+  <string>sg</string>
+  <string>sag</string>
+  <string>sag</string>
+  <string>sag</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Serbian</string>
+  <string>&#1089;&#1088;&#1087;&#1089;&#1082;&#1080;
+  &#1112;&#1077;&#1079;&#1080;&#1082;</string>
+  <string>sr</string>
+  <string>srp</string>
+  <string>srp</string>
+  <string>srp</string>
+  <string>The ISO 639-2/T code srp deprecated the ISO 639-2/B code
+  scc[2]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Gaelic, Scottish Gaelic</string>
+  <string>Gàidhlig</string>
+  <string>gd</string>
+  <string>gla</string>
+  <string>gla</string>
+  <string>gla</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Shona</string>
+  <string>chiShona</string>
+  <string>sn</string>
+  <string>sna</string>
+  <string>sna</string>
+  <string>sna</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Sinhala, Sinhalese</string>
+  <string>&#3523;&#3538;&#3458;&#3524;&#3517;</string>
+  <string>si</string>
+  <string>sin</string>
+  <string>sin</string>
+  <string>sin</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Slovak</string>
+  <string>Sloven&#269;ina, Slovenský
+  Jazyk</string>
+  <string>sk</string>
+  <string>slk</string>
+  <string>slo</string>
+  <string>slk</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Slovenian</string>
+  <string>Slovenski Jezik,
+  Slovenš&#269;ina</string>
+  <string>sl</string>
+  <string>slv</string>
+  <string>slv</string>
+  <string>slv</string>
+  <string>also known as Slovene</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Afro-Asiatic</string>
+  <string>Somali</string>
+  <string>Soomaaliga, af Soomaali</string>
+  <string>so</string>
+  <string>som</string>
+  <string>som</string>
+  <string>som</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Southern Sotho</string>
+  <string>Sesotho</string>
+  <string>st</string>
+  <string>sot</string>
+  <string>sot</string>
+  <string>sot</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Spanish</string>
+  <string>Español</string>
+  <string>es</string>
+  <string>spa</string>
+  <string>spa</string>
+  <string>spa</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Sundanese</string>
+  <string>Basa Sunda</string>
+  <string>su</string>
+  <string>sun</string>
+  <string>sun</string>
+  <string>sun</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Swahili</string>
+  <string>Kiswahili</string>
+  <string>sw</string>
+  <string>swa</string>
+  <string>swa</string>
+  <string>swa + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Swati</string>
+  <string>SiSwati</string>
+  <string>ss</string>
+  <string>ssw</string>
+  <string>ssw</string>
+  <string>ssw</string>
+  <string>also known as Swazi</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Swedish</string>
+  <string>Svenska</string>
+  <string>sv</string>
+  <string>swe</string>
+  <string>swe</string>
+  <string>swe</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Dravidian</string>
+  <string>Tamil</string>
+  <string>&#2980;&#2990;&#3007;&#2996;&#3021;</string>
+  <string>ta</string>
+  <string>tam</string>
+  <string>tam</string>
+  <string>tam</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Dravidian</string>
+  <string>Telugu</string>
+  <string>&#3108;&#3142;&#3122;&#3137;&#3095;&#3137;</string>
+  <string>te</string>
+  <string>tel</string>
+  <string>tel</string>
+  <string>tel</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Tajik</string>
+  <string>&#1090;&#1086;&#1207;&#1080;&#1082;&#1251;, toçik&#299;, &#1578;&#1575;&#1580;&#1740;&#1705;&#1740;&#8206;</string>
+  <string>tg</string>
+  <string>tgk</string>
+  <string>tgk</string>
+  <string>tgk</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Tai–Kadai</string>
+  <string>Thai</string>
+  <string>&#3652;&#3607;&#3618;</string>
+  <string>th</string>
+  <string>tha</string>
+  <string>tha</string>
+  <string>tha</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Afro-Asiatic</string>
+  <string>Tigrinya</string>
+  <string>&#4725;&#4877;&#4653;&#4763;</string>
+  <string>ti</string>
+  <string>tir</string>
+  <string>tir</string>
+  <string>tir</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Sino-Tibetan</string>
+  <string>Tibetan</string>
+  <string>&#3926;&#3964;&#3921;&#3851;&#3937;&#3954;&#3906;</string>
+  <string>bo</string>
+  <string>bod</string>
+  <string>tib</string>
+  <string>bod</string>
+  <string>also known as Standard
+  Tibetan</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Turkmen</string>
+  <string>Türkmen,
+  &#1058;&#1199;&#1088;&#1082;&#1084;&#1077;&#1085;</string>
+  <string>tk</string>
+  <string>tuk</string>
+  <string>tuk</string>
+  <string>tuk</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Tagalog</string>
+  <string>Wikang Tagalog</string>
+  <string>tl</string>
+  <string>tgl</string>
+  <string>tgl</string>
+  <string>tgl</string>
+  <string>Note: Filipino (Pilipino) has the code [fil]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Tswana</string>
+  <string>Setswana</string>
+  <string>tn</string>
+  <string>tsn</string>
+  <string>tsn</string>
+  <string>tsn</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Tonga (Tonga Islands)</string>
+  <string>Faka Tonga</string>
+  <string>to</string>
+  <string>ton</string>
+  <string>ton</string>
+  <string>ton</string>
+  <string>also known as Tongan</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Turkish</string>
+  <string>Türkçe</string>
+  <string>tr</string>
+  <string>tur</string>
+  <string>tur</string>
+  <string>tur</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Tsonga</string>
+  <string>Xitsonga</string>
+  <string>ts</string>
+  <string>tso</string>
+  <string>tso</string>
+  <string>tso</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Tatar</string>
+  <string>&#1090;&#1072;&#1090;&#1072;&#1088;
+  &#1090;&#1077;&#1083;&#1077;, tatar tele</string>
+  <string>tt</string>
+  <string>tat</string>
+  <string>tat</string>
+  <string>tat</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Twi</string>
+  <string>Twi</string>
+  <string>tw</string>
+  <string>twi</string>
+  <string>twi</string>
+  <string>twi</string>
+  <string>Covered by macrolanguage
+  [ak/aka]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austronesian</string>
+  <string>Tahitian</string>
+  <string>Reo Tahiti</string>
+  <string>ty</string>
+  <string>tah</string>
+  <string>tah</string>
+  <string>tah</string>
+  <string>One of the Reo M&#257;`ohi
+  (languages of French Polynesia)</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Uighur, Uyghur</string>
+  <string>&#1574;&#1735;&#1610;&#1594;&#1735;&#1585;&#1670;&#1749;&#8206;, Uyghurche</string>
+  <string>ug</string>
+  <string>uig</string>
+  <string>uig</string>
+  <string>uig</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Ukrainian</string>
+  <string>&#1059;&#1082;&#1088;&#1072;&#1111;&#1085;&#1089;&#1100;&#1082;&#1072;</string>
+  <string>uk</string>
+  <string>ukr</string>
+  <string>ukr</string>
+  <string>ukr</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Urdu</string>
+  <string>
+  &#1575;&#1585;&#1583;&#1608;
+  </string>
+  <string>ur</string>
+  <string>urd</string>
+  <string>urd</string>
+  <string>urd</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Turkic</string>
+  <string>Uzbek</string>
+  <string>O&#699;zbek, &#1038;&#1079;&#1073;&#1077;&#1082;, &#1571;&#1735;&#1586;&#1576;&#1744;&#1603;&#8206;</string>
+  <string>uz</string>
+  <string>uzb</string>
+  <string>uzb</string>
+  <string>uzb + 2</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Venda</string>
+  <string>Tshiven&#7699;a</string>
+  <string>ve</string>
+  <string>ven</string>
+  <string>ven</string>
+  <string>ven</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Austroasiatic</string>
+  <string>Vietnamese</string>
+  <string>Ti&#7871;ng Vi&#7879;t</string>
+  <string>vi</string>
+  <string>vie</string>
+  <string>vie</string>
+  <string>vie</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Constructed</string>
+  <string>Volapük</string>
+  <string>Volapük</string>
+  <string>vo</string>
+  <string>vol</string>
+  <string>vol</string>
+  <string>vol</string>
+  <string>constructed</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Walloon</string>
+  <string>Walon</string>
+  <string>wa</string>
+  <string>wln</string>
+  <string>wln</string>
+  <string>wln</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Welsh</string>
+  <string>Cymraeg</string>
+  <string>cy</string>
+  <string>cym</string>
+  <string>wel</string>
+  <string>cym</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Wolof</string>
+  <string>Wollof</string>
+  <string>wo</string>
+  <string>wol</string>
+  <string>wol</string>
+  <string>wol</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Western Frisian</string>
+  <string>Frysk</string>
+  <string>fy</string>
+  <string>fry</string>
+  <string>fry</string>
+  <string>fry</string>
+  <string>also known as Frisian</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Xhosa</string>
+  <string>isiXhosa</string>
+  <string>xh</string>
+  <string>xho</string>
+  <string>xho</string>
+  <string>xho</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Indo-European</string>
+  <string>Yiddish</string>
+  <string>
+  &#1497;&#1497;&#1460;&#1491;&#1497;&#1513;
+  </string>
+  <string>yi</string>
+  <string>yid</string>
+  <string>yid</string>
+  <string>yid + 2</string>
+  <string>macrolanguage.
+  Changed in 1989 from original ISO 639:1988, ji.[1]</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Yoruba</string>
+  <string>Yorùbá</string>
+  <string>yo</string>
+  <string>yor</string>
+  <string>yor</string>
+  <string>yor</string>
+  <string> </string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Tai–Kadai</string>
+  <string>Zhuang, Chuang</string>
+  <string>Sa&#623; cue&#331;&#389;, Saw
+  cuengh</string>
+  <string>za</string>
+  <string>zha</string>
+  <string>zha</string>
+  <string>zha + 16</string>
+  <string>macrolanguage</string>
+ </ArrayOfString>
+ <ArrayOfString>
+  <string>Niger–Congo</string>
+  <string>Zulu</string>
+  <string>isiZulu</string>
+  <string>zu</string>
+  <string>zul</string>
+  <string>zul</string>
+  <string>zul</string>
+  <string> </string>
+ </ArrayOfString>
+</ArrayOfArrayOfString>
