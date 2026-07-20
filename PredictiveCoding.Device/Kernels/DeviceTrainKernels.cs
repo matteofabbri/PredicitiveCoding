@@ -7,10 +7,13 @@ namespace PredictiveCoding.Device.Kernels;
 // a full forward+backward+Adam step is one uninterrupted chain of kernel and
 // cuBLAS launches, and the host synchronises once — when it reads the loss.
 //
-// The attention pair is the A3 optimisation: block per (head, query) with the
-// parallel reduction across headDim in shared memory (flash-attention style,
-// online softmax in the forward, logsumexp-replay in the backward), replacing
-// the thread-per-head correctness kernel of DeviceMath. Layouts:
+// The attention trio is the A3 optimisation: block per (query, head) with K/V
+// tiles staged in shared memory (+1 padded stride — an unpadded headDim stride
+// puts a warp's serial dots all on one smem bank, a measured 28% step
+// regression), per-position scores computed serially from smem by one thread
+// each, and the online-softmax reduction run once per TILE instead of once per
+// position. The backward replays softmax weights from the saved logsumexp
+// (flash style) — no [seq, seq] matrix ever materialises. Layouts:
 //   Q,K,V,O,dO : [seq, heads, headDim]   (row = position, heads packed)
 //   L,D        : [seq, heads]            (logsumexp / dot(dO,O) per row-head)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,19 +72,32 @@ extern ""C"" __global__ void bias_add(float* x, const float* b, int rows, int di
     public static void BiasAdd(IntPtr stream, IntPtr x, IntPtr b, int rows, int dim)
         => BiasK.Value.Launch1DOnStream(stream, rows * dim, 256, x, b, rows, dim);
 
+    // Column reductions tile over (256 columns × 64 rows) with a final
+    // atomicAdd — coalesced reads and full occupancy even at dim ≪ GPU width
+    // (the thread-per-column version left the card ~97% idle).
+    private const int ColRowChunk = 64;
+
     private static readonly Lazy<CudaKernel> ColSumK = new(() => new CudaKernel(ColSumSrc, "col_sum_acc"));
     private const string ColSumSrc = @"
-extern ""C"" __global__ void col_sum_acc(float* db, const float* g, int rows, int dim) {
-    int j = blockIdx.x * blockDim.x + threadIdx.x;
+extern ""C"" __global__ void col_sum_acc(float* db, const float* g, int rows, int dim, int colTiles) {
+    int colTile = blockIdx.x % colTiles;
+    int rowTile = blockIdx.x / colTiles;
+    int j = colTile * blockDim.x + threadIdx.x;
     if (j >= dim) return;
+    int r0 = rowTile * 64;
+    int r1 = r0 + 64; if (r1 > rows) r1 = rows;
     float s = 0.0f;
-    for (int i = 0; i < rows; i++) s += g[(long)i * dim + j];
-    db[j] += s;
+    for (int i = r0; i < r1; i++) s += g[(long)i * dim + j];
+    atomicAdd(&db[j], s);
 }";
 
     /// <summary>db += column sums of g [rows, dim] — the bias gradient (accumulating).</summary>
     public static void ColumnSumAccumulate(IntPtr stream, IntPtr db, IntPtr g, int rows, int dim)
-        => ColSumK.Value.Launch1DOnStream(stream, dim, 256, db, g, rows, dim);
+    {
+        int colTiles = (dim + 255) / 256;
+        int rowTiles = (rows + ColRowChunk - 1) / ColRowChunk;
+        ColSumK.Value.LaunchOnStream(stream, (uint)(colTiles * rowTiles), 256, db, g, rows, dim, colTiles);
+    }
 
     // ── GELU (out of place: the backward needs the pre-activation) ───────────
 
@@ -194,17 +210,25 @@ extern ""C"" __global__ void rms_bwd_dx(const float* dY, const float* x, const f
     private static readonly Lazy<CudaKernel> RmsDgK = new(() => new CudaKernel(RmsDgSrc, "rms_dgamma"));
     private const string RmsDgSrc = @"
 extern ""C"" __global__ void rms_dgamma(const float* dY, const float* x, const float* inv,
-                                        float* dGamma, int rows, int dim) {
-    int j = blockIdx.x * blockDim.x + threadIdx.x;
+                                        float* dGamma, int rows, int dim, int colTiles) {
+    int colTile = blockIdx.x % colTiles;
+    int rowTile = blockIdx.x / colTiles;
+    int j = colTile * blockDim.x + threadIdx.x;
     if (j >= dim) return;
+    int r0 = rowTile * 64;
+    int r1 = r0 + 64; if (r1 > rows) r1 = rows;
     float s = 0.0f;
-    for (int i = 0; i < rows; i++) s += dY[(long)i * dim + j] * x[(long)i * dim + j] * inv[i];
-    dGamma[j] += s;
+    for (int i = r0; i < r1; i++) s += dY[(long)i * dim + j] * x[(long)i * dim + j] * inv[i];
+    atomicAdd(&dGamma[j], s);
 }";
 
     /// <summary>dγ += Σ_rows dY·x·inv — the RMSNorm gamma gradient (accumulating).</summary>
     public static void RmsNormDgamma(IntPtr stream, IntPtr dY, IntPtr x, IntPtr inv, IntPtr dGamma, int rows, int dim)
-        => RmsDgK.Value.Launch1DOnStream(stream, dim, 256, dY, x, inv, dGamma, rows, dim);
+    {
+        int colTiles = (dim + 255) / 256;
+        int rowTiles = (rows + ColRowChunk - 1) / ColRowChunk;
+        RmsDgK.Value.LaunchOnStream(stream, (uint)(colTiles * rowTiles), 256, dY, x, inv, dGamma, rows, dim, colTiles);
+    }
 
     // ── RoPE on the packed [seq, heads, headDim] layout, on the stream ───────
 
@@ -234,7 +258,14 @@ extern ""C"" __global__ void rope_s(float* x, int rows, int heads, int headDim, 
         => RopeK.Value.Launch1DOnStream(stream, rows * heads * (headDim / 2), 256,
                                         x, rows, heads, headDim, basePos, backward ? 1 : 0);
 
-    // ── Causal multi-query attention, fused (A3) ─────────────────────────────
+    // ── Causal multi-query attention, fused + tiled (A3) ─────────────────────
+
+    // Tile size: P positions of K/V staged in shared memory per iteration, at a
+    // +1 padded stride (headDim+1) so a warp's serial dots hit distinct smem
+    // banks. P·headDim is fixed at 4096 floats (16 KB before padding), so P
+    // adapts: headDim 64 → P 64, headDim 128 → P 32; capped at 256.
+    private static uint AttnBlockDim(int headDim)
+        => (uint)Math.Max(headDim, Math.Min(4096 / headDim, 256));
 
     private static readonly Lazy<CudaKernel> AttnFwdK = new(() => new CudaKernel(AttnFwdSrc, "attn_fwd"));
     private const string AttnFwdSrc = @"
@@ -243,48 +274,84 @@ extern ""C"" __global__ void attn_fwd(const float* Q, const float* K, const floa
                                       int seq, int heads, int headDim, float scale) {
     int q = blockIdx.x / heads;
     int h = blockIdx.x % heads;
-    int j = threadIdx.x;                              // blockDim.x == headDim
+    int tid = threadIdx.x;
     __shared__ float qs[128];
-    __shared__ float red[128];
-    __shared__ float sSh, mSh, lSh;
-    qs[j] = Q[((long)q * heads + h) * headDim + j];
-    if (j == 0) { mSh = -3.402823466e38f; lSh = 0.0f; }
-    float acc = 0.0f;
+    __shared__ float Kt[4352];                // P × (headDim+1), padded stride
+    __shared__ float Vt[4352];
+    __shared__ float pr[256];                 // per-position score → prob
+    __shared__ float red[256];
+    __shared__ float mSh, lSh;
+    int P = 4096 / headDim; if (P > 256) P = 256;
+    int stride = headDim + 1;
+
+    if (tid < headDim) qs[tid] = Q[((long)q * heads + h) * headDim + tid];
+    if (tid == 0) { mSh = -3.402823466e38f; lSh = 0.0f; }
+    float acc = 0.0f;                         // component tid of the running context
     __syncthreads();
-    for (int p = 0; p <= q; p++) {
-        const float* kp = K + ((long)p * heads + h) * headDim;
-        red[j] = qs[j] * kp[j];
+
+    int total = q + 1;                        // causal: keys 0..q
+    for (int base_ = 0; base_ < total; base_ += P) {
+        int cnt = total - base_; if (cnt > P) cnt = P;
+        // coalesced cooperative load of the K/V tile (padded rows)
+        for (int idx = tid; idx < cnt * headDim; idx += blockDim.x) {
+            int p = idx / headDim, i = idx % headDim;
+            long off = ((long)(base_ + p) * heads + h) * headDim + i;
+            Kt[p * stride + i] = K[off];
+            Vt[p * stride + i] = V[off];
+        }
         __syncthreads();
-        for (int st = blockDim.x / 2; st > 0; st >>= 1) {
-            if (j < st) red[j] += red[j + st];
+        // one thread per tile position: serial dot from smem, no syncs
+        float s = -3.402823466e38f;
+        if (tid < cnt) {
+            float d = 0.0f;
+            for (int i = 0; i < headDim; i++) d += qs[i] * Kt[tid * stride + i];
+            s = d * scale;
+        }
+        red[tid] = s;
+        __syncthreads();
+        for (int st = blockDim.x / 2; st > 0; st >>= 1) {                 // tile max
+            if (tid < st) red[tid] = fmaxf(red[tid], red[tid + st]);
             __syncthreads();
         }
-        if (j == 0) sSh = red[0] * scale;
+        float mOld = mSh;
+        float mNew = fmaxf(mOld, red[0]);
+        float p_ = tid < cnt ? expf(s - mNew) : 0.0f;
+        pr[tid] = p_;
+        red[tid] = p_;
         __syncthreads();
-        float s = sSh, mOld = mSh;
-        float mNew = fmaxf(mOld, s);
-        float sc = expf(mOld - mNew);
-        float pe = expf(s - mNew);
-        acc = acc * sc + pe * V[((long)p * heads + h) * headDim + j];
-        __syncthreads();
-        if (j == 0) { lSh = lSh * sc + pe; mSh = mNew; }
+        for (int st = blockDim.x / 2; st > 0; st >>= 1) {                 // tile sum
+            if (tid < st) red[tid] += red[tid + st];
+            __syncthreads();
+        }
+        float corr = expf(mOld - mNew);
+        if (tid == 0) { lSh = lSh * corr + red[0]; mSh = mNew; }
+        if (tid < headDim) {                  // context update, component tid
+            float add = 0.0f;
+            for (int p = 0; p < cnt; p++) add += pr[p] * Vt[p * stride + tid];
+            acc = acc * corr + add;
+        }
         __syncthreads();
     }
-    float l = lSh;
-    O[((long)q * heads + h) * headDim + j] = l > 0.0f ? acc / l : 0.0f;
-    if (j == 0) L[(long)q * heads + h] = mSh + logf(l);
+    if (tid < headDim) {
+        float l = lSh;
+        O[((long)q * heads + h) * headDim + tid] = l > 0.0f ? acc / l : 0.0f;
+    }
+    if (tid == 0) L[(long)q * heads + h] = mSh + logf(lSh);
 }";
 
     /// <summary>
-    /// Fused causal attention forward: block per (query, head), online softmax
-    /// with the reduction across headDim in shared memory; writes O and the
-    /// per-row logsumexp L (the backward replays weights from it).
+    /// Fused causal attention forward, tiled: block per (query, head), K/V
+    /// staged in shared memory P positions at a time — scores are per-thread
+    /// serial dots from smem (padded stride, bank-conflict free), and the
+    /// online-softmax reduction runs once per TILE instead of once per
+    /// position. Writes O and the per-row logsumexp L (the backward replays
+    /// weights from it).
     /// </summary>
     public static void AttentionForward(IntPtr stream, IntPtr q, IntPtr k, IntPtr v, IntPtr o, IntPtr l,
                                         int seq, int heads, int headDim, float scale)
     {
         RequireHeadDim(headDim);
-        AttnFwdK.Value.LaunchOnStream(stream, (uint)(seq * heads), (uint)headDim, q, k, v, o, l, seq, heads, headDim, scale);
+        AttnFwdK.Value.LaunchOnStream(stream, (uint)(seq * heads), AttnBlockDim(headDim), q, k, v, o, l, seq, heads, headDim, scale);
     }
 
     private static readonly Lazy<CudaKernel> AttnDotK = new(() => new CudaKernel(AttnDotSrc, "attn_dot"));
@@ -310,43 +377,50 @@ extern ""C"" __global__ void attn_bwd_dq(const float* Q, const float* K, const f
                                          float* dQ, int seq, int heads, int headDim, float scale) {
     int q = blockIdx.x / heads;
     int h = blockIdx.x % heads;
-    int j = threadIdx.x;
+    int tid = threadIdx.x;
     __shared__ float qs[128];
     __shared__ float dos[128];
-    __shared__ float red[128];
-    __shared__ float sSh, dASh;
+    __shared__ float Kt[4352];
+    __shared__ float Vt[4352];
+    __shared__ float ds[256];                 // per-position dS
+    int P = 4096 / headDim; if (P > 256) P = 256;
+    int stride = headDim + 1;
+
     long rowOff = ((long)q * heads + h) * headDim;
-    qs[j]  = Q[rowOff + j];
-    dos[j] = dO[rowOff + j];
+    if (tid < headDim) { qs[tid] = Q[rowOff + tid]; dos[tid] = dO[rowOff + tid]; }
     float Lq = L[(long)q * heads + h];
     float Dq = D[(long)q * heads + h];
-    float acc = 0.0f;
+    float acc = 0.0f;                         // component tid of dq
     __syncthreads();
-    for (int p = 0; p <= q; p++) {
-        long pOff = ((long)p * heads + h) * headDim;
-        float kj = K[pOff + j];
-        red[j] = qs[j] * kj;
-        __syncthreads();
-        for (int st = blockDim.x / 2; st > 0; st >>= 1) {
-            if (j < st) red[j] += red[j + st];
-            __syncthreads();
+
+    int total = q + 1;
+    for (int base_ = 0; base_ < total; base_ += P) {
+        int cnt = total - base_; if (cnt > P) cnt = P;
+        for (int idx = tid; idx < cnt * headDim; idx += blockDim.x) {
+            int p = idx / headDim, i = idx % headDim;
+            long off = ((long)(base_ + p) * heads + h) * headDim + i;
+            Kt[p * stride + i] = K[off];
+            Vt[p * stride + i] = V[off];
         }
-        if (j == 0) sSh = red[0] * scale;
         __syncthreads();
-        float a = expf(sSh - Lq);
-        red[j] = dos[j] * V[pOff + j];
+        if (tid < cnt) {                      // one thread per tile position
+            float s = 0.0f, dA = 0.0f;
+            for (int i = 0; i < headDim; i++) {
+                s  += qs[i]  * Kt[tid * stride + i];
+                dA += dos[i] * Vt[tid * stride + i];
+            }
+            float a = expf(s * scale - Lq);   // softmax weight replayed from L
+            ds[tid] = a * (dA - Dq);
+        } else ds[tid] = 0.0f;
         __syncthreads();
-        for (int st = blockDim.x / 2; st > 0; st >>= 1) {
-            if (j < st) red[j] += red[j + st];
-            __syncthreads();
+        if (tid < headDim) {                  // dq update, component tid
+            float add = 0.0f;
+            for (int p = 0; p < cnt; p++) add += ds[p] * Kt[p * stride + tid];
+            acc += add;
         }
-        if (j == 0) dASh = red[0];
-        __syncthreads();
-        float dS = a * (dASh - Dq);
-        acc += dS * kj;
         __syncthreads();
     }
-    dQ[rowOff + j] = scale * acc;
+    if (tid < headDim) dQ[rowOff + tid] = scale * acc;
 }";
 
     private static readonly Lazy<CudaKernel> AttnBwdKVK = new(() => new CudaKernel(AttnBwdKVSrc, "attn_bwd_dkv"));
@@ -356,59 +430,69 @@ extern ""C"" __global__ void attn_bwd_dkv(const float* Q, const float* K, const 
                                           float* dK, float* dV, int seq, int heads, int headDim, float scale) {
     int p = blockIdx.x / heads;
     int h = blockIdx.x % heads;
-    int j = threadIdx.x;
+    int tid = threadIdx.x;
     __shared__ float ks[128];
     __shared__ float vs[128];
-    __shared__ float red[128];
-    __shared__ float sSh, dASh;
+    __shared__ float Qt[4352];
+    __shared__ float dOt[4352];
+    __shared__ float aArr[256];
+    __shared__ float dsArr[256];
+    int P = 4096 / headDim; if (P > 256) P = 256;
+    int stride = headDim + 1;
+
     long pOff = ((long)p * heads + h) * headDim;
-    ks[j] = K[pOff + j];
-    vs[j] = V[pOff + j];
-    float dka = 0.0f, dva = 0.0f;
+    if (tid < headDim) { ks[tid] = K[pOff + tid]; vs[tid] = V[pOff + tid]; }
+    float dka = 0.0f, dva = 0.0f;             // components tid of dk, dv
     __syncthreads();
-    for (int q = p; q < seq; q++) {
-        long qOff = ((long)q * heads + h) * headDim;
-        float qj  = Q[qOff + j];
-        float doj = dO[qOff + j];
-        red[j] = qj * ks[j];
-        __syncthreads();
-        for (int st = blockDim.x / 2; st > 0; st >>= 1) {
-            if (j < st) red[j] += red[j + st];
-            __syncthreads();
+
+    for (int base_ = p; base_ < seq; base_ += P) {
+        int cnt = seq - base_; if (cnt > P) cnt = P;
+        for (int idx = tid; idx < cnt * headDim; idx += blockDim.x) {
+            int t = idx / headDim, i = idx % headDim;
+            long off = ((long)(base_ + t) * heads + h) * headDim + i;
+            Qt[t * stride + i]  = Q[off];
+            dOt[t * stride + i] = dO[off];
         }
-        if (j == 0) sSh = red[0] * scale;
         __syncthreads();
-        float a = expf(sSh - L[(long)q * heads + h]);
-        red[j] = doj * vs[j];
+        if (tid < cnt) {                      // one thread per tile query
+            int qq = base_ + tid;
+            float s = 0.0f, dA = 0.0f;
+            for (int i = 0; i < headDim; i++) {
+                s  += Qt[tid * stride + i]  * ks[i];
+                dA += dOt[tid * stride + i] * vs[i];
+            }
+            float a = expf(s * scale - L[(long)qq * heads + h]);
+            aArr[tid]  = a;
+            dsArr[tid] = a * (dA - D[(long)qq * heads + h]);
+        } else { aArr[tid] = 0.0f; dsArr[tid] = 0.0f; }
         __syncthreads();
-        for (int st = blockDim.x / 2; st > 0; st >>= 1) {
-            if (j < st) red[j] += red[j + st];
-            __syncthreads();
+        if (tid < headDim) {                  // dk/dv update, component tid
+            float addK = 0.0f, addV = 0.0f;
+            for (int t = 0; t < cnt; t++) {
+                addK += dsArr[t] * Qt[t * stride + tid];
+                addV += aArr[t]  * dOt[t * stride + tid];
+            }
+            dka += addK; dva += addV;
         }
-        if (j == 0) dASh = red[0];
-        __syncthreads();
-        float dS = a * (dASh - D[(long)q * heads + h]);
-        dka += dS * qj;
-        dva += a * doj;
         __syncthreads();
     }
-    dK[pOff + j] = scale * dka;
-    dV[pOff + j] = dva;
+    if (tid < headDim) { dK[pOff + tid] = scale * dka; dV[pOff + tid] = dva; }
 }";
 
     /// <summary>
-    /// Fused causal attention backward (flash style): replays the softmax weights
-    /// from the saved logsumexp — dQ from a block per (query, head), dK/dV from a
-    /// block per (key, head). Call <see cref="AttentionDotDoO"/> first for D.
+    /// Fused causal attention backward (flash style, tiled like the forward):
+    /// replays the softmax weights from the saved logsumexp — dQ from a block
+    /// per (query, head), dK/dV from a block per (key, head). Call
+    /// <see cref="AttentionDotDoO"/> first for D.
     /// </summary>
     public static void AttentionBackward(IntPtr stream, IntPtr q, IntPtr k, IntPtr v, IntPtr dO,
                                          IntPtr l, IntPtr d, IntPtr dQ, IntPtr dK, IntPtr dV,
                                          int seq, int heads, int headDim, float scale)
     {
         RequireHeadDim(headDim);
-        AttnBwdQK.Value.LaunchOnStream(stream, (uint)(seq * heads), (uint)headDim,
+        AttnBwdQK.Value.LaunchOnStream(stream, (uint)(seq * heads), AttnBlockDim(headDim),
                                        q, k, v, dO, l, d, dQ, seq, heads, headDim, scale);
-        AttnBwdKVK.Value.LaunchOnStream(stream, (uint)(seq * heads), (uint)headDim,
+        AttnBwdKVK.Value.LaunchOnStream(stream, (uint)(seq * heads), AttnBlockDim(headDim),
                                         q, k, v, dO, l, d, dK, dV, seq, heads, headDim, scale);
     }
 
