@@ -192,6 +192,14 @@ public sealed class DecoderLM
         return [.. ps];
     }
 
+    // ── Predictive-coding (iPC) training hooks — used by Training/PcDecoderTrainer ──
+    internal float AttnScale => _attnScale;
+    internal Random Rng => _rng;
+    internal Tensor Wemb => _wemb;
+    internal Tensor Wout => _wout;
+    internal Tensor LnFG => _lnFG;
+    internal IReadOnlyList<IDecoderBlock> Blocks => _blocks;
+
     /// <summary>
     /// Forward pass: tokens → logits [seq, vocab]. Dropout active only when
     /// training. An optional <see cref="ActivationProbe"/> records per-block
@@ -427,7 +435,7 @@ public sealed class DecoderLM
 
     // ── decoder blocks ───────────────────────────────────────────────────────────
 
-    private interface IDecoderBlock
+    internal interface IDecoderBlock
     {
         IEnumerable<Tensor> Parameters();
         Tensor Forward(Tensor x, float attnScale, float dropout, bool training, Random rng, float eps,

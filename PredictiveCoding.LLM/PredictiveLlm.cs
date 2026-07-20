@@ -34,6 +34,15 @@ public sealed class PredictiveLlm
     // continues, it does not restart.
     private Adam? _onlineOptimizer;
 
+    // Allenatore Predictive Coding (iPC) per LearnPc; creato pigro sul Model
+    // (getta se il Model non e' denso/PC-compatibile — vedi CreatePc).
+    private Training.PcDecoderTrainer? _pc;
+
+    /// <summary>Ancora Adam nel training PC: ogni quanti step PC un burst (0 = spenta). Applicata quando LearnPc crea il trainer.</summary>
+    public int PcAnchorEvery { get; set; }
+    /// <summary>Passi di Adam per scatto d'ancora.</summary>
+    public int PcAnchorBurst { get; set; } = 3;
+
     // Seed of the primary model — reused (offset per worker) to build the
     // structural replicas of the parallel trainer, then overwritten by the
     // synced weights anyway.
@@ -94,6 +103,21 @@ public sealed class PredictiveLlm
     /// </summary>
     public static PredictiveLlm CreateBase(ITokenizer tokenizer, int maxSeq = 1024, int seed = 42) =>
         new(DecoderLmConfig.Base(tokenizer.VocabSize, maxSeq), tokenizer, seed);
+
+    /// <summary>
+    /// Preset DENSO allenabile in Predictive Coding (iPC): blocco stile Llama
+    /// (RMSNorm + RoPE + FFN densa), niente MoE / loop / MTP / plan — l'unico
+    /// che <see cref="Training.PcDecoderTrainer"/> supporta. Byte tokenizer.
+    /// Usato quando il modello deve imparare in PC invece che backprop.
+    /// </summary>
+    public static PredictiveLlm CreatePc(
+        int dim = 64, int blocks = 4, int heads = 4, int ffDim = 256, int maxSeq = 1024, int seed = 42)
+    {
+        var tok = new ByteTokenizer();
+        var cfg = new DecoderLmConfig(tok.VocabSize, dim, blocks, heads, ffDim, maxSeq,
+                                      UseRmsNorm: true, UseRope: true);
+        return new PredictiveLlm(cfg, tok, seed);
+    }
 
     private static DecoderLmConfig Config2026(int vocab, int dim, int blocks, int heads, int ffDim, int maxSeq)
     {
@@ -498,6 +522,38 @@ public sealed class PredictiveLlm
         return new OnlineLearnReport(before, after, steps);
 
         Tensor LossFn(int[] t, int[] y, bool training) => Model.Loss(t, y, ignoreIndex: -1, training);
+
+        float MeanLoss(List<(int[] input, int[] target)> ws)
+        {
+            double sum = 0d;
+            foreach (var (t, y) in ws) sum += Model.Loss(t, y, ignoreIndex: -1).Data[0];
+            return (float)(sum / ws.Count);
+        }
+    }
+
+    /// <summary>
+    /// Come <see cref="Learn"/>, ma il modello impara in PREDICTIVE CODING (iPC,
+    /// <see cref="Training.PcDecoderTrainer"/>): errori di predizione locali a
+    /// confine-di-blocco, niente passata di backprop globale. Richiede un modello
+    /// DENSO (vedi <see cref="CreatePc"/>): getta altrimenti. Sorpresa prima/dopo.
+    /// </summary>
+    public OnlineLearnReport LearnPc(string text, int steps = 1, bool countAsTraining = false)
+    {
+        if (steps < 1) throw new ArgumentOutOfRangeException(nameof(steps), steps, "steps must be >= 1.");
+        _pc ??= new Training.PcDecoderTrainer(Model) { AnchorEvery = PcAnchorEvery, AnchorBurst = PcAnchorBurst };
+        var windows = TextWindows(text);
+
+        long windowTokens = 0;
+        foreach (var (input, _) in windows) windowTokens += input.Length;
+        if (countAsTraining) Odometer.Trained += windowTokens * steps;   // giro di training d'avvio
+        else                 Odometer.Absorbed += windowTokens * steps;  // apprendimento dal vivo
+        Odometer.Evaluated += windowTokens * 2;
+
+        float before = MeanLoss(windows);
+        for (int s = 0; s < steps; s++)
+            foreach (var (input, target) in windows) _pc.Step(input, target);
+        float after = MeanLoss(windows);
+        return new OnlineLearnReport(before, after, steps);
 
         float MeanLoss(List<(int[] input, int[] target)> ws)
         {

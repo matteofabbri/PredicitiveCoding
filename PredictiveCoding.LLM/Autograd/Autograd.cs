@@ -39,6 +39,24 @@ public sealed class Tensor
         return t;
     }
 
+    /// <summary>
+    /// Stop-gradient: a NEW leaf tensor holding a copy of this tensor's <see cref="Data"/>
+    /// (values only) but with NO <see cref="Parents"/> and NO <see cref="BackwardFn"/>. In
+    /// the forward pass it is numerically identical to the original; in the backward pass
+    /// <see cref="Build"/> reaches this leaf, finds no parents and a null closure, and stops
+    /// — the gradient never flows past it into the subgraph that produced this tensor.
+    /// This is what Predictive Coding's block-boundary needs: cut the graph at a block's
+    /// input so seeding ε on the block's output stays LOCAL to that block and does not climb
+    /// into the upstream blocks. Additive; the original tensor is left untouched (its own
+    /// Grad still accumulates when it is used elsewhere in a non-detached path).
+    /// </summary>
+    public Tensor Detach()
+    {
+        var t = new Tensor(Rows, Cols);
+        Array.Copy(Data, t.Data, Data.Length);          // copy values; Parents = [] and BackwardFn = null → gradient stops here
+        return t;
+    }
+
     /// <summary>Reverse pass from this (scalar) tensor: fills Grad on all ancestors.</summary>
     public void Backward()
     {
@@ -48,6 +66,31 @@ public sealed class Tensor
 
         foreach (var t in topo) Array.Clear(t.Grad);
         Grad[0] = 1f;                                   // seed dL/dL
+        for (int i = topo.Count - 1; i >= 0; i--) topo[i].BackwardFn?.Invoke();
+    }
+
+    /// <summary>
+    /// Reverse pass from a NON-scalar <paramref name="output"/>, seeded with an
+    /// arbitrary error <paramref name="seed"/> (same shape as output.Data) instead
+    /// of dL/dL = 1. This is the vector-Jacobian product ∂output/∂· contracted with
+    /// <paramref name="seed"/>: it fills Grad on every ancestor with seedᵀ·J. Same
+    /// machinery as <see cref="Backward"/> (topological order, subgraph Grad reset,
+    /// += accumulation through the recorded BackwardFn closures) — only the seeding
+    /// point and value differ. This is what Predictive Coding needs: seed a block's
+    /// prediction error ε on its output and get the local state/weight updates,
+    /// without ever forming a scalar loss.
+    /// </summary>
+    public void BackwardFrom(float[] seed)
+    {
+        if (seed.Length != Grad.Length)
+            throw new ArgumentException($"Seed length {seed.Length} ≠ output size {Grad.Length}.", nameof(seed));
+
+        var topo    = new List<Tensor>();
+        var visited = new HashSet<Tensor>();
+        Build(this, topo, visited);
+
+        foreach (var t in topo) Array.Clear(t.Grad);
+        Array.Copy(seed, Grad, seed.Length);            // seed ε on this output (was dL/dL = 1 on a scalar)
         for (int i = topo.Count - 1; i >= 0; i--) topo[i].BackwardFn?.Invoke();
     }
 
@@ -106,6 +149,13 @@ public static class Ag
     /// overhead outweighs any backend win, as the Phase-4 bench showed.
     /// </summary>
     public static long ProviderCrossoverMacs { get; set; } = 1L << 20;
+
+    /// <summary>
+    /// Stop-gradient (functional form of <see cref="Tensor.Detach"/>): returns a new leaf
+    /// tensor with the same values but detached from the graph, so the backward pass stops
+    /// here. Use at a block boundary to keep a block's error propagation local.
+    /// </summary>
+    public static Tensor Detach(Tensor x) => x.Detach();
 
     public static Tensor MatMul(Tensor a, Tensor b)
     {
