@@ -99,4 +99,46 @@ public class LlmDeviceTests
         Assert.Equal(new[] { 1f, 2f, 3f, 4f }, c);
         DeviceRegistry.UseCpu();
     }
+
+    // ── A4: the ROCm mirror (UNTESTED-WITHOUT-HARDWARE — these cover the
+    //    everywhere-runnable half: probing and the per-call CPU fallback) ─────
+
+    [Fact]
+    public void RocmProvider_ComputesCorrectly_ViaFallbackWhenNoAmdGpu()
+    {
+        // On a machine with no ROCm runtime the provider must transparently
+        // produce the CPU result; on a Radeon box the same asserts exercise
+        // the hip path (that half awaits hardware).
+        var rng = new Random(9);
+        int m = 4, k = 6, n = 3;
+        var a = new float[m * k]; var b = new float[k * n];
+        for (int i = 0; i < a.Length; i++) a[i] = (float)rng.NextDouble();
+        for (int i = 0; i < b.Length; i++) b[i] = (float)rng.NextDouble();
+
+        var rocm = new RocmGemmProvider().MatMul(a, m, k, b, n);
+        var cpu  = new PredictiveCoding.LLM.Infrastructure.CpuGemmProvider().MatMul(a, m, k, b, n);
+        for (int i = 0; i < rocm.Length; i++) Assert.Equal(cpu[i], rocm[i], 4);
+    }
+
+    [Fact]
+    public void Registry_EnableRocm_InstallsProvider_AndReportsHardwareTruthfully()
+    {
+        bool hasRocm = DeviceRegistry.EnableRocm();
+        Assert.Equal(DeviceRuntime.RocmAvailable, hasRocm);       // no pretending
+        Assert.False(DeviceRegistry.CudaEnabled);                 // backends are exclusive
+
+        // Whatever the hardware, the installed provider computes.
+        var c = PredictiveCoding.LLM.Infrastructure.Gemm.MatMul([2, 0, 0, 2], 2, 2, [1, 2, 3, 4], 2);
+        Assert.Equal(new[] { 2f, 4f, 6f, 8f }, c);
+        DeviceRegistry.UseCpu();
+        Assert.False(DeviceRegistry.RocmEnabled);
+    }
+
+    [Fact]
+    public void Rocm_Probing_NeverThrows_AndTensorPlacementFallsBackToCpu()
+    {
+        _ = DeviceRuntime.RocmDeviceCount;                        // DllNotFound → 0, not a crash
+        Assert.True(DeviceRuntime.RocmDeviceCount >= 0);
+        Assert.Equal(Device.Cpu, DeviceRuntime.Resolve(Device.Rocm()));   // no ROCm tensor backend yet
+    }
 }

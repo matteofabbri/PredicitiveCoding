@@ -35,6 +35,14 @@ internal static class NativeResolver
             "nvrtc"  => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
                             ? ["nvrtc64_120_0", "nvrtc64_112_0"]
                             : ["libnvrtc.so.12", "libnvrtc.so.11", "libnvrtc.so"],
+            // ROCm mirror (A4, UNTESTED-WITHOUT-HARDWARE): the HIP runtime is
+            // version-suffixed on both OSes; hipBLAS ships as a plain name.
+            "amdhip64" => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                            ? ["amdhip64_6", "amdhip64"]
+                            : ["libamdhip64.so.6", "libamdhip64.so.5", "libamdhip64.so"],
+            "hipblas"  => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                            ? ["hipblas"]
+                            : ["libhipblas.so.2", "libhipblas.so.1", "libhipblas.so"],
             _        => [libraryName],
         };
 
