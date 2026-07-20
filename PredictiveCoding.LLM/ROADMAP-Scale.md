@@ -70,13 +70,35 @@ the difference between a professional plan and a wish.
 *Order inside A: A1 first (it is the enabler), A2 rides on it (same device path), A3 is the
 biggest single kernel, A4 is parallel work that reuses A1's device plumbing.*
 
-## Phase B — Scale the model · ❌
+## Phase B — Scale the model · ✅ (2026-07-20)
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| **B1 · Real config presets** | 🟡 | `DecoderLmConfig` already parameterises dim/blocks/heads/ffn — no new architecture. Add **Small (~30M)** and **Base (~125M)** presets sized to fit 12 GB with A2 + gradient accumulation (+ optional gradient checkpointing for the Base). |
-| **B2 · Real BPE tokenizer** | 🟡 | `BpeTokenizer.Train` exists (Phase-0) and travels with the model. Train a **16k–32k** vocab on the corpus and build on it — the deployed instance is byte-level today, and Phase-0's own note calls a subword vocab "the single cheapest capability jump." |
-| **B3 · Memory budget, measured** | ❌ | A params + Adam-moments + activations table per preset at fp16, and the batch/accumulation that fits 12 GB. Published, not guessed. |
+| **B1 · Real config presets** | ✅ | `DecoderLmConfig.Small` (dim 384, 8 blocks, 6 heads, ffn 1536, ctx 512): **26.8M** params @ 16k vocab. `DecoderLmConfig.Base` (dim 768, 12 blocks, 12 heads, ffn 3072, ctx 1024): **135.4M** @ 32k — GPT-2-small class. Dense GPT-2-style on purpose (2026 features stay in the toy showcase, re-enable per-run via `with`); `PredictiveLlm.CreateSmall/CreateBase(tokenizer)` take the vocab from the tokenizer. Enabling change: the embedding is now a **row gather** (`Ag.GatherRows`, forward bit-identical to the one-hot matmul, scatter-add backward) — at 16k-32k vocab the old `[seq, vocab]` one-hot would have dominated the whole step. `DenseParameterFormula` gives the closed-form count, test-verified against real instances. Gradient checkpointing turned out **unnecessary for the fit** (see B3: Base @ 1024 fits 12 GB at micro-batch 1 even in fp32); it stays a possible later throughput option, not a requirement. |
+| **B2 · Real BPE tokenizer** | ✅ | `BpeTokenizer.TrainFromCorpus(CorpusSource, targetVocab)` — word-split BPE at scale: GPT-2-style piece splitter (hand-rolled, no regex), BPE over **unique pieces weighted by frequency** with incremental pair counts + lazy-invalidation priority queue (deterministic tie-break). **Measured (Release): 16,124 merges on a 12 MB / 200k-unique-piece Zipfian corpus in ~2 s of merge loop; encode 13.8 MB/s** (per-piece concurrent cache); the counting pass is one linear stream — a 300 MB crawl stays in the minutes. Piece-mode files carry a `"BPE2"` magic; existing `"BPE1"` whole-stream tokenizers load and encode bit-identically. |
+| **B3 · Memory budget, measured** | ✅ | `MemoryBudget.Measure(config, seqLen)` runs one **real forward+backward** and walks the autograd graph from the loss — activations are counted from the live tape, not estimated. Table below. |
+
+### B3 — the measured table (fp32 CPU tape; fp16 = derived projection until A2)
+
+Measured with `MemoryBudget.Measure` (Release, 2026-07-20). "fp16 proj" assumes the
+standard A2 recipe — fp16 working weights/grads/activations over fp32 master
+weights + Adam moments — and stays a *derivation* until A2 re-measures it on
+device. The activation column is the **current CPU autograd tape**: an honest
+upper bound. The A3 fused attention will shrink it further (the tape's
+`[seq, seq]` per-head score matrices — ~1.2 GB of the Base @ 1024 figure —
+disappear into the online-softmax kernel).
+
+| Preset | seq | params | grads | Adam m+v | activations | **total fp32** | **fp16 proj** |
+|--------|----:|-------:|------:|---------:|------------:|---------------:|--------------:|
+| Small (26.8M @ 16k) | 256 | 102 MB | 102 MB | 204 MB | 323 MB | 0.71 GB | 0.56 GB |
+| Small (26.8M @ 16k) | 512 | 102 MB | 102 MB | 204 MB | 790 MB | 1.17 GB | 0.78 GB |
+| Base (135.4M @ 32k) | 512 | 516 MB | 516 MB | 1.03 GB | 2.73 GB | 4.68 GB | 3.35 GB |
+| Base (135.4M @ 32k) | 1024 | 516 MB | 516 MB | 1.03 GB | 7.19 GB | **9.04 GB** | **5.53 GB** |
+
+**Fit on 12 GB (≈11 GB usable after runtime overhead):** Small @ 512 runs ~13
+physical windows per step in fp32 (~26 in fp16) before gradient accumulation;
+Base @ 1024 fits at **micro-batch 1 even in fp32** (9.04 GB), ~2 windows in
+fp16 — gradient accumulation supplies any effective batch size on top.
 
 ## Phase C — The corpus, built by the crawler · ❌ (web-native, continual-first)
 

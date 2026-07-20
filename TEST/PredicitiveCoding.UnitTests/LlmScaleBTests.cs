@@ -258,6 +258,36 @@ public class LlmScaleBTests
         Assert.Equal(" word219", tok.Decode(tok.Encode(" word219")));
     }
 
+    // ═════ B3 — the memory budget, measured ══════════════════════════════════
+
+    [Fact]
+    public void MemoryBudget_ParamsMatchTheFormula_AndActivationsAreReal()
+    {
+        var cfg = new DecoderLmConfig(Vocab: 300, Dim: 32, NumBlocks: 2, NumHeads: 4, FfDim: 64, MaxSeq: 64);
+        var report = PredictiveCoding.LLM.Training.MemoryBudget.Measure(cfg, seqLen: 48);
+
+        Assert.Equal(cfg.DenseParameterFormula() * 4, report.ParameterBytes);
+        Assert.Equal(report.ParameterBytes, report.GradientBytes);
+        Assert.Equal(2 * report.ParameterBytes, report.AdamStateBytes);
+        Assert.True(report.ActivationBytes > 0);
+        Assert.Equal(report.ParameterBytes + report.GradientBytes + report.AdamStateBytes + report.ActivationBytes,
+                     report.TotalBytes);
+        Assert.True(report.ProjectFp16Bytes < report.TotalBytes);   // mixed precision must actually save
+    }
+
+    [Fact]
+    public void MemoryBudget_ActivationsGrowWithSequence_AndMeasureIsDeterministic()
+    {
+        var cfg = new DecoderLmConfig(Vocab: 300, Dim: 32, NumBlocks: 2, NumHeads: 4, FfDim: 64, MaxSeq: 64);
+
+        var s32 = PredictiveCoding.LLM.Training.MemoryBudget.Measure(cfg, seqLen: 32);
+        var s64 = PredictiveCoding.LLM.Training.MemoryBudget.Measure(cfg, seqLen: 64);
+        Assert.True(s64.ActivationBytes > s32.ActivationBytes);
+
+        var again = PredictiveCoding.LLM.Training.MemoryBudget.Measure(cfg, seqLen: 32);
+        Assert.Equal(s32.ActivationBytes, again.ActivationBytes);
+    }
+
     [Fact]
     public void Encode_WordSplit_IsThreadSafe()
     {
