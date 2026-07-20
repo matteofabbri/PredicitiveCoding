@@ -45,7 +45,9 @@ public sealed record DecoderLmConfig(
     int NumExperts = 0,
     int MoeTopK = 1,
     float MoeBalanceWeight = 0.01f,
-    bool UsePlan = false)
+    bool UsePlan = false,
+    bool UseRmsNorm = false,
+    bool UseRope = false)
 {
     public int HeadDim => Dim / NumHeads;
 
@@ -77,6 +79,10 @@ public sealed record DecoderLmConfig(
             throw new ArgumentException($"MoeTopK ({MoeTopK}) must be in [1, NumExperts ({NumExperts})].");
         if (MoeBalanceWeight < 0f)
             throw new ArgumentException($"MoeBalanceWeight ({MoeBalanceWeight}) must be >= 0 (0 disables the balance loss).");
+        if (UseRope && HeadDim % 2 != 0)
+            throw new ArgumentException($"UseRope needs an even head dim, got {HeadDim}.");
+        if ((UseRmsNorm || UseRope) && BlockPattern is not null)
+            throw new ArgumentException("UseRmsNorm/UseRope are the Scale training path — attention blocks only (BlockPattern must be null).");
     }
 
     // ── Scale presets (ROADMAP-Scale B1) ─────────────────────────────────────
@@ -88,18 +94,24 @@ public sealed record DecoderLmConfig(
     // GPT-2 comparison matter more than mechanism coverage. Any 2026 feature
     // can still be switched on per-run via `with { … }` (it is a record).
     //
-    // Parameters (dense, untied embeddings — see ParameterFormula):
-    //   2·vocab·dim + blocks·(4·dim² + 2·dim·ffn + ffn + 5·dim) + 2·dim
+    // Parameters (dense, untied embeddings — see DenseParameterFormula):
+    //   2·vocab·dim + blocks·(4·dim² + 2·dim·ffn + ffn + norm·dim) + tail·dim
+    //   (norm = 3 with RMSNorm, 5 with LayerNorm; tail = 1 vs 2)
     //   Small: 26.8M @ vocab 16k   (39.4M @ 32k)
-    //   Base:  135.4M @ vocab 32k  (GPT-2-small class: 768×12, ctx 1024)
+    //   Base:  135.3M @ vocab 32k  (GPT-2-small class: 768×12, ctx 1024)
+    //
+    // Presets run RMSNorm + RoPE (ROADMAP-Scale A1): the Llama-style block the
+    // device training path implements — CPU and GPU share one architecture.
 
-    /// <summary>~30M-class preset (dim 384, 8 blocks, 6 heads, ffn 1536): 26.8M parameters at a 16k vocab.</summary>
+    /// <summary>~30M-class preset (dim 384, 8 blocks, 6 heads, ffn 1536, RMSNorm+RoPE): 26.8M parameters at a 16k vocab.</summary>
     public static DecoderLmConfig Small(int vocab, int maxSeq = 512) =>
-        new(vocab, Dim: 384, NumBlocks: 8, NumHeads: 6, FfDim: 1536, MaxSeq: maxSeq);
+        new(vocab, Dim: 384, NumBlocks: 8, NumHeads: 6, FfDim: 1536, MaxSeq: maxSeq,
+            UseRmsNorm: true, UseRope: true);
 
-    /// <summary>GPT-2-small-class preset (dim 768, 12 blocks, 12 heads, ffn 3072): 135.4M parameters at a 32k vocab.</summary>
+    /// <summary>GPT-2-small-class preset (dim 768, 12 blocks, 12 heads, ffn 3072, RMSNorm+RoPE): 135.3M parameters at a 32k vocab.</summary>
     public static DecoderLmConfig Base(int vocab, int maxSeq = 1024) =>
-        new(vocab, Dim: 768, NumBlocks: 12, NumHeads: 12, FfDim: 3072, MaxSeq: maxSeq);
+        new(vocab, Dim: 768, NumBlocks: 12, NumHeads: 12, FfDim: 3072, MaxSeq: maxSeq,
+            UseRmsNorm: true, UseRope: true);
 
     /// <summary>
     /// Exact parameter count for a DENSE config (no loops/MTP/MoE/plan) without
@@ -110,8 +122,10 @@ public sealed record DecoderLmConfig(
     {
         if (NumExperts > 0 || NumLoops > 1 || MtpWeight > 0f || UsePlan || BlockPattern is not null)
             throw new InvalidOperationException("DenseParameterFormula only covers the plain dense-attention config.");
-        long perBlock = 4L * Dim * Dim + 2L * Dim * FfDim + FfDim + 5L * Dim;
-        return 2L * Vocab * Dim + NumBlocks * perBlock + 2L * Dim;
+        long normPerBlock = UseRmsNorm ? 2L * Dim : 4L * Dim;               // 2 gammas vs 2 gamma+beta pairs
+        long perBlock = 4L * Dim * Dim + 2L * Dim * FfDim + FfDim + Dim + normPerBlock;
+        long finalNorm = UseRmsNorm ? Dim : 2L * Dim;
+        return 2L * Vocab * Dim + NumBlocks * perBlock + finalNorm;
     }
 }
 
@@ -124,7 +138,8 @@ public sealed class DecoderLM
     private readonly Tensor         _wemb;     // [vocab, dim]
     private readonly IDecoderBlock[] _blocks;
     private readonly Tensor[]? _loopBias;      // [NumLoops] × [1, dim] — loop-step conditioning; null when NumLoops == 1
-    private readonly Tensor    _lnFG, _lnFB;   // final layer-norm
+    private readonly Tensor    _lnFG;          // final norm gamma
+    private readonly Tensor?   _lnFB;          // final norm beta — null under RMSNorm
     private readonly Tensor    _wout;          // [dim, vocab]
     private readonly Tensor?   _woutMtp;       // [dim, vocab] — aux head predicting t+MtpHorizon; null when MtpWeight == 0
     private readonly Tensor?   _plan;          // [1, dim] — latent plan conditioning (roadmap Phase 8); null when UsePlan == false
@@ -151,7 +166,7 @@ public sealed class DecoderLM
             for (int k = 0; k < cfg.NumLoops; k++) _loopBias[k] = new Tensor(1, cfg.Dim);
         }
         _lnFG = AgInit.Ones(1, cfg.Dim);
-        _lnFB = new Tensor(1, cfg.Dim);
+        _lnFB = cfg.UseRmsNorm ? null : new Tensor(1, cfg.Dim);
         _wout = AgInit.Randn(cfg.Dim, cfg.Vocab, rng);
         // Multi-token prediction head (roadmap Phase 3), only allocated when on
         // so the vanilla parameter list (and old checkpoints) are untouched.
@@ -170,7 +185,7 @@ public sealed class DecoderLM
         foreach (var b in _blocks) ps.AddRange(b.Parameters());
         if (_loopBias is not null) ps.AddRange(_loopBias);
         ps.Add(_lnFG);
-        ps.Add(_lnFB);
+        if (_lnFB is not null) ps.Add(_lnFB);
         ps.Add(_wout);
         if (_woutMtp is not null) ps.Add(_woutMtp);
         if (_plan is not null) ps.Add(_plan);
@@ -231,7 +246,8 @@ public sealed class DecoderLM
         // materialising a [seq, vocab] one-hot: at a real vocab (16k-32k,
         // ROADMAP-Scale B1) the one-hot matmul would dominate the whole step.
         var x = Ag.GatherRows(_wemb, tokens);                              // [seq, dim]
-        x = Ag.Add(x, AgPositional.Sinusoidal(seq, Config.Dim));           // + positions
+        if (!Config.UseRope)                                               // with RoPE, positions live in q/k
+            x = Ag.Add(x, AgPositional.Sinusoidal(seq, Config.Dim));       // + positions
         if (_plan is not null)
             x = Ag.AddBias(x, _plan);                                      // latent plan conditioning (Phase 8)
 
@@ -268,7 +284,9 @@ public sealed class DecoderLM
         }
         if (probe is not null) probe.LoopsUsed = loopsUsed;
 
-        return Ag.LayerNorm(x, _lnFG, _lnFB, Config.Eps);
+        return Config.UseRmsNorm
+            ? Ag.RmsNorm(x, _lnFG, Config.Eps)
+            : Ag.LayerNorm(x, _lnFG, _lnFB!, Config.Eps);
     }
 
     // ‖now − before‖ / (‖before‖ + tiny), over the flattened hidden state.
@@ -419,7 +437,9 @@ public sealed class DecoderLM
     private sealed class Block : IDecoderBlock
     {
         private readonly int      _heads;
-        private readonly Tensor   _ln1G, _ln1B, _ln2G, _ln2B;
+        private readonly bool     _useRms, _useRope;           // ROADMAP-Scale A1: the Llama-style block
+        private readonly Tensor   _ln1G, _ln2G;
+        private readonly Tensor?  _ln1B, _ln2B;                // null under RMSNorm (gamma-only)
         private readonly Tensor[] _wq, _wk, _wv, _wo;          // per-head projections
         private readonly Tensor?  _w1, _b1, _w2, _b2;          // dense feed-forward (null when MoE)
         private readonly Tensor?   _router;                    // [dim, E] — MoE gate (roadmap Phase 6)
@@ -428,9 +448,11 @@ public sealed class DecoderLM
 
         public Block(DecoderLmConfig cfg, Random rng)
         {
-            _heads = cfg.NumHeads;
-            _ln1G = AgInit.Ones(1, cfg.Dim); _ln1B = new Tensor(1, cfg.Dim);
-            _ln2G = AgInit.Ones(1, cfg.Dim); _ln2B = new Tensor(1, cfg.Dim);
+            _heads   = cfg.NumHeads;
+            _useRms  = cfg.UseRmsNorm;
+            _useRope = cfg.UseRope;
+            _ln1G = AgInit.Ones(1, cfg.Dim); _ln1B = _useRms ? null : new Tensor(1, cfg.Dim);
+            _ln2G = AgInit.Ones(1, cfg.Dim); _ln2B = _useRms ? null : new Tensor(1, cfg.Dim);
 
             _wq = new Tensor[_heads]; _wk = new Tensor[_heads];
             _wv = new Tensor[_heads]; _wo = new Tensor[_heads];
@@ -466,12 +488,12 @@ public sealed class DecoderLM
 
         public IEnumerable<Tensor> Parameters()
         {
-            yield return _ln1G; yield return _ln1B;
+            yield return _ln1G; if (_ln1B is not null) yield return _ln1B;
             for (int h = 0; h < _heads; h++)
             {
                 yield return _wq[h]; yield return _wk[h]; yield return _wv[h]; yield return _wo[h];
             }
-            yield return _ln2G; yield return _ln2B;
+            yield return _ln2G; if (_ln2B is not null) yield return _ln2B;
             if (_router is not null)
             {
                 yield return _router;
@@ -490,13 +512,14 @@ public sealed class DecoderLM
                               ActivationProbe? probe, int blockIndex, List<Tensor>? auxLosses)
         {
             // Multi-head causal self-attention (pre-norm + residual).
-            var h1 = Ag.LayerNorm(x, _ln1G, _ln1B, eps);
+            var h1 = _useRms ? Ag.RmsNorm(x, _ln1G, eps) : Ag.LayerNorm(x, _ln1G, _ln1B!, eps);
             Tensor? attn = null;
             for (int h = 0; h < _heads; h++)
             {
                 var q       = Ag.MatMul(h1, _wq[h]);                                  // [seq, headDim]
                 var k       = Ag.MatMul(h1, _wk[h]);
                 var v       = Ag.MatMul(h1, _wv[h]);
+                if (_useRope) { q = Ag.Rope(q); k = Ag.Rope(k); }                     // positions live in q/k
                 var scores  = Ag.Scale(Ag.MatMul(q, Ag.Transpose(k)), attnScale);     // [seq, seq]
                 var probs   = Ag.SoftmaxRowsCausal(scores);
                 probe?.RecordCausalAttention(blockIndex, h, probs.Data, probs.Rows);
@@ -507,7 +530,7 @@ public sealed class DecoderLM
             x = Ag.Add(x, Ag.Dropout(attn!, dropout, training, rng));
 
             // Feed-forward (pre-norm + residual): dense, or sparse experts.
-            var h2 = Ag.LayerNorm(x, _ln2G, _ln2B, eps);
+            var h2 = _useRms ? Ag.RmsNorm(x, _ln2G, eps) : Ag.LayerNorm(x, _ln2G, _ln2B!, eps);
             var ff = _router is null ? DenseFfn(h2) : MoeFfn(h2, auxLosses, probe);
             return Ag.Add(x, Ag.Dropout(ff, dropout, training, rng));
         }

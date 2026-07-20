@@ -50,7 +50,8 @@ public class LlmScaleBTests
         var model = new DecoderLM(cfg, new Random(1));
 
         Assert.Equal(cfg.DenseParameterFormula(), model.ParameterCount);
-        Assert.Equal(26_767_104L, model.ParameterCount);          // ~30M-class @ 16k vocab
+        Assert.Equal(26_760_576L, model.ParameterCount);          // ~30M-class @ 16k vocab (RMSNorm: no betas)
+        Assert.True(cfg.UseRmsNorm && cfg.UseRope);               // the Llama-style Scale block
         Assert.Equal(64, cfg.HeadDim);                            // the standard head width
         Assert.Equal(512, cfg.MaxSeq);
     }
@@ -73,9 +74,83 @@ public class LlmScaleBTests
         // verified against real instances by the two tests above.
         var cfg = DecoderLmConfig.Base(vocab: 32768);
 
-        Assert.Equal(135_350_784L, cfg.DenseParameterFormula());  // GPT-2-small class
+        Assert.Equal(135_331_584L, cfg.DenseParameterFormula());  // GPT-2-small class (RMSNorm: no betas)
         Assert.Equal(64, cfg.HeadDim);
         Assert.Equal(1024, cfg.MaxSeq);
+    }
+
+    [Fact]
+    public void RmsNorm_GradientsMatchFiniteDifferences()
+    {
+        var rng = new Random(5);
+        var x = new Tensor(3, 8); var gamma = new Tensor(1, 8);
+        for (int i = 0; i < x.Data.Length; i++) x.Data[i] = (float)(rng.NextDouble() * 2 - 1);
+        for (int j = 0; j < 8; j++) gamma.Data[j] = 0.5f + (float)rng.NextDouble();
+
+        Ag.Mean(Ag.RmsNorm(x, gamma, eps: 1e-5f)).Backward();
+
+        float Loss()
+        {
+            float sum = 0f;
+            for (int i = 0; i < 3; i++)
+            {
+                float ss = 0f;
+                for (int j = 0; j < 8; j++) ss += x.Data[i * 8 + j] * x.Data[i * 8 + j];
+                float inv = 1f / MathF.Sqrt(ss / 8 + 1e-5f);
+                for (int j = 0; j < 8; j++) sum += x.Data[i * 8 + j] * inv * gamma.Data[j];
+            }
+            return sum / (3 * 8);
+        }
+
+        const float h = 1e-3f;
+        for (int i = 0; i < x.Data.Length; i += 5)     // sampled coordinates
+        {
+            float keep = x.Data[i];
+            x.Data[i] = keep + h; float up = Loss();
+            x.Data[i] = keep - h; float dn = Loss();
+            x.Data[i] = keep;
+            Assert.Equal((up - dn) / (2 * h), x.Grad[i], 2);
+        }
+        for (int j = 0; j < 8; j += 3)
+        {
+            float keep = gamma.Data[j];
+            gamma.Data[j] = keep + h; float up = Loss();
+            gamma.Data[j] = keep - h; float dn = Loss();
+            gamma.Data[j] = keep;
+            Assert.Equal((up - dn) / (2 * h), gamma.Grad[j], 2);
+        }
+    }
+
+    [Fact]
+    public void Rope_IsAnIsometry_AndBackwardIsTheInverseRotation()
+    {
+        var rng = new Random(6);
+        var x = new Tensor(5, 16);
+        for (int i = 0; i < x.Data.Length; i++) x.Data[i] = (float)(rng.NextDouble() * 2 - 1);
+
+        var y = Ag.Rope(x, basePos: 3);
+
+        // Rotations preserve the norm of every pair, hence of every row.
+        for (int r = 0; r < 5; r++)
+        {
+            double nx = 0, ny = 0;
+            for (int j = 0; j < 16; j++) { nx += x.Data[r * 16 + j] * x.Data[r * 16 + j]; ny += y.Data[r * 16 + j] * y.Data[r * 16 + j]; }
+            Assert.Equal(nx, ny, 3);
+        }
+
+        // Backward of an orthogonal map: the pushed-back gradient keeps its norm
+        // (Rᵀ is a rotation too). loss = mean(y ⊙ C) gives dY = C/N exactly.
+        var coeffs = new Tensor(5, 16);
+        for (int i = 0; i < coeffs.Data.Length; i++) coeffs.Data[i] = (float)(rng.NextDouble() * 2 - 1);
+        Ag.Mean(Ag.Mul(y, coeffs)).Backward();
+        double cNorm = 0; for (int i = 0; i < coeffs.Data.Length; i++) cNorm += (double)coeffs.Data[i] * coeffs.Data[i];
+        double xNorm = 0; for (int i = 0; i < x.Grad.Length; i++) xNorm += (double)x.Grad[i] * x.Grad[i];
+        int n = coeffs.Data.Length;
+        Assert.Equal(cNorm / ((double)n * n), xNorm, 6);
+
+        // Position 0 with basePos 0 is the identity (angle 0 for every pair).
+        var id = Ag.Rope(Tensor.From(x.Data, 5, 16), basePos: 0);
+        for (int j = 0; j < 16; j++) Assert.Equal(x.Data[j], id.Data[j], 5);
     }
 
     [Fact]

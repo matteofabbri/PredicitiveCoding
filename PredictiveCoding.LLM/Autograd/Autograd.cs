@@ -376,6 +376,87 @@ public static class Ag
         return o;
     }
 
+    /// <summary>
+    /// RMSNorm over each row of [m, n]: y = x / rms(x) · γ (no mean-centering, no
+    /// beta — the Llama-style norm). Same maths as the device kernel
+    /// <c>DeviceMath.RmsNormRows</c>, so the GPU training path (ROADMAP-Scale A1)
+    /// has an exact CPU twin to be checked against.
+    /// </summary>
+    public static Tensor RmsNorm(Tensor x, Tensor gamma, float eps)
+    {
+        int m = x.Rows, n = x.Cols;
+        var o   = new Tensor(m, n) { Parents = [x, gamma] };
+        var inv = new float[m];
+
+        for (int i = 0; i < m; i++)
+        {
+            float ss = 0f;
+            for (int j = 0; j < n; j++) { float v = x.Data[i * n + j]; ss += v * v; }
+            inv[i] = 1f / MathF.Sqrt(ss / n + eps);
+            for (int j = 0; j < n; j++)
+                o.Data[i * n + j] = x.Data[i * n + j] * inv[i] * gamma.Data[j];
+        }
+
+        o.BackwardFn = () =>
+        {
+            for (int i = 0; i < m; i++)
+            {
+                float s = 0f;                                     // Σ_k g_k·γ_k·x_k
+                for (int j = 0; j < n; j++) s += o.Grad[i * n + j] * gamma.Data[j] * x.Data[i * n + j];
+                float inv3 = inv[i] * inv[i] * inv[i];
+                for (int j = 0; j < n; j++)
+                {
+                    float g = o.Grad[i * n + j];
+                    x.Grad[i * n + j] += inv[i] * gamma.Data[j] * g - inv3 * x.Data[i * n + j] / n * s;
+                    gamma.Grad[j]     += g * x.Data[i * n + j] * inv[i];
+                }
+            }
+        };
+        return o;
+    }
+
+    /// <summary>
+    /// Rotary position embedding on one head's projections [seq, headDim]: the
+    /// interleaved pairs (2i, 2i+1) of row r rotate by angle
+    /// (basePos + r) / 10000^(2i/headDim). The rotation is orthogonal, so the
+    /// backward is the −θ rotation. Matches <c>DeviceMath.RopeInPlace</c> (and
+    /// the inference-side <c>Model.RotaryEmbedding</c>).
+    /// </summary>
+    public static Tensor Rope(Tensor x, int basePos = 0)
+    {
+        int m = x.Rows, n = x.Cols;
+        if ((n & 1) != 0) throw new ArgumentException($"Rope needs an even head dim, got {n}.");
+        int half = n / 2;
+        var o   = new Tensor(m, n) { Parents = [x] };
+        var cos = new float[m * half];
+        var sin = new float[m * half];
+
+        for (int r = 0; r < m; r++)
+            for (int i = 0; i < half; i++)
+            {
+                float freq  = 1f / MathF.Pow(10000f, 2f * i / n);
+                float angle = (basePos + r) * freq;
+                cos[r * half + i] = MathF.Cos(angle);
+                sin[r * half + i] = MathF.Sin(angle);
+                float x0 = x.Data[r * n + 2 * i], x1 = x.Data[r * n + 2 * i + 1];
+                o.Data[r * n + 2 * i]     = x0 * cos[r * half + i] - x1 * sin[r * half + i];
+                o.Data[r * n + 2 * i + 1] = x0 * sin[r * half + i] + x1 * cos[r * half + i];
+            }
+
+        o.BackwardFn = () =>
+        {
+            for (int r = 0; r < m; r++)
+                for (int i = 0; i < half; i++)
+                {
+                    float c = cos[r * half + i], s = sin[r * half + i];
+                    float g0 = o.Grad[r * n + 2 * i], g1 = o.Grad[r * n + 2 * i + 1];
+                    x.Grad[r * n + 2 * i]     +=  g0 * c + g1 * s;    // Rᵀ(θ) = R(−θ)
+                    x.Grad[r * n + 2 * i + 1] += -g0 * s + g1 * c;
+                }
+        };
+        return o;
+    }
+
     /// <summary>Mean next-token cross-entropy of logits[m,vocab] against targets[m]; returns a scalar.</summary>
     public static Tensor CrossEntropy(Tensor logits, int[] targets)
     {
