@@ -52,7 +52,7 @@ public class LlmTokenOdometerTests : IDisposable
         Assert.Equal(r.Tokens, llm.Odometer.Evaluated);
 
         // "abc" is one whole-text window: BOS + 3 bytes + EOS = 5 ids → 4 inputs.
-        long evaluatedBefore = llm.Odometer.Evaluated;
+        var evaluatedBefore = llm.Odometer.Evaluated;   // BigInteger since the odometer overhaul
         llm.Learn("abc", steps: 3);
         Assert.Equal(4 * 3, llm.Odometer.Absorbed);                       // windows × steps
         Assert.Equal(evaluatedBefore + 4 * 2, llm.Odometer.Evaluated);    // before/after probes
