@@ -71,6 +71,32 @@ public sealed class CudaGemmProvider : IGemmProvider
                                              ref alpha, dB, n, dA, k, ref beta, dC, n), "cublasSgemm");
     }
 
+    /// <summary>
+    /// Device-pointer GEMM with transposes and accumulation (ROADMAP-Scale A1):
+    /// row-major C[m,n] = op(A)·op(B) + β·C. op(A) is A [m,k] or, when
+    /// <paramref name="transA"/>, the transpose of a physical A [k,m] (same for B).
+    /// β = 1 accumulates — the weight gradients (dW = xᵀ·dy) sum across
+    /// micro-batch windows without a separate add pass. Queued on the stream,
+    /// no synchronisation.
+    /// </summary>
+    public void MatMulDeviceEx(IntPtr dA, IntPtr dB, IntPtr dC, int m, int k, int n,
+                               bool transA, bool transB, float beta, CudaStreamHandle stream)
+    {
+        IntPtr h = HandleFor(_deviceId);
+        NativeCheck.Ok(Cuda.cudaSetDevice(_deviceId), "cudaSetDevice");
+        Cublas.cublasSetStream_v2(h, stream.Handle);
+
+        float alpha = 1f;
+        // Row-major C = op(A)·op(B) ≡ column-major Cᵀ = op(B)ᵀ·op(A)ᵀ: operands
+        // swap, ops carry over, leading dims are the PHYSICAL column counts.
+        int opA = transA ? (int)CublasOp.T : (int)CublasOp.N;
+        int opB = transB ? (int)CublasOp.T : (int)CublasOp.N;
+        int lda = transA ? m : k;          // physical A is [k,m] when transposed
+        int ldb = transB ? k : n;          // physical B is [n,k] when transposed
+        NativeCheck.Ok(Cublas.cublasSgemm_v2(h, opB, opA, n, m, k,
+                                             ref alpha, dB, ldb, dA, lda, ref beta, dC, n), "cublasSgemmEx(trans)");
+    }
+
     /// <summary>Batched (strided) device-pointer GEMM.</summary>
     public void MatMulBatchedDevice(IntPtr dA, IntPtr dB, IntPtr dC, int batch, int m, int k, int n, CudaStreamHandle stream)
     {

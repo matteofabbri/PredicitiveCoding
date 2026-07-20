@@ -37,6 +37,7 @@ internal static class Cuda
     // ── Copies ─────────────────────────────────────────────────────────────────
     [DllImport(Lib, CallingConvention = Cdecl, ExactSpelling = true)] internal static extern int cudaMemcpy(IntPtr dst, IntPtr src, nuint count, int kind);
     [DllImport(Lib, CallingConvention = Cdecl, ExactSpelling = true)] internal static extern int cudaMemcpyAsync(IntPtr dst, IntPtr src, nuint count, int kind, IntPtr stream);
+    [DllImport(Lib, CallingConvention = Cdecl, ExactSpelling = true)] internal static extern int cudaMemsetAsync(IntPtr devPtr, int value, nuint count, IntPtr stream);
 
     // ── Streams / events ───────────────────────────────────────────────────────
     [DllImport(Lib, CallingConvention = Cdecl, ExactSpelling = true)] internal static extern int cudaStreamCreate(out IntPtr stream);

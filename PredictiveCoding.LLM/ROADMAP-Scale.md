@@ -54,17 +54,20 @@ and the PCIe transfers dominate: net speedup is small, sometimes negative.
 the matmuls. That is genuine engineering (Phase A), not a flag. Naming it honestly is
 the difference between a professional plan and a wish.
 
+*Status 2026-07-20: solved for the Scale presets — `DeviceDecoderTrainer` (A1) runs
+the full step device-resident with one host sync per step, measured ×37-38 vs CPU.*
+
 ---
 
-## Phase A — Real GPU compute (the gate) · ❌
+## Phase A — Real GPU compute (the gate) · A1 ✅ · A3 ✅ (2026-07-20) · A2 🟡 · A4 ❌
 
 *Without this, Phases B–D are impractically slow on one card. Everything starts here.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| **A1 · Device-resident training step** | ❌ | Run the autograd on `DeviceTensor` (already in `PredictiveCoding.Device`) so activations stay on the GPU across a full step; matmuls in cuBLAS, and device paths (kernels or batched-GEMM formulations) for the non-GEMM ops — softmax, RMSNorm, RoPE, GELU, add/mul. Success metric: **tokens/s on the 4070 vs CPU** on a fixed Base-config step, and zero per-op host round-trips in the hot loop. |
-| **A2 · Mixed-precision training** | 🟡 | Storage-side mixed precision exists (Phase-5 `WeightStoragePrecision`, `IGemmProvider.MatMulMixed`, int8/Half checkpoints). Extend to the *compute* path: fp16/bf16 activations + matmuls on the Ada tensor cores, fp32 master weights + accumulation. Halves memory, unlocks the tensor cores. Metric: memory and tokens/s vs fp32. |
-| **A3 · Fused attention kernel** | 🟡 | Correctness version **done + verified** (`DeviceMath.attn_1q`): the online-softmax attention (matching `MultiHeadAttention.AttendOnline`, basic case) as a device kernel, checked identical to standard CPU attention (maxDiff 3e-8 on the 4070). **NEXT STEP — the optimisation:** the current kernel is one thread per head; rebuild it block-per-head with a **parallel reduction across headDim/n and shared memory** (true flash-attention style) for throughput. Correctness is settled; this is purely speed. |
+| **A1 · Device-resident training step** | ✅ | `Device/Training/DeviceDecoderTrainer`: the full DecoderLM step (forward, backward, AdamW) resident on the card for the Scale-preset family (dense attention, RMSNorm+RoPE, dropout 0). Weights + Adam moments + a preallocated **activation arena** live on device and are reused every step — zero allocations and **zero per-op host round-trips** in the hot loop (tokens go up, one scalar loss comes down; one sync per step). Per-head CPU weights pack into per-block GEMMs (Q/K/V columns concatenated, Wo rows stacked — same maths, one GEMM instead of one per head); `ImportFrom`/`ExportTo` are bit-exact round-trips. Gradient accumulation on device (`beta=1` GEMMs + atomics), micro-batch mean folded into the Adam read. Parity is test-enforced against the CPU twin (first loss to 1e-3; 8 AdamW steps within 5e-3 on loss and weights). **Measured (Release, RTX 4070 SUPER): Small @ 512 = 12,849 tok/s vs 350 CPU (×36.7), 0.56 GB device; Base @ 1024 = 2,572 tok/s vs 68 CPU (×38.0), 2.87 GB device** — the arena needs ~3× less memory than the CPU tape (no [seq,seq] scores, no CE probability tape). CPU side of the same commit series: `Ag.RmsNorm`/`Ag.Rope` + `UseRmsNorm`/`UseRope` config flags (presets switched to the Llama-style block, finite-difference tested). |
+| **A2 · Mixed-precision training** | 🟡 | Storage-side mixed precision exists (Phase-5 `WeightStoragePrecision`, `IGemmProvider.MatMulMixed`, int8/Half checkpoints), and the device GEMM entry point is already there (`MatMulMixedDevice`, cublasGemmEx on the tensor cores). Next: the *compute* path inside `DeviceDecoderTrainer` — **bf16 working buffers** for activations/GEMM operands over fp32 master weights and Adam moments (bf16 keeps fp32's exponent range, so no loss scaling needed on Ada). Metric: memory and tokens/s vs the fp32 numbers above. |
+| **A3 · Fused attention kernel** | ✅ | The optimisation is in: `DeviceTrainKernels.AttentionForward` — **block per (query, head), parallel reduction across headDim in shared memory**, online softmax, saves the per-row logsumexp; backward replays weights from it flash-style (`attn_bwd_dq` per query block, `attn_bwd_dkv` per key block, `attn_dot` correction term) — no [seq,seq] matrix ever materialises, forward or backward. Verified against the autograd reference (fwd + all three grads to 1e-4). The original thread-per-head `attn_1q` stays for single-query serving. |
 | **A4 · ROCm / AMD backend** | ❌ | `RocmGemmProvider` (hipBLAS/rocBLAS P/Invoke) + `RocmDeviceRuntime`, registered through `DeviceRegistry` exactly like CUDA — the architecture already invites it (`IGemmProvider`/`IComputeDevice`; `docs/07` §"Extending to ROCm"). **Honest caveat, stated up front:** we have **no AMD GPU to test it on** — the server's Ryzen 9700X iGPU is 2 CUs and not a ROCm-supported compute device, and this dev PC is NVIDIA + Intel. ROCm on Windows is also still immature (its real home is Linux + a supported Radeon). So A4 ships *mirroring the verified CUDA path*, gated behind availability, and marked **UNTESTED-WITHOUT-HARDWARE** until a supported Radeon (or a Linux ROCm box) exists. Worth building for portability — the whole point of the `IGemmProvider` seam — but not pretendable as verified. |
 
 *Order inside A: A1 first (it is the enabler), A2 rides on it (same device path), A3 is the
@@ -74,31 +77,32 @@ biggest single kernel, A4 is parallel work that reuses A1's device plumbing.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| **B1 · Real config presets** | ✅ | `DecoderLmConfig.Small` (dim 384, 8 blocks, 6 heads, ffn 1536, ctx 512): **26.8M** params @ 16k vocab. `DecoderLmConfig.Base` (dim 768, 12 blocks, 12 heads, ffn 3072, ctx 1024): **135.4M** @ 32k — GPT-2-small class. Dense GPT-2-style on purpose (2026 features stay in the toy showcase, re-enable per-run via `with`); `PredictiveLlm.CreateSmall/CreateBase(tokenizer)` take the vocab from the tokenizer. Enabling change: the embedding is now a **row gather** (`Ag.GatherRows`, forward bit-identical to the one-hot matmul, scatter-add backward) — at 16k-32k vocab the old `[seq, vocab]` one-hot would have dominated the whole step. `DenseParameterFormula` gives the closed-form count, test-verified against real instances. Gradient checkpointing turned out **unnecessary for the fit** (see B3: Base @ 1024 fits 12 GB at micro-batch 1 even in fp32); it stays a possible later throughput option, not a requirement. |
+| **B1 · Real config presets** | ✅ | `DecoderLmConfig.Small` (dim 384, 8 blocks, 6 heads, ffn 1536, ctx 512): **26.8M** params @ 16k vocab. `DecoderLmConfig.Base` (dim 768, 12 blocks, 12 heads, ffn 3072, ctx 1024): **135.3M** @ 32k — GPT-2-small class. Dense on purpose (2026 features stay in the toy showcase, re-enable per-run via `with`), and since A1 the presets run the **Llama-style block — RMSNorm + RoPE** (`UseRmsNorm`/`UseRope`, default-off flags; the device path implements exactly this family). `PredictiveLlm.CreateSmall/CreateBase(tokenizer)` take the vocab from the tokenizer. Enabling change: the embedding is now a **row gather** (`Ag.GatherRows`, forward bit-identical to the one-hot matmul, scatter-add backward) — at 16k-32k vocab the old `[seq, vocab]` one-hot would have dominated the whole step. `DenseParameterFormula` gives the closed-form count, test-verified against real instances. Gradient checkpointing turned out **unnecessary for the fit** (see B3); it stays a possible later throughput option, not a requirement. |
 | **B2 · Real BPE tokenizer** | ✅ | `BpeTokenizer.TrainFromCorpus(CorpusSource, targetVocab)` — word-split BPE at scale: GPT-2-style piece splitter (hand-rolled, no regex), BPE over **unique pieces weighted by frequency** with incremental pair counts + lazy-invalidation priority queue (deterministic tie-break). **Measured (Release): 16,124 merges on a 12 MB / 200k-unique-piece Zipfian corpus in ~2 s of merge loop; encode 13.8 MB/s** (per-piece concurrent cache); the counting pass is one linear stream — a 300 MB crawl stays in the minutes. Piece-mode files carry a `"BPE2"` magic; existing `"BPE1"` whole-stream tokenizers load and encode bit-identically. |
 | **B3 · Memory budget, measured** | ✅ | `MemoryBudget.Measure(config, seqLen)` runs one **real forward+backward** and walks the autograd graph from the loss — activations are counted from the live tape, not estimated. Table below. |
 
-### B3 — the measured table (fp32 CPU tape; fp16 = derived projection until A2)
+### B3 — the measured table (fp32; re-measured on the RMSNorm+RoPE presets)
 
-Measured with `MemoryBudget.Measure` (Release, 2026-07-20). "fp16 proj" assumes the
-standard A2 recipe — fp16 working weights/grads/activations over fp32 master
-weights + Adam moments — and stays a *derivation* until A2 re-measures it on
-device. The activation column is the **current CPU autograd tape**: an honest
-upper bound. The A3 fused attention will shrink it further (the tape's
-`[seq, seq]` per-head score matrices — ~1.2 GB of the Base @ 1024 figure —
-disappear into the online-softmax kernel).
+Measured with `MemoryBudget.Measure` (Release, 2026-07-20, post-A1a presets).
+"fp16 proj" assumes the standard A2 recipe — 16-bit working
+weights/grads/activations over fp32 master weights + Adam moments — and stays a
+*derivation* until A2 re-measures it on device. The activation column is the
+**CPU autograd tape**; the last column is the **A1 device arena actually
+allocated by `DeviceDecoderTrainer`** (weights + Adam + activations + workspace)
+— ~3× smaller than the CPU tape, because the fused A3 attention materialises no
+[seq,seq] scores and the fused cross-entropy keeps no probability tape.
 
-| Preset | seq | params | grads | Adam m+v | activations | **total fp32** | **fp16 proj** |
-|--------|----:|-------:|------:|---------:|------------:|---------------:|--------------:|
-| Small (26.8M @ 16k) | 256 | 102 MB | 102 MB | 204 MB | 323 MB | 0.71 GB | 0.56 GB |
-| Small (26.8M @ 16k) | 512 | 102 MB | 102 MB | 204 MB | 790 MB | 1.17 GB | 0.78 GB |
-| Base (135.4M @ 32k) | 512 | 516 MB | 516 MB | 1.03 GB | 2.73 GB | 4.68 GB | 3.35 GB |
-| Base (135.4M @ 32k) | 1024 | 516 MB | 516 MB | 1.03 GB | 7.19 GB | **9.04 GB** | **5.53 GB** |
+| Preset | seq | params | grads | Adam m+v | CPU tape | **total fp32 (CPU)** | fp16 proj | **A1 device arena** |
+|--------|----:|-------:|------:|---------:|---------:|---------------------:|----------:|--------------------:|
+| Small (26.8M @ 16k) | 256 | 102 MB | 102 MB | 204 MB | 334 MB | 0.72 GB | 0.56 GB | — |
+| Small (26.8M @ 16k) | 512 | 102 MB | 102 MB | 204 MB | 811 MB | 1.19 GB | 0.79 GB | **0.56 GB** |
+| Base (135.3M @ 32k) | 512 | 516 MB | 516 MB | 1.03 GB | 2.80 GB | 4.75 GB | 3.38 GB | — |
+| Base (135.3M @ 32k) | 1024 | 516 MB | 516 MB | 1.03 GB | 7.32 GB | **9.17 GB** | 5.59 GB | **2.87 GB** |
 
-**Fit on 12 GB (≈11 GB usable after runtime overhead):** Small @ 512 runs ~13
-physical windows per step in fp32 (~26 in fp16) before gradient accumulation;
-Base @ 1024 fits at **micro-batch 1 even in fp32** (9.04 GB), ~2 windows in
-fp16 — gradient accumulation supplies any effective batch size on top.
+**Fit on 12 GB (≈11 GB usable after runtime overhead):** on the device path the
+Base @ 1024 step takes **2.87 GB** — room for ~4 concurrent windows before
+gradient accumulation even in fp32, and A2 (bf16) halves the arena's activation
+share again. The CPU-tape columns remain the honest cost of the pure-CPU path.
 
 ## Phase C — The corpus, built by the crawler · ❌ (web-native, continual-first)
 

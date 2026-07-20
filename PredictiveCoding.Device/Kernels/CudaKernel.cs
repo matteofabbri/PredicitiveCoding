@@ -58,6 +58,24 @@ public sealed class CudaKernel
 
     /// <summary>Launches with an explicit grid/block (1-D), then blocks until it completes.</summary>
     public void Launch(uint gridX, uint blockX, params object[] args)
+        => LaunchCore(IntPtr.Zero, sync: true, gridX, blockX, args);
+
+    /// <summary>
+    /// Queues a 1-D launch on <paramref name="stream"/> WITHOUT synchronising —
+    /// the training hot loop (ROADMAP-Scale A1): kernels and cuBLAS calls chain
+    /// on one stream, the host blocks only when it actually reads a result.
+    /// </summary>
+    public void Launch1DOnStream(IntPtr stream, int elementCount, int blockSize, params object[] args)
+    {
+        uint grid = (uint)((elementCount + blockSize - 1) / blockSize);
+        LaunchCore(stream, sync: false, grid, (uint)blockSize, args);
+    }
+
+    /// <summary>Queues a launch with an explicit grid/block on <paramref name="stream"/>, no sync.</summary>
+    public void LaunchOnStream(IntPtr stream, uint gridX, uint blockX, params object[] args)
+        => LaunchCore(stream, sync: false, gridX, blockX, args);
+
+    private void LaunchCore(IntPtr stream, bool sync, uint gridX, uint blockX, object[] args)
     {
         var pins = new GCHandle[args.Length];
         var ptrs = new IntPtr[args.Length];
@@ -69,9 +87,9 @@ public sealed class CudaKernel
         var pinnedPtrs = GCHandle.Alloc(ptrs, GCHandleType.Pinned);
         try
         {
-            Check(CudaDriver.cuLaunchKernel(_func, gridX, 1, 1, blockX, 1, 1, 0, IntPtr.Zero,
+            Check(CudaDriver.cuLaunchKernel(_func, gridX, 1, 1, blockX, 1, 1, 0, stream,
                                             pinnedPtrs.AddrOfPinnedObject(), IntPtr.Zero), "cuLaunchKernel");
-            Check(CudaDriver.cuCtxSynchronize(), "cuCtxSynchronize");
+            if (sync) Check(CudaDriver.cuCtxSynchronize(), "cuCtxSynchronize");
         }
         finally
         {
