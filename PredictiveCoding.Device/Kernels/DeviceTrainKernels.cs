@@ -461,6 +461,38 @@ extern ""C"" __global__ void ce_loss_grad(const float* logits, const int* target
                                             IntPtr dLogits, IntPtr lossRows, int rows, int vocab)
         => CeK.Value.LaunchOnStream(stream, (uint)rows, 256, logits, targets, dLogits, lossRows, rows, vocab, 1f / rows);
 
+    // ── bf16 conversions (A2 mixed compute) ──────────────────────────────────
+    //
+    // bf16 is the top 16 bits of an IEEE float (same exponent range as fp32 —
+    // no loss scaling needed). Round-to-nearest-even done by hand, so no CUDA
+    // headers are required under NVRTC.
+
+    private static readonly Lazy<CudaKernel> F32ToBf16K = new(() => new CudaKernel(F32ToBf16Src, "f32_to_bf16"));
+    private const string F32ToBf16Src = @"
+extern ""C"" __global__ void f32_to_bf16(const float* src, unsigned short* dst, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    unsigned int u = __float_as_uint(src[i]);
+    u += 0x7FFFu + ((u >> 16) & 1u);          // round to nearest even
+    dst[i] = (unsigned short)(u >> 16);
+}";
+
+    /// <summary>dst (bf16) = src (fp32), round-to-nearest-even.</summary>
+    public static void FloatToBf16(IntPtr stream, IntPtr src, IntPtr dst, int count)
+        => F32ToBf16K.Value.Launch1DOnStream(stream, count, 256, src, dst, count);
+
+    private static readonly Lazy<CudaKernel> Bf16ToF32K = new(() => new CudaKernel(Bf16ToF32Src, "bf16_to_f32"));
+    private const string Bf16ToF32Src = @"
+extern ""C"" __global__ void bf16_to_f32(const unsigned short* src, float* dst, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    dst[i] = __uint_as_float(((unsigned int)src[i]) << 16);
+}";
+
+    /// <summary>dst (fp32) = src (bf16) — exact (bf16 ⊂ fp32).</summary>
+    public static void Bf16ToFloat(IntPtr stream, IntPtr src, IntPtr dst, int count)
+        => Bf16ToF32K.Value.Launch1DOnStream(stream, count, 256, src, dst, count);
+
     // ── AdamW, on device (the exact CPU Optimizers.cs maths) ─────────────────
 
     private static readonly Lazy<CudaKernel> AdamK = new(() => new CudaKernel(AdamSrc, "adam_step"));

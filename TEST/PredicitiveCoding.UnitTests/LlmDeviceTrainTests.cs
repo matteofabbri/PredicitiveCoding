@@ -273,6 +273,106 @@ public class LlmDeviceTrainTests
         Assert.True(next < mean + 0.5f);
     }
 
+    // ── A2: bf16 mixed compute on the tensor cores ───────────────────────────
+
+    [Fact]
+    public void Bf16Conversion_RoundTrips_WithinBf16Precision()
+    {
+        if (NoGpu) return;
+        var rng = new Random(17);
+        var src = new float[10_000];
+        for (int i = 0; i < src.Length; i++) src[i] = (float)((rng.NextDouble() * 2 - 1) * Math.Pow(10, rng.Next(-8, 9)));
+
+        var stream = CudaStreamManager.Shared.ThreadStream(0);
+        using var dSrc = Up(src);
+        using var dBf = Up(new float[src.Length / 2 + 1]);   // u16 storage in a float-sized buffer
+        using var dBack = Up(new float[src.Length]);
+        DeviceTrainKernels.FloatToBf16(stream.Handle, dSrc.DevicePtr, dBf.DevicePtr, src.Length);
+        DeviceTrainKernels.Bf16ToFloat(stream.Handle, dBf.DevicePtr, dBack.DevicePtr, src.Length);
+        SyncStream();
+        var back = dBack.ToHost().Buffer;
+
+        for (int i = 0; i < src.Length; i++)
+        {
+            float rel = Math.Abs(back[i] - src[i]) / Math.Max(1e-30f, Math.Abs(src[i]));
+            Assert.True(rel <= 1f / 256f + 1e-6f, $"[{i}] {src[i]} → {back[i]} (rel {rel})");
+        }
+    }
+
+    [Fact]
+    public void MixedGemmBf16_MatchesFp32_WithinBf16Tolerance()
+    {
+        if (NoGpu) return;
+        var rng = new Random(23);
+        int m = 16, k = 48, n = 12;
+        var A = new float[m * k]; var B = new float[k * n];
+        for (int i = 0; i < A.Length; i++) A[i] = (float)(rng.NextDouble() - 0.5);
+        for (int i = 0; i < B.Length; i++) B[i] = (float)(rng.NextDouble() - 0.5);
+
+        var expect = new float[m * n];
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j < n; j++)
+            {
+                float s = 0f;
+                for (int l = 0; l < k; l++) s += A[i * k + l] * B[l * n + j];
+                expect[i * n + j] = s;
+            }
+
+        var stream = CudaStreamManager.Shared.ThreadStream(0);
+        var gemm = new CudaGemmProvider();
+        using var dA = Up(A); using var dB = Up(B);
+        using var dA16 = Up(new float[A.Length / 2 + 1]); using var dB16 = Up(new float[B.Length / 2 + 1]);
+        using var dC = Up(new float[m * n]);
+        DeviceTrainKernels.FloatToBf16(stream.Handle, dA.DevicePtr, dA16.DevicePtr, A.Length);
+        DeviceTrainKernels.FloatToBf16(stream.Handle, dB.DevicePtr, dB16.DevicePtr, B.Length);
+        gemm.MatMulDeviceExBf16(dA16.DevicePtr, dB16.DevicePtr, dC.DevicePtr, m, k, n, false, false, 0f, stream);
+        SyncStream();
+        var got = dC.ToHost().Buffer;
+
+        for (int i = 0; i < m * n; i++)
+            Assert.True(Math.Abs(got[i] - expect[i]) < 0.02f,
+                $"[{i}] fp32 {expect[i]:F5} vs bf16 {got[i]:F5}");
+    }
+
+    [Fact]
+    public void MixedTrainer_FirstLoss_CloseToTheCpuModel()
+    {
+        if (NoGpu) return;
+        var cfg = TinyCfg();
+        var model = new DecoderLM(cfg, new Random(7));
+        var (tok, tgt) = Window(cfg, seq: 33, seed: 1);
+
+        float cpuLoss = model.Loss(tok, tgt, ignoreIndex: -1, training: true).Data[0];
+
+        using var trainer = new DeviceDecoderTrainer(model, mixedPrecision: true);
+        Assert.True(trainer.MixedPrecision);
+        float devLoss = trainer.Step(tok, tgt, lr: 0f);
+
+        // bf16 GEMM rounding: ~0.4% per operand — allow a 2% relative band.
+        Assert.True(MathF.Abs(devLoss - cpuLoss) / cpuLoss < 0.02f,
+            $"cpu {cpuLoss:F4} vs bf16 device {devLoss:F4}");
+    }
+
+    [Fact]
+    public void MixedTrainer_Converges_AndTracksTheFp32Trainer()
+    {
+        if (NoGpu) return;
+        var cfg = TinyCfg();
+        var m32 = new DecoderLM(cfg, new Random(7));
+        var m16 = new DecoderLM(cfg, new Random(7));
+        var (tok, tgt) = Window(cfg, seq: 33, seed: 2);
+
+        using var t32 = new DeviceDecoderTrainer(m32);
+        using var t16 = new DeviceDecoderTrainer(m16, mixedPrecision: true);
+        var l32 = new float[10]; var l16 = new float[10];
+        for (int s = 0; s < 10; s++) { l32[s] = t32.Step(tok, tgt, 1e-3f); l16[s] = t16.Step(tok, tgt, 1e-3f); }
+
+        Assert.True(l16[9] < l16[0], "bf16 training did not reduce the loss");
+        for (int s = 0; s < 10; s++)
+            Assert.True(MathF.Abs(l32[s] - l16[s]) / l32[s] < 0.05f,
+                $"step {s}: fp32 {l32[s]:F4} vs bf16 {l16[s]:F4}");
+    }
+
     [Fact]
     public void Supports_RefusesWhatTheDevicePathCannotRun()
     {

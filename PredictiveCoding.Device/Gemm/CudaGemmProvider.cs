@@ -97,6 +97,35 @@ public sealed class CudaGemmProvider : IGemmProvider
                                              ref alpha, dB, ldb, dA, lda, ref beta, dC, n), "cublasSgemmEx(trans)");
     }
 
+    /// <summary>
+    /// Tensor-core GEMM for the A2 mixed path: A and B are **bf16** device
+    /// buffers, C is fp32, accumulation fp32 (cublasGemmEx, R16BF operands) —
+    /// same row-major transpose/β semantics as <see cref="MatMulDeviceEx"/>.
+    /// bf16 keeps fp32's exponent range, so the training loop needs no loss
+    /// scaling; gradients still accumulate into fp32 buffers (β = 1).
+    /// </summary>
+    public void MatMulDeviceExBf16(IntPtr dA16, IntPtr dB16, IntPtr dC, int m, int k, int n,
+                                   bool transA, bool transB, float beta, CudaStreamHandle stream)
+    {
+        IntPtr h = HandleFor(_deviceId);
+        NativeCheck.Ok(Cuda.cudaSetDevice(_deviceId), "cudaSetDevice");
+        Cublas.cublasSetStream_v2(h, stream.Handle);
+
+        float alpha = 1f;
+        int opA = transA ? (int)CublasOp.T : (int)CublasOp.N;
+        int opB = transB ? (int)CublasOp.T : (int)CublasOp.N;
+        int lda = transA ? m : k;
+        int ldb = transB ? k : n;
+        NativeCheck.Ok(Cublas.cublasGemmEx(
+            h, opB, opA, n, m, k,
+            ref alpha,
+            dB16, (int)CudaDataType.R16BF, ldb,
+            dA16, (int)CudaDataType.R16BF, lda,
+            ref beta,
+            dC, (int)CudaDataType.R32F, n,
+            (int)CublasComputeType.Compute32F, (int)CublasGemmAlgo.Default), "cublasGemmEx(bf16)");
+    }
+
     /// <summary>Batched (strided) device-pointer GEMM.</summary>
     public void MatMulBatchedDevice(IntPtr dA, IntPtr dB, IntPtr dC, int batch, int m, int k, int n, CudaStreamHandle stream)
     {
