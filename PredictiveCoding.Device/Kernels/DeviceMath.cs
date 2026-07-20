@@ -257,4 +257,68 @@ extern ""C"" __global__ void rope_bwd(float* g, int rows, int heads, int headDim
     /// <summary>In-place RoPE backward on [rows, heads*headDim] — the transpose (−θ rotation) of the forward.</summary>
     public static void RopeBackwardInPlace(IntPtr grad, int rows, int heads, int headDim, int basePos)
         => RopeBwdK.Value.Launch1D(rows * heads * (headDim / 2), 256, grad, rows, heads, headDim, basePos);
+
+    // Single-query attention BACKWARD (materialised, correct). Recomputes the softmax
+    // weights, then dV/dK/dQ. Standard attention gradients:
+    //   a_p = softmax(scale·q·k_p);  O = Σ a_p V_p
+    //   dV_p = a_p·dO ; dA_p = dO·V_p ; dS_p = a_p(dA_p − Σ a·dA) ; dQ = scale·Σ dS_p k_p ; dK_p = scale·dS_p·q
+    // One thread per head; n ≤ 512, headDim ≤ 128. (A fused version is a later optimisation.)
+    private static readonly Lazy<CudaKernel> AttnBwdK = new(() => new CudaKernel(AttnBwdSrc, "attn_1q_bwd"));
+    private const string AttnBwdSrc = @"
+extern ""C"" __global__ void attn_1q_bwd(const float* Q, const float* K, const float* V, const float* dO,
+                                         float* dQ, float* dK, float* dV,
+                                         int heads, int headDim, int n, float scale) {
+    int h = blockIdx.x * blockDim.x + threadIdx.x;
+    if (h >= heads) return;
+    const float* q   = Q  + (long)h * headDim;
+    const float* dOh = dO + (long)h * headDim;
+    float a[512];
+    float dA[512];
+    float m = -3.402823466e38f;
+    for (int p = 0; p < n; p++) {
+        const float* k = K + ((long)p * heads + h) * headDim;
+        float s = 0.0f;
+        for (int i = 0; i < headDim; i++) s += q[i] * k[i];
+        s *= scale; a[p] = s; m = fmaxf(m, s);
+    }
+    float sum = 0.0f;
+    for (int p = 0; p < n; p++) { a[p] = expf(a[p] - m); sum += a[p]; }
+    float inv = sum > 0.0f ? 1.0f / sum : 0.0f;
+    for (int p = 0; p < n; p++) a[p] *= inv;
+    float Dot = 0.0f;
+    for (int p = 0; p < n; p++) {
+        const float* v = V + ((long)p * heads + h) * headDim;
+        float da = 0.0f;
+        for (int i = 0; i < headDim; i++) da += dOh[i] * v[i];
+        dA[p] = da; Dot += a[p] * da;
+    }
+    float dq[128];
+    for (int i = 0; i < headDim; i++) dq[i] = 0.0f;
+    for (int p = 0; p < n; p++) {
+        float dS = a[p] * (dA[p] - Dot);
+        const float* k = K + ((long)p * heads + h) * headDim;
+        float* dv = dV + ((long)p * heads + h) * headDim;
+        float* dk = dK + ((long)p * heads + h) * headDim;
+        for (int i = 0; i < headDim; i++) {
+            dv[i] = a[p] * dOh[i];
+            dk[i] = scale * dS * q[i];
+            dq[i] += scale * dS * k[i];
+        }
+    }
+    float* dqo = dQ + (long)h * headDim;
+    for (int i = 0; i < headDim; i++) dqo[i] = dq[i];
+}";
+
+    /// <summary>
+    /// Single-query attention backward: from <paramref name="dO"/> [heads, headDim] computes
+    /// <paramref name="dQ"/> [heads, headDim] and <paramref name="dK"/>/<paramref name="dV"/>
+    /// [n, heads, headDim]. Materialised (correct) version; n ≤ 512, headDim ≤ 128.
+    /// </summary>
+    public static void AttentionBackward(IntPtr q, IntPtr k, IntPtr v, IntPtr dO,
+                                         IntPtr dQ, IntPtr dK, IntPtr dV, int heads, int headDim, int n, float scale)
+    {
+        if (headDim > 128) throw new ArgumentOutOfRangeException(nameof(headDim), "attn_1q_bwd supports headDim ≤ 128.");
+        if (n > 512) throw new ArgumentOutOfRangeException(nameof(n), "attn_1q_bwd supports n ≤ 512.");
+        AttnBwdK.Value.Launch1D(heads, 64, q, k, v, dO, dQ, dK, dV, heads, headDim, n, scale);
+    }
 }
