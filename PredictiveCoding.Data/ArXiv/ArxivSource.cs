@@ -28,6 +28,10 @@ public sealed class ArxivSource : IDisposable
     {
         _http = httpClient ?? new HttpClient();
         _ownsHttp = httpClient is null;
+        // arXiv's API guidelines ask clients to identify themselves; anonymous
+        // requests are throttled aggressively.
+        if (!_http.DefaultRequestHeaders.UserAgent.Any())
+            _http.DefaultRequestHeaders.UserAgent.ParseAdd("PredictiveCoding/1.0");
     }
 
     /// <summary>Searches arXiv and returns the matching entries.</summary>
@@ -37,7 +41,9 @@ public sealed class ArxivSource : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         if (maxResults <= 0) throw new ArgumentOutOfRangeException(nameof(maxResults));
 
-        string url = $"http://export.arxiv.org/api/query?search_query={Uri.EscapeDataString(query)}"
+        // https directly: the http endpoint answers 301 and some HttpClient
+        // configurations (AllowAutoRedirect = false, strict proxies) never land.
+        string url = $"https://export.arxiv.org/api/query?search_query={Uri.EscapeDataString(query)}"
                    + $"&start=0&max_results={maxResults}";
         string xml = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
         return ParseFeed(xml);

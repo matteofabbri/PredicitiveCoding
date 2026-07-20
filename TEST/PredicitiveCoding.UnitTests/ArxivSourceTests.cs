@@ -47,4 +47,36 @@ public sealed class ArxivSourceTests
         await Assert.ThrowsAsync<ArgumentException>(() => source.SearchAsync(""));
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => source.SearchAsync("x", 0));
     }
+
+    [Fact]
+    public async Task SearchAsync_UsesHttpsAndIdentifiesClient()
+    {
+        var handler = new CapturingHandler(AtomSample);
+        using var http = new HttpClient(handler);
+        using var source = new ArxivSource(http);
+
+        IReadOnlyList<ArxivEntry> entries = await source.SearchAsync("ti:\"predictive coding\"", maxResults: 5);
+
+        Assert.Single(entries);
+        Uri sent = handler.LastRequest!;
+        Assert.Equal(Uri.UriSchemeHttps, sent.Scheme);
+        Assert.Equal("export.arxiv.org", sent.Host);
+        Assert.Contains("max_results=5", sent.Query);
+        Assert.True(http.DefaultRequestHeaders.UserAgent.Any());
+    }
+
+    private sealed class CapturingHandler(string body) : HttpMessageHandler
+    {
+        public Uri? LastRequest { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastRequest = request.RequestUri;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+            });
+        }
+    }
 }
