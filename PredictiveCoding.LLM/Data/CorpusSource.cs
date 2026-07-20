@@ -126,6 +126,44 @@ public sealed class CorpusSource
             () => _factory().Where(l => l.Length >= minChars && l.Length <= maxChars));
     }
 
+    /// <summary>
+    /// Generic line filter (ROADMAP-Scale C2) — the composition point for any
+    /// hygiene the library does not ship (e.g. a language filter built on
+    /// PredictiveCoding.Data's detector, which this project cannot reference).
+    /// <paramref name="label"/> keeps <see cref="Description"/> honest.
+    /// </summary>
+    public CorpusSource Where(Func<string, bool> predicate, string label)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        ArgumentException.ThrowIfNullOrWhiteSpace(label);
+        return new($"{Description}|{label}", () => _factory().Where(predicate));
+    }
+
+    /// <summary>
+    /// Web-scale boilerplate filter (ROADMAP-Scale C2): drops lines with fewer
+    /// than <paramref name="minWords"/> words — the signature of navigation
+    /// menus, cookie banners and button labels in crawled shards. Pair with
+    /// <see cref="Deduplicated"/>, which removes the blocks a site repeats on
+    /// every page (headers, footers) regardless of their length.
+    /// </summary>
+    public CorpusSource WithBoilerplateStripped(int minWords = 5)
+    {
+        if (minWords < 1) throw new ArgumentOutOfRangeException(nameof(minWords));
+        return new($"{Description}|boiler[{minWords}w]",
+            () => _factory().Where(l => CountWords(l) >= minWords));
+    }
+
+    private static int CountWords(string line)
+    {
+        int words = 0; bool inWord = false;
+        foreach (char c in line)
+        {
+            if (char.IsWhiteSpace(c)) inWord = false;
+            else if (!inWord) { inWord = true; words++; }
+        }
+        return words;
+    }
+
     // ── Mixing ─────────────────────────────────────────────────────────────────
 
     /// <summary>
