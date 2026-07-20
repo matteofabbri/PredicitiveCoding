@@ -29,6 +29,29 @@ extern ""C"" __global__ void gelu(float* x, int n) {
     /// <summary>In-place GELU (tanh approximation) over <paramref name="count"/> elements.</summary>
     public static void GeluInPlace(IntPtr x, int count) => GeluK.Value.Launch1D(count, 256, x, count);
 
+    // Elementwise add (in place): dst ← dst + src. The residual connections and
+    // gradient accumulation (dn1 = dQ·Wqᵀ + dK·Wkᵀ + dV·Wvᵀ) build on this.
+    private static readonly Lazy<CudaKernel> AddK = new(() => new CudaKernel(AddSrc, "add_inplace"));
+    private const string AddSrc = @"
+extern ""C"" __global__ void add_inplace(float* dst, const float* src, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) dst[i] += src[i];
+}";
+
+    /// <summary>In-place elementwise add: <paramref name="dst"/> ← dst + <paramref name="src"/>.</summary>
+    public static void AddInPlace(IntPtr dst, IntPtr src, int count) => AddK.Value.Launch1D(count, 256, dst, src, count);
+
+    // Elementwise scale (in place): x ← x·alpha (e.g. the 1/√d attention scale).
+    private static readonly Lazy<CudaKernel> ScaleK = new(() => new CudaKernel(ScaleSrc, "scale_inplace"));
+    private const string ScaleSrc = @"
+extern ""C"" __global__ void scale_inplace(float* x, float alpha, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) x[i] *= alpha;
+}";
+
+    /// <summary>In-place scalar multiply: <paramref name="x"/> ← x · <paramref name="alpha"/>.</summary>
+    public static void ScaleInPlace(IntPtr x, float alpha, int count) => ScaleK.Value.Launch1D(count, 256, x, alpha, count);
+
     // ── Row-wise softmax (in place) — one block per row, numerically stable ──
     private static readonly Lazy<CudaKernel> SoftmaxK = new(() => new CudaKernel(SoftmaxSrc, "softmax_rows"));
     private const string SoftmaxSrc = @"
