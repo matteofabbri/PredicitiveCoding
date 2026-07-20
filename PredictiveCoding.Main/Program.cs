@@ -22,6 +22,7 @@ Console.WriteLine("  8  People counting (live cam / video · YOLOX ONNX · per-f
 Console.WriteLine("  9  Thousand Brains demo (sensorimotor object recognition · columns voting)");
 Console.WriteLine(" 10  Full LLM demo (PredictiveLlm · train → generate → report, all features on)");
 Console.WriteLine(" 11  LM distillation demo (live LM Studio teacher → sparse-MoE student)");
+Console.WriteLine(" 12  Web corpus builder (crawler → sharded corpus; feeds the model if one exists)");
 Console.Write("\n  Choice [1]: ");
 string? choice = Console.ReadLine()?.Trim();
 
@@ -82,6 +83,12 @@ if (choice == "10")
 if (choice == "11")
 {
     LmDistillationDemo.Run();
+    return;
+}
+
+if (choice == "12")
+{
+    WebCorpusDemo.Run();
     return;
 }
 

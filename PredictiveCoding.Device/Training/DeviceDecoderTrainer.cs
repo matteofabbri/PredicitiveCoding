@@ -377,8 +377,16 @@ public sealed class DeviceDecoderTrainer : IDisposable
         return sum / windows.Count;
     }
 
-    // Forward + backward of one window; gradients ACCUMULATE into the param G buffers.
-    private float Accumulate(int[] tokens, int[] targets)
+    /// <summary>
+    /// Mean cross-entropy of one window WITHOUT training: forward only — no
+    /// gradient buffer is touched, so it can run between accumulation windows
+    /// (the held-out eval of a pretraining loop).
+    /// </summary>
+    public float EvaluateLoss(int[] tokens, int[] targets) => Accumulate(tokens, targets, backward: false);
+
+    // Forward (+ optional backward) of one window; gradients ACCUMULATE into
+    // the param G buffers when backward is true.
+    private float Accumulate(int[] tokens, int[] targets, bool backward = true)
     {
         int S = tokens.Length;
         if (S < 2 || S > _maxSeq) throw new ArgumentOutOfRangeException(nameof(tokens), $"seq {S} outside [2, {_maxSeq}].");
@@ -427,6 +435,7 @@ public sealed class DeviceDecoderTrainer : IDisposable
         To16(_nF, _nFs, S * _dim);
         MM(_nF, _nFs, _wout.W, _wout.W16, _logits, S, _dim, _vocab, false, false, 0f);
         DeviceTrainKernels.CrossEntropyLossGrad(sh, _logits, _tgtDev, _dLogits, _lossRows, S, _vocab);
+        if (!backward) return ReadLoss(S);
 
         // ── Backward ──
         To16(_dLogits, _dLogitsS, S * _vocab);
@@ -473,16 +482,64 @@ public sealed class DeviceDecoderTrainer : IDisposable
             DeviceTrainKernels.AddInPlace(sh, _dX, _dXAlt, S * _dim);                        // dx_b = norm path + residual
         }
         DeviceTrainKernels.EmbedScatterAdd(sh, _wemb.G, _tokDev, _dX, S, _dim);
+        return ReadLoss(S);
+    }
 
-        // The single synchronisation of the step: read the scalar loss.
-        NativeCheck.Ok(Cuda.cudaMemcpyAsync(_lossPin, _lossRows, (nuint)(S * sizeof(float)), (int)MemcpyKind.DeviceToHost, sh), "loss d2h");
-        CudaStreamManager.Shared.Synchronize(stream);
+    // The single synchronisation of the step: read the scalar loss.
+    private float ReadLoss(int S)
+    {
+        NativeCheck.Ok(Cuda.cudaMemcpyAsync(_lossPin, _lossRows, (nuint)(S * sizeof(float)), (int)MemcpyKind.DeviceToHost, _stream.Handle), "loss d2h");
+        CudaStreamManager.Shared.Synchronize(_stream);
 
         Marshal.Copy(_lossPin, _lossHost, 0, S);
         float total = 0f;
         for (int i = 0; i < S; i++) total += _lossHost[i];
         TokensSeen += S;
         return total / S;
+    }
+
+    // ── Optimizer state persistence (true resume, C3) ────────────────────────
+
+    private const int StateMagic = 0x44414D31;   // "DAM1" — device Adam state v1
+
+    /// <summary>
+    /// Saves the AdamW state (step counter + m/v moments, downloaded from the
+    /// device) so a resumed pretraining CONTINUES — bias correction and
+    /// momentum intact, the Phase-5 "true resume" guarantee kept on the GPU
+    /// path. Weights are NOT here: they travel with the model checkpoint
+    /// (ExportTo + PredictiveLlm.Save).
+    /// </summary>
+    public void SaveState(string path)
+    {
+        CudaStreamManager.Shared.Synchronize(_stream);
+        using var w = new BinaryWriter(File.Create(path));
+        w.Write(StateMagic);
+        w.Write(_t);
+        foreach (var p in AllParams())
+        {
+            w.Write(p.Count);
+            var buf = new float[p.Count];
+            Download(p.M, buf); foreach (float f in buf) w.Write(f);
+            Download(p.V, buf); foreach (float f in buf) w.Write(f);
+        }
+    }
+
+    /// <summary>Restores a state saved by <see cref="SaveState"/> (same config only).</summary>
+    public void LoadState(string path)
+    {
+        using var r = new BinaryReader(File.OpenRead(path));
+        if (r.ReadInt32() != StateMagic) throw new InvalidDataException("Not a device Adam state file.");
+        _t = r.ReadInt32();
+        foreach (var p in AllParams())
+        {
+            int count = r.ReadInt32();
+            if (count != p.Count) throw new InvalidDataException($"Adam state shape mismatch: {count} vs {p.Count}.");
+            var buf = new float[count];
+            for (int i = 0; i < count; i++) buf[i] = r.ReadSingle();
+            Upload(p.M, buf);
+            for (int i = 0; i < count; i++) buf[i] = r.ReadSingle();
+            Upload(p.V, buf);
+        }
     }
 
     private void ApplyAdam(float lr, float gradScale)

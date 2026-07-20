@@ -373,6 +373,79 @@ public class LlmDeviceTrainTests
                 $"step {s}: fp32 {l32[s]:F4} vs bf16 {l16[s]:F4}");
     }
 
+    // ── C3: the device bootstrap loop ────────────────────────────────────────
+
+    private static string BootstrapCorpus()
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < 400; i++)
+            sb.AppendLine("the brain is a prediction machine that minimizes surprise about the world it perceives.");
+        return sb.ToString();
+    }
+
+    [Fact]
+    public void Pretrainer_Bootstrap_TrainsEvaluatesAndCheckpoints()
+    {
+        if (NoGpu) return;
+        string dir = Path.Combine(Path.GetTempPath(), $"pcboot_{Guid.NewGuid():N}");
+        try
+        {
+            var llm = new PredictiveCoding.LLM.PredictiveLlm(
+                TinyCfg(vocab: 260, maxSeq: 64), new PredictiveCoding.LLM.Tokenization.ByteTokenizer());
+            var corpus = PredictiveCoding.LLM.Data.CorpusSource.FromText(BootstrapCorpus());
+
+            float firstLoss = float.NaN;
+            var report = DevicePretrainer.Pretrain(llm, corpus, new DevicePretrainOptions
+            {
+                Epochs = 2, SeqLen = 32, Stride = 32, MicroBatchWindows = 2,
+                PeakLr = 3e-3f, WarmupSteps = 5, EvalEverySteps = 20, EvalWindows = 8,
+                CheckpointDir = dir, CheckpointEverySteps = 50,
+                OnProgress = p => { if (float.IsNaN(firstLoss)) firstLoss = p.TrainLoss; },
+            });
+
+            Assert.True(report.Steps > 10, $"only {report.Steps} steps ran");
+            Assert.True(report.FinalTrainLoss < firstLoss,
+                $"loss did not drop: {firstLoss:F3} → {report.FinalTrainLoss:F3}");
+            Assert.True(float.IsFinite(report.FinalEvalLoss));
+            Assert.True(File.Exists(Path.Combine(dir, "adam-device.bin")), "device Adam state missing");
+            Assert.True(Directory.GetFiles(dir).Length >= 2, "model checkpoint missing");
+
+            // Resume: a second run picks the Adam state up and keeps going.
+            var again = DevicePretrainer.Pretrain(llm, corpus, new DevicePretrainOptions
+            {
+                Epochs = 1, SeqLen = 32, Stride = 32, MicroBatchWindows = 2,
+                PeakLr = 1e-3f, WarmupSteps = 0, EvalEverySteps = 0,
+                CheckpointDir = dir, CheckpointEverySteps = 1000,
+            });
+            Assert.True(again.Steps > 0);
+            Assert.True(float.IsFinite(again.FinalTrainLoss));
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void EvaluateLoss_IsForwardOnly_WeightsUntouched()
+    {
+        if (NoGpu) return;
+        var cfg = TinyCfg();
+        var model = new DecoderLM(cfg, new Random(3));
+        var probe = new DecoderLM(cfg, new Random(4));
+        var (tok, tgt) = Window(cfg, seq: 24, seed: 6);
+
+        using var trainer = new DeviceDecoderTrainer(model);
+        trainer.ExportTo(probe);
+        var before = probe.Parameters().Select(p => (float[])p.Data.Clone()).ToArray();
+
+        float l1 = trainer.EvaluateLoss(tok, tgt);
+        float l2 = trainer.EvaluateLoss(tok, tgt);
+        Assert.Equal(l1, l2);                                 // deterministic, no drift
+
+        trainer.ExportTo(probe);
+        var after = probe.Parameters();
+        for (int p = 0; p < after.Length; p++)
+            Assert.Equal(before[p], after[p].Data);           // bit-identical weights
+    }
+
     [Fact]
     public void Supports_RefusesWhatTheDevicePathCannotRun()
     {
