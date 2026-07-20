@@ -161,12 +161,20 @@ public sealed class PcDecoderTrainer
         for (int i = 0; i < p.Data.Length; i++) p.Data[i] -= LrWeights * p.Grad[i];
     }
 
-    // Riscala un vettore se la sua norma L2 supera maxNorm: la guardia dura
-    // contro update esplosivi (e quindi contro il NaN).
+    // Sanifica e riscala un vettore di update.
+    //  1) le componenti non-finite (NaN/±Inf) diventano 0: un update avvelenato non
+    //     deve MAI entrare nei pesi/stati. Il solo clip di norma non lo cattura —
+    //     con un NaN la norma e' NaN e `n > maxNorm` e' false, quindi salterebbe il
+    //     clip e il NaN passerebbe intatto (era il buco che friggeva il modello).
+    //  2) poi la guardia dura sulla norma L2 contro gli update esplosivi (finiti).
     private static void ClipInPlace(float[] v, float maxNorm)
     {
         double n = 0d;
-        for (int i = 0; i < v.Length; i++) n += (double)v[i] * v[i];
+        for (int i = 0; i < v.Length; i++)
+        {
+            if (!float.IsFinite(v[i])) v[i] = 0f;   // NaN/±Inf → 0: niente veleno nei pesi
+            n += (double)v[i] * v[i];
+        }
         n = System.Math.Sqrt(n);
         if (n > maxNorm && n > 0d)
         {

@@ -95,7 +95,14 @@ public static class GradientClipping
     {
         double sq = 0d;
         foreach (var p in parameters)
-            for (int i = 0; i < p.Grad.Length; i++) sq += (double)p.Grad[i] * p.Grad[i];
+            for (int i = 0; i < p.Grad.Length; i++)
+            {
+                // NaN/±Inf → 0: un gradiente non-finito non deve mai entrare nei pesi.
+                // Il clip di norma da solo non basta (con un NaN la norma e' NaN e
+                // `norm > maxNorm` e' false, quindi salterebbe).
+                if (!float.IsFinite(p.Grad[i])) p.Grad[i] = 0f;
+                sq += (double)p.Grad[i] * p.Grad[i];
+            }
         float norm = (float)Math.Sqrt(sq);
 
         if (norm > maxNorm && norm > 0f)

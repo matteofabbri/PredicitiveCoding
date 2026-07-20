@@ -736,6 +736,21 @@ public sealed class PredictiveLlm
         return llm;
     }
 
+    /// <summary>
+    /// True se OGNI peso e' finito. Un checkpoint con NaN/Inf (training andato
+    /// instabile) si carica senza errori — i byte sono float validi — ma poi ogni
+    /// forward da' logit NaN e l'argmax cade sempre su 0 (token 0 → byte 0 → '\0').
+    /// Chi riprende da disco puo' usarla per rifiutare uno stato avvelenato e
+    /// ripartire fresco invece di servire spazzatura.
+    /// </summary>
+    public bool WeightsAreFinite()
+    {
+        foreach (var p in Model.Parameters())
+            foreach (float w in p.Data)
+                if (!float.IsFinite(w)) return false;
+        return true;
+    }
+
     // Full resumable checkpoint: model (weights at the requested precision) +
     // Adam moments in optimizer.bin next to it (roadmap-Pro Phase 5).
     private void SaveResumable(string directory, Adam optimizer, WeightStoragePrecision precision)
