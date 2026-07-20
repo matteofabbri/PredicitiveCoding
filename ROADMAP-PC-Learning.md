@@ -135,6 +135,23 @@ public readonly record struct RoutingPlan(int[][] Experts, float[][] Weights);
 
 Ordine: **MoE-PC.1 prima** (sblocca il MoE nel PC a costo medio), MoE-PC.2 come ricerca a parte.
 
+## Cantieri aperti dopo l'iPC in produzione
+
+L'iPC è LIVE sul server (modello denso byte, CPU). Due nodi pratici da affrontare:
+
+**Velocità — iPC su CPU è pesante.** Il training PC per ogni pagina crawlata gira su finestre
+lunghe (fino a MaxSeq=1024) con attenzione O(n²), su CPU → throughput basso, il crawler assorbe
+piano. Direzioni: finestre più corte per il crawler (cap sotto 1024); mini-batch di finestre per
+weight-update; soprattutto il percorso **device-resident** (i kernel in `PredictiveCoding.Device`
+esistono ma il PC-on-device NON è cablato — è lo stesso nodo di "GPU+PC"). RelaxSteps è già a 1 (iPC).
+Misura prima di ottimizzare: tempo per pagina, finestre/minuto.
+
+**Qualità a scala reale — non dimostrata.** L'iPC è verificato solo su modellini (CE che scende su
+un compito-giocattolo). Che produca un modello *utile* a scala è da dimostrare. Serve strumentazione:
+bits/byte nel tempo (tokenizer-independent), campioni di generazione periodici, e un **backprop di
+pari taglia come oracolo** per quantificare il gap. Tetto onesto: modello piccolo allenato su CPU =
+aspettative modeste; l'obiettivo è "impara localmente e coerente", non un modello di frontiera.
+
 ## Già allineati (locale/bio, non-backprop) — NON toccare
 - **Motore PC e reti:** `Layer`, `Network` e ogni variante (`Temporal`, `Generative`, `Hierarchical`,
   `DeepRecurrent`, `Residual`, `Attentive`, `Spiking`, tutte le MoE, `Ensemble`, `Routed` — anche il
