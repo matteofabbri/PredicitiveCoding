@@ -43,6 +43,15 @@ public sealed class PredictiveLlm
     /// <summary>Passi di Adam per scatto d'ancora.</summary>
     public int PcAnchorBurst { get; set; } = 3;
 
+    /// <summary>iPC: learning-rate del rilassamento dei latenti.</summary>
+    public float PcEtaState { get; set; } = 0.1f;
+    /// <summary>iPC: learning-rate degli update dei pesi.</summary>
+    public float PcLrWeights { get; set; } = 0.3f;
+    /// <summary>iPC: tetto alla norma degli update (guardia anti-NaN).</summary>
+    public float PcClipNorm { get; set; } = 1.0f;
+    /// <summary>iPC: passi di rilassamento del latente per weight-update (1 = iPC).</summary>
+    public int PcRelaxSteps { get; set; } = 1;
+
     // Seed of the primary model — reused (offset per worker) to build the
     // structural replicas of the parallel trainer, then overwritten by the
     // synced weights anyway.
@@ -540,7 +549,11 @@ public sealed class PredictiveLlm
     public OnlineLearnReport LearnPc(string text, int steps = 1, bool countAsTraining = false)
     {
         if (steps < 1) throw new ArgumentOutOfRangeException(nameof(steps), steps, "steps must be >= 1.");
-        _pc ??= new Training.PcDecoderTrainer(Model) { AnchorEvery = PcAnchorEvery, AnchorBurst = PcAnchorBurst };
+        _pc ??= new Training.PcDecoderTrainer(Model)
+        {
+            AnchorEvery = PcAnchorEvery, AnchorBurst = PcAnchorBurst,
+            EtaState = PcEtaState, LrWeights = PcLrWeights, ClipNorm = PcClipNorm, RelaxSteps = PcRelaxSteps,
+        };
         var windows = TextWindows(text);
 
         long windowTokens = 0;

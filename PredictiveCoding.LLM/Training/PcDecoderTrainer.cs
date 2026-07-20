@@ -35,10 +35,17 @@ public sealed class PcDecoderTrainer
     public int RelaxSteps { get; init; } = 1;
 
     /// <summary>Learning-rate del rilassamento dei latenti.</summary>
-    public float EtaState { get; init; } = 1.0f;
+    public float EtaState { get; init; } = 0.1f;
 
     /// <summary>Learning-rate degli update dei pesi (blocchi + mappe I/O).</summary>
-    public float LrWeights { get; init; } = 1.5f;
+    public float LrWeights { get; init; } = 0.3f;
+
+    /// <summary>
+    /// Tetto alla norma L2 di OGNI update (rilassamento, pesi, mappe I/O): la
+    /// guardia dura contro gli update esplosivi — e quindi contro il NaN. Rende
+    /// gli update indipendenti dalla scala dell'errore/della sequenza.
+    /// </summary>
+    public float ClipNorm { get; init; } = 1.0f;
 
     // ── Ancora Adam (opzionale) ─────────────────────────────────────────────
     // Ogni AnchorEvery step, un breve burst di backprop+Adam "rimette in riga"
@@ -107,7 +114,10 @@ public sealed class PcDecoderTrainer
                     loss.Backward();
                     topdown = (float[])hc.Grad.Clone();
                 }
-                for (int i = 0; i < mu[b].Length; i++) mu[b][i] -= EtaState * (eps[i] + topdown[i]);
+                var step = new float[mu[b].Length];
+                for (int i = 0; i < step.Length; i++) step[i] = eps[i] + topdown[i];
+                ClipInPlace(step, ClipNorm);
+                for (int i = 0; i < mu[b].Length; i++) mu[b][i] -= EtaState * step[i];
             }
 
         // Update pesi dei blocchi: θ_b += (lr/L)·VJP(ε_b).
@@ -118,7 +128,10 @@ public sealed class PcDecoderTrainer
             for (int i = 0; i < eps.Length; i++) eps[i] = mu[b][i] - f.Data[i];
             f.BackwardFrom(eps);
             foreach (var p in _m.Blocks[b - 1].Parameters())
-                for (int i = 0; i < p.Data.Length; i++) p.Data[i] += (LrWeights / L) * p.Grad[i];
+            {
+                ClipInPlace(p.Grad, ClipNorm);   // norma <= ClipNorm: update sempre limitato
+                for (int i = 0; i < p.Data.Length; i++) p.Data[i] += LrWeights * p.Grad[i];
+            }
         }
 
         // Mappe I/O (embedding, unembedding, norm finale) via gradiente CE.
@@ -144,6 +157,21 @@ public sealed class PcDecoderTrainer
 
     private void UpdateIo(Tensor p)
     {
+        ClipInPlace(p.Grad, ClipNorm);
         for (int i = 0; i < p.Data.Length; i++) p.Data[i] -= LrWeights * p.Grad[i];
+    }
+
+    // Riscala un vettore se la sua norma L2 supera maxNorm: la guardia dura
+    // contro update esplosivi (e quindi contro il NaN).
+    private static void ClipInPlace(float[] v, float maxNorm)
+    {
+        double n = 0d;
+        for (int i = 0; i < v.Length; i++) n += (double)v[i] * v[i];
+        n = System.Math.Sqrt(n);
+        if (n > maxNorm && n > 0d)
+        {
+            float s = (float)(maxNorm / n);
+            for (int i = 0; i < v.Length; i++) v[i] *= s;
+        }
     }
 }
