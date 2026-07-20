@@ -26,6 +26,15 @@ internal static class NativeResolver
         {
             "cudart" => Names("cudart", "cudart64"),
             "cublas" => Names("cublas", "cublas64"),
+            // Driver API and the runtime kernel compiler (Phase-A device kernels).
+            // The driver lib is unversioned (nvcuda.dll / libcuda.so); NVRTC carries a
+            // two-part API-version suffix on Windows (nvrtc64_120_0 across CUDA 12.x).
+            "cuda"   => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                            ? ["nvcuda"]
+                            : ["libcuda.so.1", "libcuda.so", "cuda"],
+            "nvrtc"  => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                            ? ["nvrtc64_120_0", "nvrtc64_112_0"]
+                            : ["libnvrtc.so.12", "libnvrtc.so.11", "libnvrtc.so"],
             _        => [libraryName],
         };
 
