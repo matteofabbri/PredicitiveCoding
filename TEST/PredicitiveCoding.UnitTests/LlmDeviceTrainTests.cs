@@ -424,6 +424,65 @@ public class LlmDeviceTrainTests
     }
 
     [Fact]
+    public void Pretrainer_RealRun_KeepsBestCheckpoint_LogsAndReportsQuality()
+    {
+        if (NoGpu) return;
+        string dir = Path.Combine(Path.GetTempPath(), $"pcrun_{Guid.NewGuid():N}");
+        try
+        {
+            var llm = new PredictiveCoding.LLM.PredictiveLlm(
+                TinyCfg(vocab: 260, maxSeq: 64), new PredictiveCoding.LLM.Tokenization.ByteTokenizer());
+            var corpus = PredictiveCoding.LLM.Data.CorpusSource.FromText(BootstrapCorpus());
+            string log = Path.Combine(dir, "train.jsonl");
+
+            double? sawBits = null; string? sawSample = null;
+            var report = DevicePretrainer.Pretrain(llm, corpus, new DevicePretrainOptions
+            {
+                Epochs = 3, SeqLen = 32, Stride = 32, MicroBatchWindows = 2, MaxSteps = 60,
+                PeakLr = 3e-3f, WarmupSteps = 5,
+                EvalEverySteps = 10, EvalWindows = 8,
+                QualityEverySteps = 20, SamplePrompt = "the", SampleTokens = 16,
+                CheckpointDir = dir, CheckpointEverySteps = 25, KeepBestCheckpoint = true,
+                LogPath = log,
+                OnProgress = p =>
+                {
+                    if (p.BitsPerByte is double b) sawBits = b;
+                    if (p.Sample is not null) sawSample = p.Sample;
+                },
+            });
+
+            Assert.Equal(60, report.Steps);                              // MaxSteps enforced
+            Assert.True(File.Exists(Path.Combine(dir, "best")) || Directory.Exists(Path.Combine(dir, "best")),
+                "best/ checkpoint missing");
+            Assert.True(File.Exists(Path.Combine(dir, "best", "adam-device.bin")), "best Adam state missing");
+            Assert.True(float.IsFinite(report.BestEvalLoss));
+            Assert.True(report.BestEvalLoss <= report.FinalEvalLoss + 1e-4f, "best should be ≤ final");
+
+            // Quality actually fired: a bits/byte number and a non-empty sample.
+            Assert.NotNull(sawBits);
+            Assert.True(double.IsFinite(sawBits!.Value) && sawBits.Value > 0);
+            Assert.False(string.IsNullOrWhiteSpace(sawSample));
+            Assert.NotNull(report.FinalBitsPerByte);
+
+            // The log is JSONL, one object per line, growing.
+            var lines = File.ReadAllLines(log);
+            Assert.True(lines.Length >= 30, $"only {lines.Length} log rows");
+            Assert.All(lines, l => { Assert.StartsWith("{", l); Assert.EndsWith("}", l); Assert.Contains("\"trainLoss\"", l); });
+
+            // Resume appends to the same log rather than truncating it.
+            int before = lines.Length;
+            DevicePretrainer.Pretrain(llm, corpus, new DevicePretrainOptions
+            {
+                Epochs = 1, SeqLen = 32, Stride = 32, MicroBatchWindows = 2, MaxSteps = 10,
+                PeakLr = 1e-3f, WarmupSteps = 0, EvalEverySteps = 0,
+                CheckpointDir = dir, CheckpointEverySteps = 1000, LogPath = log,
+            });
+            Assert.True(File.ReadAllLines(log).Length > before, "resume did not append to the log");
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
     public void EvaluateLoss_IsForwardOnly_WeightsUntouched()
     {
         if (NoGpu) return;

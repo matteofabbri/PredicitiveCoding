@@ -19,6 +19,7 @@
     <ProjectReference Include="..\PredictiveCoding.Data\PredictiveCoding.Data.csproj" />
     <ProjectReference Include="..\PredictiveCoding.FaceRecognition\PredictiveCoding.FaceRecognition.csproj" />
     <ProjectReference Include="..\PredictiveCoding.LLM\PredictiveCoding.LLM.csproj" />
+    <ProjectReference Include="..\PredictiveCoding.Device\PredictiveCoding.Device.csproj" />
     <ProjectReference Include="..\PredictiveCoding.Vision\PredictiveCoding.Vision.csproj" />
   </ItemGroup>
 

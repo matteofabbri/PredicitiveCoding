@@ -23,6 +23,7 @@ Console.WriteLine("  9  Thousand Brains demo (sensorimotor object recognition ·
 Console.WriteLine(" 10  Full LLM demo (PredictiveLlm · train → generate → report, all features on)");
 Console.WriteLine(" 11  LM distillation demo (live LM Studio teacher → sparse-MoE student)");
 Console.WriteLine(" 12  Web corpus builder (crawler → sharded corpus; feeds the model if one exists)");
+Console.WriteLine(" 13  Web pretraining run (bootstrap the Small preset on the 4070 · resumable · bits/byte + samples)");
 Console.Write("\n  Choice [1]: ");
 string? choice = Console.ReadLine()?.Trim();
 
@@ -89,6 +90,12 @@ if (choice == "11")
 if (choice == "12")
 {
     WebCorpusDemo.Run();
+    return;
+}
+
+if (choice == "13")
+{
+    WebPretrainDemo.Run();
     return;
 }
 

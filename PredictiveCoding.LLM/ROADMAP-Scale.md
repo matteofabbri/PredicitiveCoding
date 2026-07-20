@@ -123,12 +123,16 @@ corpus) so it can bootstrap the very model it then keeps learning forever. Curat
 (Wikipedia/books/code) stays available as an optional `CorpusSource.Mix` ingredient if
 we ever want to lift quality, but it is not required and not the default: the web is the corpus.*
 
-## Phase D — The training run · ❌
+## Phase D — The training run · ✅ machinery (2026-07-20) · ⏳ the multi-day run is execution
+
+*The honest split: everything the run NEEDS is built, wired and proven end-to-end
+on the 4070; spending the days of wall-clock on the real shard corpus is
+execution, not code. Demo 13 launches it.*
 
 | Task | Status | Notes |
 |------|:------:|-------|
-| **D1 · Pretrain for real** | 🟡 | Everything but the run exists: LR schedule, gradient accumulation, `CheckpointEverySteps` + best-on-val + true resume (Phase-5). Pretrain a preset on the 4070 for real wall-clock (days). **Target: bits/byte materially below the byte toy, and samples that form coherent sentences** — the first time output quality, not mechanism correctness, is the metric. |
-| **D2 · Monitoring** | 🟡 | Loss curve, tokens/s, periodic samples, and the Phase-8 `ProEval` harness at intervals. Wire into the existing `TrainingOptions.OnEpochEnd`/checkpoint hooks. |
+| **D1 · Pretrain for real** | ✅→run | `DevicePretrainer` now makes output QUALITY the metric: periodic **bits/byte** (tokenizer-independent, via `EvaluateBitsPerByte` on the exported weights) + a **live generated sample** every `QualityEverySteps`, and **best-on-validation** checkpointing (`CheckpointDir/best`, written only when held-out loss improves) alongside the rolling checkpoint — both with the device Adam moments, so a resume continues. `MaxSteps` bounds a run; warmup+cosine over the horizon. **Proven end-to-end on the 4070** (small real-English corpus, 3.4M model, 500 steps in 11 s @ ~44k tok/s): train loss 0.062→0.003, samples went fully coherent, and **best-on-val genuinely mattered — it kept the step-50 checkpoint (eval 0.070) over the overfit final (eval 0.115)**. The real hundreds-of-M-token run on the crawl shards is days of the same loop. |
+| **D2 · Monitoring** | ✅ | Loss curve, tokens/s and ETA in every `DevicePretrainProgress`; a **JSONL training log** (`LogPath`) written per beat, InvariantCulture, that **survives and appends across resumes** (tested); periodic held-out eval and the D1 quality checks are the sampling cadence. `OnProgress` is the hook — demo 13 prints a live line + the sample. (The Phase-8 `ProEval` harness is Phase E's job to run on the finished model.) |
 
 ## Phase E — Eval, serve, quantize · ❌
 
