@@ -1,3 +1,7 @@
+using System.Numerics;
+using System.Text.Json.Serialization;
+using PredictiveCoding.LLM.Infrastructure;
+
 namespace PredictiveCoding.LLM;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -8,6 +12,11 @@ namespace PredictiveCoding.LLM;
 // seen/said" number, persisted with the model (odometer.json), so it keeps
 // counting across sessions like a real odometer.
 //
+// Counters are BigInteger: a lifelong learner's odometer must never roll over,
+// no matter how long it lives or how fast it reads. JSON round-trips through
+// BigIntegerJsonConverter (plain JSON numbers, unlimited digits), and files
+// written back when these were long parse unchanged.
+//
 // COMPUTE tokens live elsewhere: DecoderLM.ForwardTokens (every token position
 // fed to a trainable forward — a full-reforward generation pays O(n²) there)
 // and GptModel.ForwardTokens (one per incremental Step on the served stack).
@@ -16,34 +25,40 @@ namespace PredictiveCoding.LLM;
 public sealed class TokenOdometer
 {
     /// <summary>Tokens consumed by <see cref="PredictiveLlm.Train"/> (windows × epochs).</summary>
-    public long Trained { get; internal set; }
+    public BigInteger Trained { get; internal set; }
 
     /// <summary>Tokens scored by evaluation (Evaluate, bits/byte, Learn's before/after probes).</summary>
-    public long Evaluated { get; internal set; }
+    public BigInteger Evaluated { get; internal set; }
 
     /// <summary>Tokens absorbed by online <see cref="PredictiveLlm.Learn"/> (windows × steps).</summary>
-    public long Absorbed { get; internal set; }
+    public BigInteger Absorbed { get; internal set; }
 
     /// <summary>Prompt tokens read by generation (including chat turns).</summary>
-    public long Prompted { get; internal set; }
+    public BigInteger Prompted { get; internal set; }
 
     /// <summary>Tokens the model emitted (counted as emitted, before any stop-sequence trim).</summary>
-    public long Generated { get; internal set; }
+    public BigInteger Generated { get; internal set; }
 
     /// <summary>Everything, summed.</summary>
-    public long Total => Trained + Evaluated + Absorbed + Prompted + Generated;
+    public BigInteger Total => Trained + Evaluated + Absorbed + Prompted + Generated;
 
     public void Reset()
     {
-        Trained = Evaluated = Absorbed = Prompted = Generated = 0;
+        Trained = Evaluated = Absorbed = Prompted = Generated = BigInteger.Zero;
     }
 
     public override string ToString() =>
         $"tokens: {Total:N0} total | trained {Trained:N0} · evaluated {Evaluated:N0} · " +
         $"absorbed {Absorbed:N0} · prompted {Prompted:N0} · generated {Generated:N0}";
 
-    // Snapshot record for JSON persistence (System.Text.Json-friendly).
-    internal sealed record Snapshot(long Trained, long Evaluated, long Absorbed, long Prompted, long Generated);
+    // Snapshot record for JSON persistence. The converter keeps the on-disk
+    // shape identical to the long era (plain numbers), just without the ceiling.
+    internal sealed record Snapshot(
+        [property: JsonConverter(typeof(BigIntegerJsonConverter))] BigInteger Trained,
+        [property: JsonConverter(typeof(BigIntegerJsonConverter))] BigInteger Evaluated,
+        [property: JsonConverter(typeof(BigIntegerJsonConverter))] BigInteger Absorbed,
+        [property: JsonConverter(typeof(BigIntegerJsonConverter))] BigInteger Prompted,
+        [property: JsonConverter(typeof(BigIntegerJsonConverter))] BigInteger Generated);
 
     internal Snapshot ToSnapshot() => new(Trained, Evaluated, Absorbed, Prompted, Generated);
 
