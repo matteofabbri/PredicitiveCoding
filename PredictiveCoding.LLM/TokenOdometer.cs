@@ -47,6 +47,28 @@ public sealed class TokenOdometer
         Trained = Evaluated = Absorbed = Prompted = Generated = BigInteger.Zero;
     }
 
+    /// <summary>
+    /// Folds in tokens produced by generation that ran on a SERVED COPY of the
+    /// model rather than on this instance — the reader/writer split a host uses
+    /// to serve requests without blocking on the learner. The copy is transient
+    /// (discarded at the next snapshot), so its own odometer would evaporate;
+    /// the host counts the tokens and hands them over here, where they belong,
+    /// before the checkpoint is written.
+    /// </summary>
+    /// <remarks>
+    /// Call it from ONE thread at a time (the host's writer path): BigInteger
+    /// is immutable but <c>+=</c> is a read-modify-write, so concurrent callers
+    /// would drop increments. The host is expected to accumulate concurrently
+    /// with its own atomics and drain into this in a single call.
+    /// </remarks>
+    public void AddServed(BigInteger prompted, BigInteger generated)
+    {
+        if (prompted.Sign < 0 || generated.Sign < 0)
+            throw new ArgumentOutOfRangeException(nameof(prompted), "An odometer only goes forward.");
+        Prompted  += prompted;
+        Generated += generated;
+    }
+
     public override string ToString() =>
         $"tokens: {Total:N0} total | trained {Trained:N0} · evaluated {Evaluated:N0} · " +
         $"absorbed {Absorbed:N0} · prompted {Prompted:N0} · generated {Generated:N0}";

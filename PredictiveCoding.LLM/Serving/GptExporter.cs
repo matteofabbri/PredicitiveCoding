@@ -41,9 +41,18 @@ public static class GptExporter
         {
             VocabSize = c.Vocab, MaxSeqLen = c.MaxSeq, EmbedDim = c.Dim, NumHeads = c.NumHeads,
             NumLayers = c.NumBlocks, FeedForwardDim = c.FfDim, LayerNormEps = c.Eps,
-            TieEmbeddings = false, Positional = PositionalKind.Sinusoidal, Norm = NormKind.LayerNorm,
+            TieEmbeddings = false,
+            // The block family comes FROM the trained config — the Scale presets
+            // (and CreatePc) are Llama-style, and a served stack hard-wired to
+            // LayerNorm + sinusoidal would silently compute a different model.
+            Positional = c.UseRope ? PositionalKind.Rotary : PositionalKind.Sinusoidal,
+            Norm = c.UseRmsNorm ? NormKind.RmsNorm : NormKind.LayerNorm,
             BlockPattern = c.BlockPattern, NumExperts = c.NumExperts, MoeTopK = c.MoeTopK,
         };
+        // RMSNorm carries a gamma and NO beta, so the parameter walk below must
+        // consume one tensor per norm instead of two — get this wrong and every
+        // subsequent Next() reads the neighbouring weight.
+        bool rms = c.UseRmsNorm;
         var gpt = new GptModel(cfg, new Random(0));   // random init, every weight overwritten below
 
         var ps = model.Parameters();
@@ -68,7 +77,7 @@ public static class GptExporter
             var block    = gpt.Blocks[b];
             bool temporal = c.BlockPattern is { } p && p[b] == 'T';
 
-            CopyNorm((LayerNorm)block.Ln1, Next(1, dim, "ln1G"), Next(1, dim, "ln1B"));
+            CopyNorm(block.Ln1, Next(1, dim, "ln1G"), rms ? null : Next(1, dim, "ln1B"));
 
             if (temporal)
             {
@@ -104,7 +113,7 @@ public static class GptExporter
                 // Q/K/V/O biases stay zero — the trainable heads have none.
             }
 
-            CopyNorm((LayerNorm)block.Ln2, Next(1, dim, "ln2G"), Next(1, dim, "ln2B"));
+            CopyNorm(block.Ln2, Next(1, dim, "ln2G"), rms ? null : Next(1, dim, "ln2B"));
 
             if (c.NumExperts > 0 && !temporal)
             {
@@ -124,7 +133,7 @@ public static class GptExporter
             }
         }
 
-        CopyNorm((LayerNorm)gpt.FinalNorm, Next(1, dim, "lnFG"), Next(1, dim, "lnFB"));
+        CopyNorm(gpt.FinalNorm, Next(1, dim, "lnFG"), rms ? null : Next(1, dim, "lnFB"));
         CopyLinear(gpt.LmHead!, Next(dim, c.Vocab, "wout"), bias: null);
 
         if (c.MtpWeight > 0f) Next(dim, c.Vocab, "woutMtp");        // main head serves; t+2 head skipped
@@ -161,9 +170,24 @@ public static class GptExporter
             bias.Data.AsSpan(0, outDim).CopyTo(lin.BiasTensor.Buffer);
     }
 
-    private static void CopyNorm(LayerNorm ln, Tensor gamma, Tensor beta)
+    // The trainable side has a beta only under LayerNorm; RMSNorm scales and
+    // nothing else. A mismatch between the two sides means the walk went out of
+    // phase — say so here rather than importing a weight into the wrong slot.
+    private static void CopyNorm(INormLayer norm, Tensor gamma, Tensor? beta)
     {
-        gamma.Data.AsSpan().CopyTo(ln.Gamma);
-        beta.Data.AsSpan().CopyTo(ln.Beta);
+        switch (norm)
+        {
+            case RmsNorm rn when beta is null:
+                gamma.Data.AsSpan().CopyTo(rn.Gamma);
+                break;
+            case LayerNorm ln when beta is not null:
+                gamma.Data.AsSpan().CopyTo(ln.Gamma);
+                beta.Data.AsSpan().CopyTo(ln.Beta);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Norm import mismatch: serving layer is {norm.GetType().Name} but the exporter " +
+                    $"{(beta is null ? "found no beta" : "found a beta")} — trained and served configs disagree.");
+        }
     }
 }

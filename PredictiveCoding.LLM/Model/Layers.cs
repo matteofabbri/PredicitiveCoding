@@ -116,6 +116,8 @@ public sealed class RmsNorm : INormLayer
     private readonly float   _eps;
     private readonly int     _dim;
 
+    internal float[] Gamma => _gamma;   // serving-path import hook (no beta: RMSNorm only scales)
+
     public RmsNorm(int dim, float eps)
     {
         _dim   = dim;
