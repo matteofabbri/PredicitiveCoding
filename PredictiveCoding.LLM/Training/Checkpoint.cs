@@ -16,13 +16,19 @@ namespace PredictiveCoding.LLM.Training;
 // solution instead of a bespoke flat file.
 //
 // Key   : parameter index (int), in the fixed order returned by Model.Parameters().
-// Value : flat blob [rows(4)][cols(4)][fp32 data] stored as a SpanByte whose
-//         4-byte length header precedes the payload.
+// Value : flat blob [rows(4)][cols(4)][precision(1)][data] stored as a SpanByte
+//         whose 4-byte length header precedes the payload.
 //
 // Save() opens a fresh store, upserts every tensor, flushes the log and takes a
 // full FASTER checkpoint. Load() opens the store, recovers that checkpoint, and
 // copies each stored tensor back into the supplied parameters in place — tensor
 // count and shapes must match.
+//
+// The underlying <see cref="CheckpointStore"/> is GENERAL: besides tensors it
+// stores arbitrary keyed byte blobs (PutBlob/GetBlob), so a whole LLM checkpoint
+// (config, tokenizer, optimizer moments, memory, odometer) can live in ONE store
+// — see PredictiveLlm.Save/Load. This class is the tensor-only façade used for
+// weight-only checkpoints (e.g. Translator).
 //
 // <paramref name="dir"/> is a directory owned exclusively by this checkpoint
 // (it holds the FASTER log + checkpoint folder); Save() clears any prior store
@@ -31,8 +37,8 @@ namespace PredictiveCoding.LLM.Training;
 
 public static class Checkpoint
 {
-    private const string LogName        = "weights.log";   // FASTER hybrid-log device
-    private const string CheckpointsDir = "checkpoints";   // FASTER checkpoint folder
+    internal const string LogName        = "weights.log";   // FASTER hybrid-log device
+    internal const string CheckpointsDir = "checkpoints";   // FASTER checkpoint folder
 
     /// <summary>
     /// Persists every parameter tensor. <paramref name="precision"/> selects the
@@ -46,7 +52,8 @@ public static class Checkpoint
         Directory.CreateDirectory(dir);
         ClearStore(dir);   // pristine write — drop stale log segments / checkpoints
 
-        using var store = new TensorStore(dir, parameters, recover: false);
+        int pageSizeBits = ComputePageSizeBits(parameters);
+        using var store = new CheckpointStore(dir, pageSizeBits, recover: false);
         for (int index = 0; index < parameters.Count; index++)
             store.UpsertTensor(index, parameters[index], precision);
         store.Commit();
@@ -55,11 +62,12 @@ public static class Checkpoint
     /// <summary>Loads parameters in place; tensor count and shapes must match.</summary>
     public static void Load(string dir, IReadOnlyList<Tensor> parameters)
     {
-        using var store = new TensorStore(dir, parameters, recover: true);
+        int pageSizeBits = ComputePageSizeBits(parameters);
+        using var store = new CheckpointStore(dir, pageSizeBits, recover: true);
 
         for (int index = 0; index < parameters.Count; index++)
         {
-            byte[] payload = store.Read(index)
+            byte[] payload = store.GetBlob(index)
                 ?? throw new InvalidDataException(
                     $"Checkpoint under '{dir}' is missing tensor {index}; model has {parameters.Count} tensors.");
             Deserialize(payload, index, parameters[index]);
@@ -67,16 +75,29 @@ public static class Checkpoint
 
         // A pristine store holds exactly the saved tensors at keys 0..Count-1;
         // anything at Count means the checkpoint belongs to a larger model.
-        if (store.Read(parameters.Count) is not null)
+        if (store.GetBlob(parameters.Count) is not null)
             throw new InvalidDataException(
                 $"Checkpoint under '{dir}' has more tensors than the model ({parameters.Count}).");
     }
 
     // ── Serialization ──────────────────────────────────────────────────────────
 
+    // Number of DATA bytes a tensor occupies at a given precision (header excluded).
+    internal static int DataBytes(Tensor t, WeightStoragePrecision precision) => precision switch
+    {
+        WeightStoragePrecision.Float32                                 => t.Data.Length * sizeof(float),
+        WeightStoragePrecision.Half or WeightStoragePrecision.BFloat16 => t.Data.Length * sizeof(ushort),
+        WeightStoragePrecision.Int8                                    => Int8Bytes(t.Rows, t.Cols),
+        _ => throw new ArgumentOutOfRangeException(nameof(precision)),
+    };
+
+    // Full serialized blob length for a tensor: [rows(4)][cols(4)][precision(1)][data].
+    internal static int TensorPayloadLength(Tensor t, WeightStoragePrecision precision)
+        => sizeof(int) * 2 + 1 + DataBytes(t, precision);
+
     // Reads [rows][cols][precision][data] from a stored payload into target,
     // widening any quantized weights back to fp32. Shape must match.
-    private static void Deserialize(byte[] payload, int index, Tensor target)
+    internal static void Deserialize(byte[] payload, int index, Tensor target)
     {
         int rows = Unsafe.ReadUnaligned<int>(ref payload[0]);
         int cols = Unsafe.ReadUnaligned<int>(ref payload[sizeof(int)]);
@@ -153,7 +174,7 @@ public static class Checkpoint
 
     // ── On-disk cleanup ──────────────────────────────────────────────────────────
 
-    private static void ClearStore(string dir)
+    internal static void ClearStore(string dir)
     {
         foreach (string file in Directory.EnumerateFiles(dir, LogName + "*"))
             File.Delete(file);
@@ -185,15 +206,36 @@ public static class Checkpoint
         return bits;
     }
 
+    // Smallest PageSizeBits such that a blob of <paramref name="maxPayloadLen"/>
+    // value bytes fits one FASTER page (minimum 22 = 4 MB). Used when the caller
+    // stores heterogeneous blobs (tensors, optimizer moments, memory, JSON) and
+    // must size the log to the LARGEST of them — the bootstrap the whole-LLM
+    // store writes to its 'pagesize' hint file so Load can reopen without yet
+    // knowing the model dimensions.
+    internal static int PageSizeBitsFor(long maxPayloadLen)
+    {
+        long recordSize = maxPayloadLen + sizeof(int) /* SpanByte length prefix */ + 32 /* record header */;
+        int bits = 22;
+        while ((1L << bits) < recordSize) bits++;
+        return bits;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
-    // TensorStore  —  one-shot FasterKV<int, SpanByte> over a parameter list.
+    // CheckpointStore  —  a one-shot FasterKV<int, SpanByte> over a directory.
     //
     // Owns the log device, store and the single session for the save/load pass,
-    // and disposes all three. The base SpanByteFunctions only ships write/RMW
-    // callbacks, so Functions adds the read callbacks that populate the output
-    // (exactly as LayerStore does).
+    // and disposes all three. Stores arbitrary keyed byte blobs: PutBlob/GetBlob
+    // move raw payloads, UpsertTensor layers the [rows][cols][precision][data]
+    // tensor header on top of PutBlob. The base SpanByteFunctions only ships
+    // write/RMW callbacks, so Functions adds the read callbacks that populate the
+    // output (exactly as LayerStore does).
+    //
+    // The page size must be supplied by the caller (it must be ≥ the largest
+    // record). The tensor façade derives it from the parameters; the whole-LLM
+    // store derives it from every blob it will write and persists it beside the
+    // log so Load can reopen the store before it knows the model dimensions.
     // ─────────────────────────────────────────────────────────────────────────
-    private sealed class TensorStore : IDisposable
+    internal sealed class CheckpointStore : IDisposable
     {
         private sealed class Functions : SpanByteFunctions<int, SpanByteAndMemory, Empty>
         {
@@ -216,7 +258,7 @@ public static class Checkpoint
         private readonly IDevice _device;
         private readonly ClientSession<int, SpanByte, SpanByte, SpanByteAndMemory, Empty, Functions> _session;
 
-        public TensorStore(string dir, IReadOnlyList<Tensor> parameters, bool recover)
+        public CheckpointStore(string dir, int pageSizeBits, bool recover)
         {
             string checkpointDir = Path.Combine(dir, CheckpointsDir);
             _device = Devices.CreateLogDevice(
@@ -224,7 +266,6 @@ public static class Checkpoint
                 preallocateFile: false,
                 deleteOnClose: false);
 
-            int pageSizeBits   = ComputePageSizeBits(parameters);
             int memorySizeBits = pageSizeBits + 4;   // 16 pages in memory
 
             _store = new FasterKV<int, SpanByte>(
@@ -247,58 +288,20 @@ public static class Checkpoint
             _session = _store.For(new Functions()).NewSession<Functions>();
         }
 
-        // Stores [rows][cols][precision][data] for one tensor under its index. The
-        // pinned buffer is laid out as [spanLen][rows][cols][precision][data];
-        // SpanByte.Reinterpret reads the leading int as the value length.
-        public void UpsertTensor(int index, Tensor t, WeightStoragePrecision precision)
+        // Stores a raw byte payload under a key. The pinned buffer is laid out as
+        // [spanLen(4)][payload]; SpanByte.Reinterpret reads the leading int as the
+        // value length.
+        public void PutBlob(int key, ReadOnlySpan<byte> payload)
         {
-            int n = t.Data.Length;
-            int dataBytes = precision switch
-            {
-                WeightStoragePrecision.Float32                                    => n * sizeof(float),
-                WeightStoragePrecision.Half or WeightStoragePrecision.BFloat16    => n * sizeof(ushort),
-                WeightStoragePrecision.Int8                                       => Int8Bytes(t.Rows, t.Cols),
-                _ => throw new ArgumentOutOfRangeException(nameof(precision)),
-            };
-            int payloadLen = sizeof(int) * 2 + 1 + dataBytes;
-            byte[] buf = new byte[sizeof(int) + payloadLen];
-
-            Unsafe.WriteUnaligned(ref buf[0],               payloadLen);
-            Unsafe.WriteUnaligned(ref buf[sizeof(int)],     t.Rows);
-            Unsafe.WriteUnaligned(ref buf[sizeof(int) * 2], t.Cols);
-            buf[sizeof(int) * 3] = (byte)precision;
-            int dataAt = sizeof(int) * 3 + 1;
-
-            switch (precision)
-            {
-                case WeightStoragePrecision.Float32:
-                    Buffer.BlockCopy(t.Data, 0, buf, dataAt, dataBytes);
-                    break;
-                case WeightStoragePrecision.Half:
-                    for (int i = 0; i < n; i++)
-                    {
-                        ushort bits = BitConverter.HalfToUInt16Bits((Half)t.Data[i]);
-                        buf[dataAt + i * 2] = (byte)bits; buf[dataAt + i * 2 + 1] = (byte)(bits >> 8);
-                    }
-                    break;
-                case WeightStoragePrecision.BFloat16:
-                    for (int i = 0; i < n; i++)
-                    {
-                        uint fb = BitConverter.SingleToUInt32Bits(t.Data[i]);
-                        ushort bits = (ushort)((fb + 0x7FFFu + ((fb >> 16) & 1u)) >> 16);   // round-to-nearest-even
-                        buf[dataAt + i * 2] = (byte)bits; buf[dataAt + i * 2 + 1] = (byte)(bits >> 8);
-                    }
-                    break;
-                case WeightStoragePrecision.Int8:
-                    QuantizeInt8(buf, dataAt, t.Data, t.Rows, t.Cols);
-                    break;
-            }
+            byte[] buf = new byte[sizeof(int) + payload.Length];
+            Unsafe.WriteUnaligned(ref buf[0], payload.Length);
+            payload.CopyTo(buf.AsSpan(sizeof(int)));
 
             var handle = GCHandle.Alloc(buf, GCHandleType.Pinned);
             try
             {
                 ref SpanByte sb = ref SpanByte.Reinterpret(ref buf[0]);
-                _session.Upsert(ref index, ref sb);
+                _session.Upsert(ref key, ref sb);
             }
             finally
             {
@@ -306,11 +309,53 @@ public static class Checkpoint
             }
         }
 
-        // Returns the stored [rows][cols][data] payload for index, or null if absent.
-        public byte[]? Read(int index)
+        // Stores [rows][cols][precision][data] for one tensor under its index,
+        // through PutBlob (which prepends the SpanByte length prefix).
+        public void UpsertTensor(int index, Tensor t, WeightStoragePrecision precision)
+        {
+            int n = t.Data.Length;
+            int dataBytes  = DataBytes(t, precision);
+            int payloadLen = sizeof(int) * 2 + 1 + dataBytes;
+            byte[] payload = new byte[payloadLen];
+
+            Unsafe.WriteUnaligned(ref payload[0],           t.Rows);
+            Unsafe.WriteUnaligned(ref payload[sizeof(int)], t.Cols);
+            payload[sizeof(int) * 2] = (byte)precision;
+            int dataAt = sizeof(int) * 2 + 1;
+
+            switch (precision)
+            {
+                case WeightStoragePrecision.Float32:
+                    Buffer.BlockCopy(t.Data, 0, payload, dataAt, dataBytes);
+                    break;
+                case WeightStoragePrecision.Half:
+                    for (int i = 0; i < n; i++)
+                    {
+                        ushort bits = BitConverter.HalfToUInt16Bits((Half)t.Data[i]);
+                        payload[dataAt + i * 2] = (byte)bits; payload[dataAt + i * 2 + 1] = (byte)(bits >> 8);
+                    }
+                    break;
+                case WeightStoragePrecision.BFloat16:
+                    for (int i = 0; i < n; i++)
+                    {
+                        uint fb = BitConverter.SingleToUInt32Bits(t.Data[i]);
+                        ushort bits = (ushort)((fb + 0x7FFFu + ((fb >> 16) & 1u)) >> 16);   // round-to-nearest-even
+                        payload[dataAt + i * 2] = (byte)bits; payload[dataAt + i * 2 + 1] = (byte)(bits >> 8);
+                    }
+                    break;
+                case WeightStoragePrecision.Int8:
+                    QuantizeInt8(payload, dataAt, t.Data, t.Rows, t.Cols);
+                    break;
+            }
+
+            PutBlob(index, payload);
+        }
+
+        // Returns the raw stored payload for a key, or null if absent.
+        public byte[]? GetBlob(int key)
         {
             SpanByteAndMemory output = default;
-            Status status = _session.Read(ref index, ref output);
+            Status status = _session.Read(ref key, ref output);
 
             if (status.IsPending)
             {

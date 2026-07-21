@@ -712,7 +712,29 @@ internal static class AgInit
     public static Tensor Randn(int rows, int cols, Random rng)
     {
         var t = new Tensor(rows, cols);
-        for (int i = 0; i < t.Data.Length; i++) t.Data[i] = 0.02f * (float)NextGaussian(rng);
+        int n = t.Data.Length;
+
+        // Piccolo: sequenziale (il parallelismo non ripaga l'overhead).
+        if (n < 1 << 16)
+        {
+            for (int i = 0; i < n; i++) t.Data[i] = 0.02f * (float)NextGaussian(rng);
+            return t;
+        }
+
+        // Grande: Box-Muller in PARALLELO. Nascere con centinaia di milioni di pesi
+        // su un core solo costava minuti (Log/Cos per elemento). Ogni partizione ha
+        // il SUO Random (Random non e' thread-safe) con seed derivato UNA volta dal
+        // master -> resta riproducibile (stesso master seed -> stesso modello), ma
+        // l'init sfrutta tutti i core: da minuti a secondi.
+        int baseSeed = rng.Next();
+        int parts = Math.Max(1, Environment.ProcessorCount);
+        int chunk = (n + parts - 1) / parts;
+        System.Threading.Tasks.Parallel.For(0, parts, p =>
+        {
+            var local = new Random(baseSeed + p);
+            int start = p * chunk, end = Math.Min(start + chunk, n);
+            for (int i = start; i < end; i++) t.Data[i] = 0.02f * (float)NextGaussian(local);
+        });
         return t;
     }
 

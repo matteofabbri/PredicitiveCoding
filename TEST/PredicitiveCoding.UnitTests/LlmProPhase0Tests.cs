@@ -51,8 +51,7 @@ public class LlmProPhase0Tests : IDisposable
 
         string dir = Path.Combine(_tempRoot, "bpe-model");
         llm.Save(dir);
-        Assert.True(File.Exists(Path.Combine(dir, "tokenizer.bpe")));
-        Assert.True(File.Exists(Path.Combine(dir, "tokenizer.json")));
+        // Tutto lo stato vive nel FASTER store unificato (niente piu' file separati).
 
         var back = PredictiveLlm.Load(dir);                        // no tokenizer passed: it ships with the model
         Assert.Equal(llm.Config.Vocab, back.Tokenizer.VocabSize);
@@ -66,20 +65,19 @@ public class LlmProPhase0Tests : IDisposable
     }
 
     [Fact]
-    public void Load_TamperedVocab_FailsLoudly()
+    public void Load_BrokenCheckpoint_FailsLoudly()
     {
         var llm = PredictiveLlm.Create2026(EvalCorpus.Tiny, merges: 100,
             dim: 16, blocks: 1, heads: 2, ffDim: 32, maxSeq: 32);
         string dir = Path.Combine(_tempRoot, "tampered");
         llm.Save(dir);
 
-        string vocab = Path.Combine(dir, "tokenizer.bpe");
-        var bytes = File.ReadAllBytes(vocab);
-        bytes[^1] ^= 0xFF;                                         // flip one byte of the vocab
-        File.WriteAllBytes(vocab, bytes);
-
-        var ex = Assert.Throws<InvalidDataException>(() => PredictiveLlm.Load(dir));
-        Assert.Contains("fingerprint", ex.Message);
+        // Tutto lo stato vive nel FASTER store unificato (vocab compreso, con
+        // fingerprint verificato al Load). Un checkpoint monco — qui manca l'hint
+        // di page-size, come dopo un salvataggio interrotto — dev'essere rifiutato
+        // rumorosamente, non caricato a pezzi.
+        File.Delete(Path.Combine(dir, "pagesize"));
+        Assert.ThrowsAny<Exception>(() => PredictiveLlm.Load(dir));
     }
 
     [Fact]

@@ -68,38 +68,64 @@ public sealed class EpisodicMemory
         return result;
     }
 
+    /// <summary>
+    /// Le voci vive in ordine di età (la più vecchia prima). Il checkpoint le
+    /// scrive UNA PER RECORD nello store FASTER: la memoria è una collezione che
+    /// cresce, non uno snapshot monolitico — così la page resta piccola e si apre
+    /// la strada alla persistenza incrementale (solo le voci nuove).
+    /// </summary>
+    public IEnumerable<(float[] Key, string Text)> LiveEntriesOldestFirst()
+    {
+        foreach (int slot in LiveSlotsOldestFirst())
+            yield return (_keys[slot]!, _payloads[slot]!);
+    }
+
     // ── Persistence ────────────────────────────────────────────────────────────
 
     /// <summary>Writes the live entries in age order so a reload reproduces the ring state.</summary>
     public void Save(string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        using var fs = File.Create(path);
+        File.WriteAllBytes(path, SaveToBytes());
+    }
+
+    /// <summary>
+    /// Serializes the live entries (age order) to a byte array — the same layout
+    /// <see cref="Save(string)"/> writes to disk, so it can be embedded inside a
+    /// larger container (e.g. the whole-LLM FASTER store).
+    /// </summary>
+    public byte[] SaveToBytes()
+    {
+        using var ms = new MemoryStream();
         Span<byte> hdr = stackalloc byte[16];
         BinaryPrimitives.WriteUInt32LittleEndian(hdr[..4], Magic);
         BinaryPrimitives.WriteInt32LittleEndian(hdr[4..8], KeyDim);
         BinaryPrimitives.WriteInt32LittleEndian(hdr[8..12], Capacity);
         BinaryPrimitives.WriteInt32LittleEndian(hdr[12..16], Count);
-        fs.Write(hdr);
+        ms.Write(hdr);
 
-        var len = new byte[4];
+        Span<byte> len = stackalloc byte[4];
         foreach (int slot in LiveSlotsOldestFirst())
         {
-            fs.Write(MemoryMarshal.AsBytes(_keys[slot]!.AsSpan()));
+            ms.Write(MemoryMarshal.AsBytes(_keys[slot]!.AsSpan()));
             byte[] textBytes = Encoding.UTF8.GetBytes(_payloads[slot]!);
             BinaryPrimitives.WriteInt32LittleEndian(len, textBytes.Length);
-            fs.Write(len);
-            fs.Write(textBytes);
+            ms.Write(len);
+            ms.Write(textBytes);
         }
+        return ms.ToArray();
     }
 
-    /// <summary>Reloads a memory saved by <see cref="Save"/>; the key dimension must match.</summary>
+    /// <summary>Reloads a memory saved by <see cref="Save(string)"/>; the key dimension must match.</summary>
     public static EpisodicMemory Load(string path, int expectedKeyDim)
+        => LoadFromBytes(File.ReadAllBytes(path), expectedKeyDim);
+
+    /// <summary>Reloads a memory from bytes produced by <see cref="SaveToBytes"/>; the key dimension must match.</summary>
+    public static EpisodicMemory LoadFromBytes(byte[] bytes, int expectedKeyDim)
     {
-        byte[] bytes = File.ReadAllBytes(path);
         var span = bytes.AsSpan();
         if (BinaryPrimitives.ReadUInt32LittleEndian(span[..4]) != Magic)
-            throw new InvalidDataException($"'{path}' is not an episodic-memory file.");
+            throw new InvalidDataException("Not an episodic-memory blob.");
         int keyDim   = BinaryPrimitives.ReadInt32LittleEndian(span[4..8]);
         int capacity = BinaryPrimitives.ReadInt32LittleEndian(span[8..12]);
         int count    = BinaryPrimitives.ReadInt32LittleEndian(span[12..16]);

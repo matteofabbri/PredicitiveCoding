@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -29,9 +31,9 @@ public sealed class PredictiveLlm
 
     // Long-lived optimizer for online learning: Learn() keeps absorbing across
     // calls with its momentum intact — the model is a lifelong learner, not a
-    // train-once artifact. Persisted by Save (online-optimizer.bin) and restored
-    // by Load, so the momentum survives a save/reload too — a reloaded learner
-    // continues, it does not restart.
+    // train-once artifact. Persisted by Save (as moment blobs inside the single
+    // checkpoint store) and restored by Load, so the momentum survives a
+    // save/reload too — a reloaded learner continues, it does not restart.
     private Adam? _onlineOptimizer;
 
     // Allenatore Predictive Coding (iPC) per LearnPc; creato pigro sul Model
@@ -546,7 +548,7 @@ public sealed class PredictiveLlm
     /// confine-di-blocco, niente passata di backprop globale. Richiede un modello
     /// DENSO (vedi <see cref="CreatePc"/>): getta altrimenti. Sorpresa prima/dopo.
     /// </summary>
-    public OnlineLearnReport LearnPc(string text, int steps = 1, bool countAsTraining = false)
+    public OnlineLearnReport LearnPc(string text, int steps = 1, bool countAsTraining = false, bool measureSurprise = true)
     {
         if (steps < 1) throw new ArgumentOutOfRangeException(nameof(steps), steps, "steps must be >= 1.");
         _pc ??= new Training.PcDecoderTrainer(Model)
@@ -560,12 +562,15 @@ public sealed class PredictiveLlm
         foreach (var (input, _) in windows) windowTokens += input.Length;
         if (countAsTraining) Odometer.Trained += windowTokens * steps;   // giro di training d'avvio
         else                 Odometer.Absorbed += windowTokens * steps;  // apprendimento dal vivo
-        Odometer.Evaluated += windowTokens * 2;
 
-        float before = MeanLoss(windows);
+        // La sorpresa prima/dopo costa DUE forward per finestra: si calcola solo se
+        // serve (teach). Il crawler scarta il report -> measureSurprise:false gli
+        // toglie ~1/3 del lavoro per pagina (a CrawlLearnSteps=1).
+        if (measureSurprise) Odometer.Evaluated += windowTokens * 2;
+        float before = measureSurprise ? MeanLoss(windows) : 0f;
         for (int s = 0; s < steps; s++)
             foreach (var (input, target) in windows) _pc.Step(input, target);
-        float after = MeanLoss(windows);
+        float after = measureSurprise ? MeanLoss(windows) : 0f;
         return new OnlineLearnReport(before, after, steps);
 
         float MeanLoss(List<(int[] input, int[] target)> ws)
@@ -606,27 +611,69 @@ public sealed class PredictiveLlm
         => LmDistiller.OnPolicyRound(Model, Tokenizer, prompts, teacherCorrect, new Adam(), learningRate, draftTokens, clipNorm: 1f);
 
     // ── Save / Load ──────────────────────────────────────────────────────────
+    //
+    // A whole checkpoint lives in ONE FASTER KV store (Checkpoint.CheckpointStore)
+    // under <c>directory</c>: weights, config, tokenizer, optimizer moments,
+    // episodic memory and the odometer are all keyed blobs in the same store,
+    // instead of a mix of FASTER (weights) + bespoke files. The integer key scheme:
+    //
+    //   0 .. N-1               weight tensors (Checkpoint's [rows][cols][precision][data] blob)
+    //   1_000_000 + i          Adam online-optimizer moment m for parameter i (fp32)
+    //   2_000_000 + i          Adam online-optimizer moment v for parameter i (fp32)
+    //   -1                     config      — UTF-8 JSON of DecoderLmConfig
+    //   -2                     tokenizer   — UTF-8 JSON of TokenizerManifest
+    //   -3                     tokenizer   — BPE vocab bytes (BpeTokenizer only)
+    //   -4                     odometer    — UTF-8 JSON of Odometer.ToSnapshot()
+    //   -5                     memory      — EpisodicMemory bytes (when Memory present)
+    //   -6                     optimizer   — online-optimizer step count (4-byte int)
+    //   -100                   format version (int = 1); Load rejects anything else
+    //
+    // FASTER needs PageSizeBits to OPEN the store and the config that fixes the
+    // model dimensions lives INSIDE the store, so Load cannot compute the page
+    // size up front. Save therefore writes a 4-byte 'pagesize' hint file beside
+    // the log; Load reads it to reopen the store, then recovers the blobs.
+
+    private const int    FormatVersion        = 1;
+    private const int    VersionKey           = -100;
+    private const int    ConfigKey            = -1;
+    private const int    TokenizerManifestKey = -2;
+    private const int    TokenizerHeaderKey    = -3;
+    private const int    OdometerKey          = -4;
+    private const int    MemoryHeaderKey            = -5;
+    private const int    OptimizerStepKey     = -6;
+    private const int    OptimizerMomentMBase = 1_000_000;
+    private const int    OptimizerMomentVBase = 2_000_000;
+    // Collezioni a RECORD SINGOLI (non snapshot): una voce di memoria / una merge
+    // del tokenizer per chiave. Le chiavi -3 e -5 tengono solo le intestazioni.
+    private const int    MemoryEntryBase      = 3_000_000;
+    private const int    MergeBase            = 4_000_000;
+    private const string PageSizeHintFile     = "pagesize";
 
     /// <summary>
-    /// Saves config + weights + TOKENIZER under <paramref name="directory"/>
-    /// (created if missing). The tokenizer travels with the model (Pro roadmap
-    /// Phase 0): a BPE vocab is written next to the weights and fingerprinted,
-    /// so <see cref="Load"/> reconstructs exactly the vocabulary the weights
-    /// were trained on — or fails loudly.
+    /// Saves config + weights + TOKENIZER (plus optimizer moments, episodic memory
+    /// and the odometer when present) into a single FASTER store under
+    /// <paramref name="directory"/> (created if missing). The tokenizer travels with
+    /// the model (Pro roadmap Phase 0): a BPE vocab is stored beside the weights and
+    /// fingerprinted, so <see cref="Load"/> reconstructs exactly the vocabulary the
+    /// weights were trained on — or fails loudly.
     /// </summary>
     public void Save(string directory) => Save(directory, WeightStoragePrecision.Float32);
 
     /// <summary>
     /// <see cref="Save(string)"/> with an explicit on-disk weight precision
-    /// (roadmap-Pro Phase 5): Half/BFloat16 halve the weight file, Int8 quarters
-    /// it; <see cref="Load"/> widens back to fp32 within the format's tolerance.
+    /// (roadmap-Pro Phase 5): Half/BFloat16 halve the weight blobs, Int8 quarters
+    /// them; <see cref="Load"/> widens back to fp32 within the format's tolerance.
+    /// Everything else in the checkpoint is stored at full precision.
     /// </summary>
     public void Save(string directory, WeightStoragePrecision precision)
     {
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "config.json"),
-            JsonSerializer.Serialize(Config, new JsonSerializerOptions { WriteIndented = true }));
-        Checkpoint.Save(Path.Combine(directory, "weights"), Model.Parameters(), precision);
+        var ps = Model.Parameters();
+
+        // Serialize the singleton blobs up front — they double as page-size inputs
+        // and as the payloads written into the store, so build them once.
+        byte[]  configJson   = JsonSerializer.SerializeToUtf8Bytes(Config);
+        byte[]  odometerJson = JsonSerializer.SerializeToUtf8Bytes(Odometer.ToSnapshot());
 
         string kind = Tokenizer switch
         {
@@ -634,33 +681,93 @@ public sealed class PredictiveLlm
             ByteTokenizer => "byte",
             _             => Tokenizer.GetType().Name,   // custom: caller re-supplies it at Load
         };
-        string hash = "";
-        if (Tokenizer is BpeTokenizer bpe)
-        {
-            string vocabPath = Path.Combine(directory, "tokenizer.bpe");
-            bpe.Save(vocabPath);
-            hash = Fingerprint(File.ReadAllBytes(vocabPath));
-        }
-        File.WriteAllText(Path.Combine(directory, "tokenizer.json"),
-            JsonSerializer.Serialize(new TokenizerManifest(kind, Tokenizer.VocabSize, hash)));
+        // Le merge del BPE vanno a RECORD SINGOLI (una per chiave): qui si prende
+        // solo la tabella, l'intestazione sta in TokenizerHeaderKey. Niente piu'
+        // fingerprint: il vocab non e' un file separato che si possa scambiare,
+        // viaggia dentro lo store insieme ai pesi.
+        var bpe = Tokenizer as BpeTokenizer;
+        IReadOnlyList<(int A, int B, int Id)> merges = bpe?.MergesInRankOrder() ?? [];
+        byte[] manifestJson = JsonSerializer.SerializeToUtf8Bytes(
+            new TokenizerManifest(kind, Tokenizer.VocabSize, ""));
 
-        // Episodic memory travels with the model when present (Phase 7).
-        string memPath = Path.Combine(directory, "memory.bin");
-        if (Memory is not null) Memory.Save(memPath);
-        else if (File.Exists(memPath)) File.Delete(memPath);
+        // Anche le voci di memoria episodica sono record singoli, non uno snapshot.
+        var memEntries = Memory?.LiveEntriesOldestFirst().ToList();
+
+        // Page-size bootstrap: size the log to the LARGEST record we will write —
+        // a weight tensor (at the chosen precision), an Adam moment (fp32, same
+        // element count as its tensor), the memory blob, or any singleton JSON.
+        long maxLen = 0;
+        foreach (var p in ps)
+        {
+            maxLen = Math.Max(maxLen, Checkpoint.TensorPayloadLength(p, precision));
+            if (_onlineOptimizer is not null)
+                maxLen = Math.Max(maxLen, (long)p.Data.Length * sizeof(float));   // moment m / v
+        }
+        maxLen = Math.Max(maxLen, configJson.Length);
+        maxLen = Math.Max(maxLen, manifestJson.Length);
+        maxLen = Math.Max(maxLen, odometerJson.Length);
+        // Collezioni a record: conta il PIU' GRANDE singolo elemento, non la somma.
+        // E' esattamente il guadagno del non fare snapshot — la page resta piccola
+        // anche con una memoria enorme (le merge sono 12 byte, irrilevanti).
+        if (memEntries is not null)
+            foreach (var (key, text) in memEntries)
+                maxLen = Math.Max(maxLen, (long)key.Length * sizeof(float) + sizeof(int)
+                                          + System.Text.Encoding.UTF8.GetByteCount(text));
+        int pageSizeBits = Checkpoint.PageSizeBitsFor(maxLen);
+
+        Checkpoint.ClearStore(directory);   // pristine write — drop stale log / checkpoints
+        WritePageSizeHint(directory, pageSizeBits);
+
+        using var store = new Checkpoint.CheckpointStore(directory, pageSizeBits, recover: false);
+
+        store.PutBlob(VersionKey, IntBytes(FormatVersion));
+        store.PutBlob(ConfigKey, configJson);
+        store.PutBlob(TokenizerManifestKey, manifestJson);
+
+        // Tokenizer BPE: intestazione + UNA MERGE PER RECORD.
+        if (bpe is not null)
+        {
+            store.PutBlob(TokenizerHeaderKey,
+                TokenizerHeaderBytes(bpe.IsWordSplit, bpe.VocabSize, merges.Count));
+            for (int m = 0; m < merges.Count; m++)
+                store.PutBlob(MergeBase + m, MergeBytes(merges[m].A, merges[m].B, merges[m].Id));
+        }
+
+        for (int i = 0; i < ps.Length; i++)
+            store.UpsertTensor(i, ps[i], precision);
+
+        // The odometer travels with the model: a real odometer keeps counting across sessions.
+        store.PutBlob(OdometerKey, odometerJson);
+
+        // Memoria episodica (Phase 7): intestazione + UNA VOCE PER RECORD.
+        if (memEntries is not null)
+        {
+            store.PutBlob(MemoryHeaderKey,
+                MemoryHeaderBytes(Memory!.KeyDim, Memory.Capacity, memEntries.Count));
+            for (int i = 0; i < memEntries.Count; i++)
+                store.PutBlob(MemoryEntryBase + i, MemoryEntryBytes(memEntries[i].Key, memEntries[i].Text));
+        }
 
         // The online-learning optimizer's momentum travels too: without it a
         // reloaded lifelong learner would restart its Adam moments and take the
         // next Learn step less stably than an uninterrupted one. (The training
         // optimizer of Train is separate — resumed via TrainingOptions.ResumeOptimizer.)
-        string onlineOptPath = Path.Combine(directory, "online-optimizer.bin");
         if (_onlineOptimizer is not null)
-            OptimizerCheckpoint.Save(onlineOptPath, Model.Parameters(), _onlineOptimizer);
-        else if (File.Exists(onlineOptPath)) File.Delete(onlineOptPath);
+        {
+            store.PutBlob(OptimizerStepKey, IntBytes(_onlineOptimizer.StepCount));
+            for (int i = 0; i < ps.Length; i++)
+            {
+                // A parameter never stepped has no moments yet — persist zeros so
+                // every parameter round-trips a full (m, v) pair.
+                var moments = _onlineOptimizer.MomentsFor(ps[i]);
+                float[] m = moments?.m ?? new float[ps[i].Data.Length];
+                float[] v = moments?.v ?? new float[ps[i].Data.Length];
+                store.PutBlob(OptimizerMomentMBase + i, MemoryMarshal.AsBytes(m.AsSpan()));
+                store.PutBlob(OptimizerMomentVBase + i, MemoryMarshal.AsBytes(v.AsSpan()));
+            }
+        }
 
-        // The odometer travels too: a real odometer keeps counting across sessions.
-        File.WriteAllText(Path.Combine(directory, "odometer.json"),
-            JsonSerializer.Serialize(Odometer.ToSnapshot()));
+        store.Commit();
     }
 
     /// <summary>
@@ -669,71 +776,234 @@ public sealed class PredictiveLlm
     /// tokenizer must be re-supplied via <paramref name="tokenizer"/> and match
     /// the recorded vocab size. Any mismatch fails loudly.
     /// </summary>
-    public static PredictiveLlm Load(string directory, ITokenizer? tokenizer = null, int seed = 42)
+    public static PredictiveLlm Load(string directory, ITokenizer? tokenizer = null, int seed = 42,
+                                     bool restoreOptimizer = true)
     {
-        var cfg = JsonSerializer.Deserialize<DecoderLmConfig>(
-                      File.ReadAllText(Path.Combine(directory, "config.json")))
+        int pageSizeBits = ReadPageSizeHint(directory);
+        using var store = new Checkpoint.CheckpointStore(directory, pageSizeBits, recover: true);
+
+        // Format guard: old-format checkpoints have no config blob in the store,
+        // so they are rejected cleanly here rather than misread further down.
+        byte[]? versionBlob = store.GetBlob(VersionKey);
+        if (versionBlob is null || versionBlob.Length < sizeof(int) ||
+            BinaryPrimitives.ReadInt32LittleEndian(versionBlob) != FormatVersion)
+            throw new InvalidDataException(
+                $"'{directory}' is not a v{FormatVersion} LLM checkpoint (wrong or missing format version).");
+
+        byte[] configBlob = store.GetBlob(ConfigKey)
+            ?? throw new InvalidDataException($"Checkpoint under '{directory}' is missing its config.");
+        var cfg = JsonSerializer.Deserialize<DecoderLmConfig>(configBlob)
                   ?? throw new InvalidDataException($"Unreadable config in {directory}.");
 
-        string manifestPath = Path.Combine(directory, "tokenizer.json");
-        if (File.Exists(manifestPath))
+        byte[] manifestBlob = store.GetBlob(TokenizerManifestKey)
+            ?? throw new InvalidDataException($"Checkpoint under '{directory}' is missing its tokenizer manifest.");
+        var manifest = JsonSerializer.Deserialize<TokenizerManifest>(manifestBlob)
+                       ?? throw new InvalidDataException($"Unreadable tokenizer manifest in {directory}.");
+        switch (manifest.Kind)
         {
-            var manifest = JsonSerializer.Deserialize<TokenizerManifest>(File.ReadAllText(manifestPath))
-                           ?? throw new InvalidDataException($"Unreadable tokenizer manifest in {directory}.");
-            switch (manifest.Kind)
+            case "byte":
+                tokenizer ??= new ByteTokenizer();
+                break;
+            case "bpe":
             {
-                case "byte":
-                    tokenizer ??= new ByteTokenizer();
-                    break;
-                case "bpe":
+                if (tokenizer is not null)
+                    throw new ArgumentException(
+                        "This model carries its own BPE tokenizer — do not pass one to Load.", nameof(tokenizer));
+                byte[] headerBlob = store.GetBlob(TokenizerHeaderKey)
+                    ?? throw new InvalidDataException(
+                        $"Checkpoint under '{directory}' is missing its BPE tokenizer header.");
+                var (wordSplit, tokVocab, mergeCount) = ReadTokenizerHeader(headerBlob);
+
+                // Le merge si rileggono UNA PER RECORD, in ordine di rango.
+                var merges = new (int A, int B, int Id)[mergeCount];
+                for (int m = 0; m < mergeCount; m++)
                 {
-                    if (tokenizer is not null)
-                        throw new ArgumentException(
-                            "This model carries its own BPE tokenizer — do not pass one to Load.", nameof(tokenizer));
-                    string vocabPath = Path.Combine(directory, "tokenizer.bpe");
-                    string actual    = Fingerprint(File.ReadAllBytes(vocabPath));
-                    if (actual != manifest.Hash)
-                        throw new InvalidDataException(
-                            $"Tokenizer vocab in {directory} does not match the model's fingerprint " +
-                            $"(expected {manifest.Hash}, found {actual}) — the file was modified or corrupted.");
-                    tokenizer = BpeTokenizer.Load(vocabPath);
-                    break;
+                    byte[] mb = store.GetBlob(MergeBase + m)
+                        ?? throw new InvalidDataException(
+                            $"Checkpoint under '{directory}' is missing BPE merge {m} of {mergeCount}.");
+                    merges[m] = ReadMerge(mb);
                 }
-                default:
-                    if (tokenizer is null)
-                        throw new ArgumentException(
-                            $"This model was saved with a custom tokenizer ({manifest.Kind}) — pass the same one to Load.",
-                            nameof(tokenizer));
-                    break;
+                tokenizer = BpeTokenizer.FromMerges(wordSplit, tokVocab, merges);
+                break;
             }
-            if (tokenizer.VocabSize != manifest.VocabSize)
-                throw new InvalidDataException(
-                    $"Tokenizer vocab size {tokenizer.VocabSize} does not match the saved model's {manifest.VocabSize}.");
+            default:
+                if (tokenizer is null)
+                    throw new ArgumentException(
+                        $"This model was saved with a custom tokenizer ({manifest.Kind}) — pass the same one to Load.",
+                        nameof(tokenizer));
+                break;
         }
+        if (tokenizer.VocabSize != manifest.VocabSize)
+            throw new InvalidDataException(
+                $"Tokenizer vocab size {tokenizer.VocabSize} does not match the saved model's {manifest.VocabSize}.");
 
         var llm = new PredictiveLlm(cfg, tokenizer, seed);
-        Checkpoint.Load(Path.Combine(directory, "weights"), llm.Model.Parameters());
+        var ps  = llm.Model.Parameters();
+        for (int i = 0; i < ps.Length; i++)
+        {
+            byte[] blob = store.GetBlob(i)
+                ?? throw new InvalidDataException(
+                    $"Checkpoint under '{directory}' is missing tensor {i}; model has {ps.Length} tensors.");
+            Checkpoint.Deserialize(blob, i, ps[i]);
+        }
+        // A pristine store holds exactly the saved tensors at keys 0..N-1;
+        // anything at N means the checkpoint belongs to a larger model.
+        if (store.GetBlob(ps.Length) is not null)
+            throw new InvalidDataException(
+                $"Checkpoint under '{directory}' has more tensors than the model ({ps.Length}).");
 
-        string memPath = Path.Combine(directory, "memory.bin");
-        if (File.Exists(memPath)) llm.Memory = EpisodicMemory.Load(memPath, cfg.Dim);
+        // The odometer keeps counting across sessions.
+        byte[]? odoBlob = store.GetBlob(OdometerKey);
+        if (odoBlob is not null)
+        {
+            var snap = JsonSerializer.Deserialize<TokenOdometer.Snapshot>(odoBlob);
+            if (snap is not null) llm.Odometer.LoadSnapshot(snap);
+        }
+
+        // Episodic memory when present (key dim must match the embedding dim).
+        byte[]? memHeader = store.GetBlob(MemoryHeaderKey);
+        if (memHeader is not null)
+        {
+            var (keyDim, capacity, count) = ReadMemoryHeader(memHeader);
+            if (keyDim != cfg.Dim)
+                throw new InvalidDataException(
+                    $"Memory key dim {keyDim} ≠ model embedding dim {cfg.Dim}.");
+
+            var mem = new EpisodicMemory(keyDim, capacity);
+            for (int i = 0; i < count; i++)   // una voce per record, in ordine di età
+            {
+                byte[] eb = store.GetBlob(MemoryEntryBase + i)
+                    ?? throw new InvalidDataException(
+                        $"Checkpoint under '{directory}' is missing memory entry {i} of {count}.");
+                var (key, text) = ReadMemoryEntry(eb, keyDim);
+                mem.Remember(key, text);
+            }
+            llm.Memory = mem;
+        }
 
         // Restore the online-learning optimizer so lifelong Learn continues its
         // momentum instead of restarting it (keyed onto the reloaded parameters).
-        string onlineOptPath = Path.Combine(directory, "online-optimizer.bin");
-        if (File.Exists(onlineOptPath))
+        byte[]? stepBlob = restoreOptimizer ? store.GetBlob(OptimizerStepKey) : null;
+        if (stepBlob is not null)
         {
             var opt = new Adam();
-            OptimizerCheckpoint.Load(onlineOptPath, llm.Model.Parameters(), opt);
+            for (int i = 0; i < ps.Length; i++)
+            {
+                byte[] mBlob = store.GetBlob(OptimizerMomentMBase + i)
+                    ?? throw new InvalidDataException(
+                        $"Checkpoint under '{directory}' is missing optimizer moment m for parameter {i}.");
+                byte[] vBlob = store.GetBlob(OptimizerMomentVBase + i)
+                    ?? throw new InvalidDataException(
+                        $"Checkpoint under '{directory}' is missing optimizer moment v for parameter {i}.");
+                opt.SetMoments(ps[i], BytesToFloats(mBlob), BytesToFloats(vBlob));
+            }
+            opt.RestoreStepCount(BinaryPrimitives.ReadInt32LittleEndian(stepBlob));
             llm._onlineOptimizer = opt;
         }
-
-        string odoPath = Path.Combine(directory, "odometer.json");
-        if (File.Exists(odoPath))
-        {
-            var snap = JsonSerializer.Deserialize<TokenOdometer.Snapshot>(File.ReadAllText(odoPath));
-            if (snap is not null) llm.Odometer.LoadSnapshot(snap);
-        }
         return llm;
+    }
+
+    // ── Single-store helpers ─────────────────────────────────────────────────
+
+    // The 'pagesize' hint (4-byte LE int = PageSizeBits) lets Load reopen the
+    // FASTER store before it knows the model dimensions (config lives inside).
+    private static void WritePageSizeHint(string directory, int pageSizeBits)
+    {
+        byte[] hint = new byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32LittleEndian(hint, pageSizeBits);
+        File.WriteAllBytes(Path.Combine(directory, PageSizeHintFile), hint);
+    }
+
+    private static int ReadPageSizeHint(string directory)
+    {
+        string path = Path.Combine(directory, PageSizeHintFile);
+        if (!File.Exists(path))
+            throw new InvalidDataException($"No LLM checkpoint found under '{directory}' (missing page-size hint).");
+        byte[] hint = File.ReadAllBytes(path);
+        if (hint.Length < sizeof(int))
+            throw new InvalidDataException($"Corrupt page-size hint under '{directory}'.");
+        return BinaryPrimitives.ReadInt32LittleEndian(hint);
+    }
+
+    private static byte[] IntBytes(int value)
+    {
+        byte[] b = new byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32LittleEndian(b, value);
+        return b;
+    }
+
+    private static float[] BytesToFloats(byte[] bytes)
+    {
+        float[] f = new float[bytes.Length / sizeof(float)];
+        Buffer.BlockCopy(bytes, 0, f, 0, f.Length * sizeof(float));
+        return f;
+    }
+
+    // ── Collezioni a record singoli: intestazione + un blob per elemento ──────
+    // La memoria episodica e la tabella di merge del tokenizer sono COLLEZIONI:
+    // ogni voce/merge è un record FASTER a sé (chiave = base + indice), non un
+    // blob monolitico. L'intestazione tiene solo i conteggi per rileggerle.
+
+    private static byte[] TokenizerHeaderBytes(bool wordSplit, int vocabSize, int mergeCount)
+    {
+        var b = new byte[1 + sizeof(int) * 2];
+        b[0] = wordSplit ? (byte)1 : (byte)0;
+        BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(1, sizeof(int)), vocabSize);
+        BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(1 + sizeof(int), sizeof(int)), mergeCount);
+        return b;
+    }
+
+    private static (bool WordSplit, int VocabSize, int MergeCount) ReadTokenizerHeader(byte[] b)
+        => (b[0] != 0,
+            BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(1, sizeof(int))),
+            BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(1 + sizeof(int), sizeof(int))));
+
+    private static byte[] MergeBytes(int a, int b, int id)
+    {
+        var buf = new byte[sizeof(int) * 3];
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(0, sizeof(int)), a);
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(sizeof(int), sizeof(int)), b);
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(sizeof(int) * 2, sizeof(int)), id);
+        return buf;
+    }
+
+    private static (int A, int B, int Id) ReadMerge(byte[] buf)
+        => (BinaryPrimitives.ReadInt32LittleEndian(buf.AsSpan(0, sizeof(int))),
+            BinaryPrimitives.ReadInt32LittleEndian(buf.AsSpan(sizeof(int), sizeof(int))),
+            BinaryPrimitives.ReadInt32LittleEndian(buf.AsSpan(sizeof(int) * 2, sizeof(int))));
+
+    private static byte[] MemoryHeaderBytes(int keyDim, int capacity, int count)
+    {
+        var b = new byte[sizeof(int) * 3];
+        BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(0, sizeof(int)), keyDim);
+        BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(sizeof(int), sizeof(int)), capacity);
+        BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(sizeof(int) * 2, sizeof(int)), count);
+        return b;
+    }
+
+    private static (int KeyDim, int Capacity, int Count) ReadMemoryHeader(byte[] b)
+        => (BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(0, sizeof(int))),
+            BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(sizeof(int), sizeof(int))),
+            BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(sizeof(int) * 2, sizeof(int))));
+
+    private static byte[] MemoryEntryBytes(float[] key, string text)
+    {
+        byte[] t = System.Text.Encoding.UTF8.GetBytes(text);
+        int keyBytes = key.Length * sizeof(float);
+        var buf = new byte[keyBytes + sizeof(int) + t.Length];
+        Buffer.BlockCopy(key, 0, buf, 0, keyBytes);
+        BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(keyBytes, sizeof(int)), t.Length);
+        t.CopyTo(buf, keyBytes + sizeof(int));
+        return buf;
+    }
+
+    private static (float[] Key, string Text) ReadMemoryEntry(byte[] buf, int keyDim)
+    {
+        int keyBytes = keyDim * sizeof(float);
+        var key = new float[keyDim];
+        Buffer.BlockCopy(buf, 0, key, 0, keyBytes);
+        int len = BinaryPrimitives.ReadInt32LittleEndian(buf.AsSpan(keyBytes, sizeof(int)));
+        return (key, System.Text.Encoding.UTF8.GetString(buf, keyBytes + sizeof(int), len));
     }
 
     /// <summary>

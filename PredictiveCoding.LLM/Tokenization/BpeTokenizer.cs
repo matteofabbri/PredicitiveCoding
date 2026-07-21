@@ -401,7 +401,49 @@ public sealed class BpeTokenizer : ITokenizer
     /// </summary>
     public void Save(string path)
     {
-        using var w = new BinaryWriter(File.Create(path));
+        using var fs = File.Create(path);
+        Save(fs);
+    }
+
+    /// <summary>true se il tokenizer è stato addestrato in modalità word-split (BPE2).</summary>
+    public bool IsWordSplit => _wordSplit;
+
+    /// <summary>
+    /// Le merge in ordine di rango (0,1,2,…). Il checkpoint le scrive UNA PER
+    /// RECORD nello store FASTER invece che come blob unico: la tabella di merge
+    /// è una collezione, e i suoi elementi vanno tenuti come elementi.
+    /// </summary>
+    public IReadOnlyList<(int A, int B, int Id)> MergesInRankOrder()
+        => [.. _rank.OrderBy(kv => kv.Value)
+                    .Select(kv => (kv.Key.Item1, kv.Key.Item2, _merged[kv.Key]))];
+
+    /// <summary>
+    /// Ricostruisce il tokenizer dalle merge lette record per record (stesso
+    /// ordine di rango con cui <see cref="MergesInRankOrder"/> le ha prodotte).
+    /// </summary>
+    public static BpeTokenizer FromMerges(bool wordSplit, int vocabSize,
+                                          IEnumerable<(int A, int B, int Id)> merges)
+    {
+        var tok = new BpeTokenizer { _wordSplit = wordSplit };
+        int rank = 0;
+        foreach (var (a, b, id) in merges)
+        {
+            tok._rank[(a, b)]   = rank++;
+            tok._merged[(a, b)] = id;
+            tok._bytes[id]      = [.. tok._bytes[a], .. tok._bytes[b]];   // a,b già noti (ordine di rango)
+        }
+        tok._vocabSize = vocabSize;
+        return tok;
+    }
+
+    /// <summary>
+    /// Writes the merge table to <paramref name="stream"/> (same format as
+    /// <see cref="Save(string)"/>). The stream is left open so callers can embed
+    /// the vocab inside a larger container (e.g. the whole-LLM FASTER store).
+    /// </summary>
+    public void Save(Stream stream)
+    {
+        using var w = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
         w.Write(_wordSplit ? FileMagicV2 : FileMagic);
         w.Write(_vocabSize);
 
@@ -415,10 +457,25 @@ public sealed class BpeTokenizer : ITokenizer
         }
     }
 
-    /// <summary>Reloads a tokenizer saved with <see cref="Save"/> (either mode).</summary>
+    /// <summary>The merge table serialized to a byte array (same format as <see cref="Save(string)"/>).</summary>
+    public byte[] SaveToBytes()
+    {
+        using var ms = new MemoryStream();
+        Save(ms);
+        return ms.ToArray();
+    }
+
+    /// <summary>Reloads a tokenizer saved with <see cref="Save(string)"/> (either mode).</summary>
     public static BpeTokenizer Load(string path)
     {
-        using var r = new BinaryReader(File.OpenRead(path));
+        using var fs = File.OpenRead(path);
+        return Load(fs);
+    }
+
+    /// <summary>Reloads a tokenizer written to a stream by <see cref="Save(Stream)"/>.</summary>
+    public static BpeTokenizer Load(Stream stream)
+    {
+        using var r = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         int magic = r.ReadInt32();
         if (magic != FileMagic && magic != FileMagicV2)
             throw new InvalidDataException("Not a valid BPE tokenizer file.");
@@ -436,5 +493,12 @@ public sealed class BpeTokenizer : ITokenizer
         }
         tok._vocabSize = vocabSize;
         return tok;
+    }
+
+    /// <summary>Reloads a tokenizer from bytes produced by <see cref="SaveToBytes"/>.</summary>
+    public static BpeTokenizer LoadFromBytes(byte[] bytes)
+    {
+        using var ms = new MemoryStream(bytes, writable: false);
+        return Load(ms);
     }
 }

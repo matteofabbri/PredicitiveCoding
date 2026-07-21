@@ -189,7 +189,7 @@ public class LlmProPhase5Tests : IDisposable
         for (int i = 0; i < 3; i++) a.Learn(OnlineText, steps: 1, learningRate: 0.01f);
         string dir = Path.Combine(_dir, "online");
         a.Save(dir);
-        Assert.True(File.Exists(Path.Combine(dir, "online-optimizer.bin")));   // moments were written
+        // I momenti Adam vivono ora nel FASTER store unificato (niente piu' online-optimizer.bin).
 
         var b = PredictiveLlm.Load(dir);
         for (int i = 0; i < 3; i++) b.Learn(OnlineText, steps: 1, learningRate: 0.01f);
@@ -212,9 +212,9 @@ public class LlmProPhase5Tests : IDisposable
         for (int i = 0; i < 3; i++) a.Learn(OnlineText, steps: 1, learningRate: 0.01f);
         string dir = Path.Combine(_dir, "weightsonly");
         a.Save(dir);
-        File.Delete(Path.Combine(dir, "online-optimizer.bin"));   // drop the moments → fresh optimizer on Load
 
-        var b = PredictiveLlm.Load(dir);
+        // Ricarica i pesi SENZA ripristinare i momenti (optimizer fresco): restoreOptimizer:false.
+        var b = PredictiveLlm.Load(dir, restoreOptimizer: false);
         for (int i = 0; i < 3; i++) b.Learn(OnlineText, steps: 1, learningRate: 0.01f);
 
         var rp = reference.Model.Parameters(); var bp = b.Model.Parameters();
