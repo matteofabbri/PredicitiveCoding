@@ -31,6 +31,8 @@ PredictiveCoding.Device          → CUDA backend (direct cuBLAS P/Invoke)
 | **`NcclProvider`** | AllReduce / Broadcast / ReduceScatter / AllGather (CPU implementation; NCCL is not part of cudart/cublas). |
 | **`TensorOps`** | `MatMul`, `MatMulAsync`, `CopyTo`, `CopyToAsync`, `Synchronize`. |
 | **`DeviceRegistry`** | `EnableCuda()` installs the cuBLAS provider into the LLM stack; `AutoSelect()`. |
+| **`BatchedPcForward`** | Batched **predictive-coding** inference: exports a `GenerativeSnapshot` from a core `Network` and settles B inputs as GEMMs (float or mixed) instead of looping per sample. |
+| **`RocmGemmProvider`** | ROCm placeholder routing to the CPU path. |
 
 ### No custom native DLL
 GPU work P/Invokes the **standard CUDA Toolkit libraries** (`cudart`, `cublas`)
@@ -45,6 +47,29 @@ using var c = TensorOps.MatMul(g, b);              // cuBLAS GEMM
 var result = c.ToHostTensor();                     // download
 ```
 
+## Training on the device (`Training/`, `Kernels/`)
+
+The device layer is not just a GEMM hook — it owns the **pretraining engine**
+the web-corpus run (demo 13, [doc 6](06-llm.md)) executes:
+
+- **`DevicePretrainer`** — the resumable run loop over a `CorpusSource`:
+  gradient-accumulated AdamW, warmup+cosine LR, periodic held-out eval and
+  **quality probes** (bits/byte + a live sample), best-on-val and rolling
+  checkpoints, JSONL progress log, graceful Ctrl-C, and **resume** including the
+  device-side Adam moments. Configured through `DevicePretrainOptions`
+  (batching, LR plan, eval/checkpoint cadence, mixed precision) and reported via
+  `DevicePretrainReport`/`DevicePretrainProgress`.
+- **`DeviceDecoderTrainer`** — the step engine underneath: block-wise forward /
+  backward on the device.
+- **`Kernels/`** — `DeviceTrainKernels` / `DeviceMath`: CUDA C kernels carried as
+  source and compiled at runtime through the NVRTC bindings in `Interop/`
+  (`CudaKernel` plumbing). A full forward+backward+Adam step is **one
+  uninterrupted chain of kernel and cuBLAS launches** on a caller-supplied
+  stream — the host synchronises once, when it reads the loss. The attention
+  trio is flash-style: block per (query, head), K/V tiles staged in shared
+  memory, online-softmax reduction per tile, backward replaying softmax weights
+  from the saved logsumexp — **no `[seq, seq]` matrix ever materialises**.
+
 ## Extending to ROCm / new backends
 Implement `IGemmProvider` (and `IComputeDevice` for collectives) and register it —
 model code is backend-agnostic, so a new accelerator slots in without touching it.
@@ -54,5 +79,5 @@ model code is backend-agnostic, so a new accelerator slots in without touching i
 |------|--------|
 | CPU | Always (SIMD + multithreaded). |
 | CUDA (cuBLAS) | When the CUDA Toolkit + an NVIDIA GPU are present. |
+| CUDA training kernels | Same requirement; driven by `DevicePretrainer` (demo 13 needs a real GPU — a 4070-class card is the reference). |
 | Multi-GPU NCCL | CPU implementation today; a `libnccl` binding is a clean extension. |
-| Fused flash-attention kernel | Not implemented (needs a GPU kernel). |
