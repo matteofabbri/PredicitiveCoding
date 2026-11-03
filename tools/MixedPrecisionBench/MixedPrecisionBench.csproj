@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>PredictiveCoding.Tools.MixedPrecisionBench</RootNamespace>
     <AssemblyName>MixedPrecisionBench</AssemblyName>
+    <Copyright>Copyright (c) 2026 Matteo Fabbri</Copyright>
+    <PackageLicenseExpression>PolyForm-Noncommercial-1.0.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>

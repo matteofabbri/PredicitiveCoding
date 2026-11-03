@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>PredictiveCoding.FaceRecognition</RootNamespace>
     <AssemblyName>PredictiveCoding.FaceRecognition</AssemblyName>
+    <Copyright>Copyright (c) 2026 Matteo Fabbri</Copyright>
+    <PackageLicenseExpression>PolyForm-Noncommercial-1.0.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>

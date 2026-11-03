@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>PredictiveCoding.Cortex</RootNamespace>
     <AssemblyName>PredictiveCoding.Cortex</AssemblyName>
+    <Copyright>Copyright (c) 2026 Matteo Fabbri</Copyright>
+    <PackageLicenseExpression>PolyForm-Noncommercial-1.0.0</PackageLicenseExpression>
     <PublishAot>false</PublishAot>
   </PropertyGroup>
 

@@ -14,6 +14,8 @@
     <!-- Unpackaged (no MSIX): lets the app build/run without a Package.appxmanifest. -->
     <WindowsPackageType>None</WindowsPackageType>
     <EnableMsixTooling>false</EnableMsixTooling>
+    <Copyright>Copyright (c) 2026 Matteo Fabbri</Copyright>
+    <PackageLicenseExpression>PolyForm-Noncommercial-1.0.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <!-- When built/published with a RuntimeIdentifier (e.g. -r win-x64), bundle the

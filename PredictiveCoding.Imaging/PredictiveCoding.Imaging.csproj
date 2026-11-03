@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>PredictiveCoding.Imaging</RootNamespace>
     <AssemblyName>PredictiveCoding.Imaging</AssemblyName>
+    <Copyright>Copyright (c) 2026 Matteo Fabbri</Copyright>
+    <PackageLicenseExpression>PolyForm-Noncommercial-1.0.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <!-- Codec layer only: StbImageSharp/StbImageWriteSharp are pure-C# public-domain

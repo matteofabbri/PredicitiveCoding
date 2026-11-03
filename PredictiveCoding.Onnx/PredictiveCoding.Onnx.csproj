@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>PredictiveCoding.Onnx</RootNamespace>
     <AssemblyName>PredictiveCoding.Onnx</AssemblyName>
+    <Copyright>Copyright (c) 2026 Matteo Fabbri</Copyright>
+    <PackageLicenseExpression>PolyForm-Noncommercial-1.0.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <!-- Deliberately dependency-free: the whole point of this project is to load and
